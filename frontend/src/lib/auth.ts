@@ -1,20 +1,26 @@
 import { signIn, signOut } from 'next-auth/react'
-import Credentials from 'next-auth/providers/credentials'
+import CredentialsProvider from 'next-auth/providers/credentials'
 import axios from 'axios';
+import { DefaultSession, SessionOptions, SessionStrategy, User } from 'next-auth';
+import { DefaultJWT, JWTOptions } from 'next-auth/jwt';
 
 export const authOptions = {
     providers: [
-        Credentials({
+        CredentialsProvider({
             name: 'Credentials',
             credentials: {
                 login: { label: 'Login', type: 'text' },
                 password: { label: 'Password', type: 'password' }
             },
-            async authorize(credentials: { login: string; password: string }) {
+            async authorize(credentials) {
+                if(!credentials) {
+                    throw new Error("No credentials");
+                }
                 try {
                     const response = await axios.post(process.env.NEXT_PUBLIC_API_URL + 'login', credentials);
                     const { token } = response.data;
                     return {
+                        id: credentials.login,
                         token,
                         login: credentials.login
                     };
@@ -30,10 +36,16 @@ export const authOptions = {
         })
     ],
     callbacks: {
-        jwt({ token, user }: any) {
+        jwt({ token, user }: {
+            token: DefaultJWT,
+            user: User | undefined
+        }) {
             return { ...token, ...user };
         },
-        session({ session, token }: any) {
+        session({ session, token }: { 
+            session: DefaultSession, 
+            token: DefaultJWT  
+        }) {
             return {
                 ...session,
                 user: {
@@ -45,7 +57,7 @@ export const authOptions = {
     },
     secret: process.env.NEXTAUTH_SECRET,
     session: {
-        strategy: "jwt",
+        strategy: "jwt" as SessionStrategy
     },
     pages: {
         signIn: "/login",

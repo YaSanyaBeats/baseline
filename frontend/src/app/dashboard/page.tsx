@@ -9,8 +9,18 @@ import { handleSignOut } from '../../lib/auth'
 import { getObject, getObjects } from '../../lib/beds24/objects'
 import { useEffect, useState } from 'react'
 
+interface Room {
+    id: number;
+    name: string;
+}
 
-function Row(props: { object: any }) {
+interface Object {
+    id: number;
+    name: string;
+    roomTypes: Room[];
+}
+
+function Row(props: { object: Object }) {
   const { object } = props;
   const [open, setOpen] = useState(false);
 
@@ -45,7 +55,7 @@ function Row(props: { object: any }) {
                     </TableRow>
                     </TableHead>
                     <TableBody>
-                        {object.roomTypes.map((room: any) => (
+                        {object.roomTypes.map((room: Room) => (
                             <TableRow key={room.id}>
                                 <TableCell component="th" scope="row">
                                     {room.name}
@@ -69,14 +79,14 @@ function Row(props: { object: any }) {
 
 
 export default function Page() {
-    const [objects, setObjects] = useState<any[]>([]);
+    const [objects, setObjects] = useState<Object[]>([]);
     const [loading, setLoading] = useState(true);
     
     useEffect(() => {
         const fetchObjects = async () => {
             try {
                 setLoading(true);
-                let obj = await getObjects();
+                const obj = await getObjects();
                 console.log(obj);
                 if(Array.isArray(obj)) {
                     setObjects(obj);
@@ -114,7 +124,7 @@ export default function Page() {
                 </TableRow>
                 </TableHead>
                 <TableBody>
-                    {objects.map((object: any) => (
+                    {objects.map((object: Object) => (
                         <Row key={object.id} object={object} />
                     ))}
                 </TableBody>

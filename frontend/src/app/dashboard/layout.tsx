@@ -9,7 +9,7 @@ import LeftMenu from '@/components/leftMenu/LeftMenu'
 import HeaderMenu from '@/components/headerMenu/HeaderMenu'
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-    const session = await getServerSession(authOptions)
+    const session = await getServerSession(authOptions);
 
     if (!session) {
         redirect('/login')
