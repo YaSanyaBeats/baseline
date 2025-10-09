@@ -53,13 +53,18 @@ export default function Page() {
             
     }, [])
 
-    const handleObjectChange = (event: { target: { value: any; }; }) => {
+    const handleObjectChange = (event: { target: { value: string[]; }; }) => {
         const value = event.target.value;
+        
         const selectedObjects = value.map((obj: string) => {
             return objects.find((a) => {
                 return a.name === obj;
             });
-        })
+        }).flatMap(obj => obj ?? []);
+
+        if(selectedObjects === undefined) {
+            return;
+        }
 
         setFilterData({
             ...filterData,
@@ -68,7 +73,7 @@ export default function Page() {
     }
 
     const handleSubmit = async () => {
-        let currentAnalyticsData = await getAnalytics(filterData);
+        const currentAnalyticsData = await getAnalytics(filterData);
         setAnalyticsData(currentAnalyticsData);
     }
 
