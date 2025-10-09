@@ -53,9 +53,13 @@ export default function Page() {
             
     }, [])
 
-    const handleObjectChange = (event: { target: { value: string[]; }; }) => {
-        const value = event.target.value;
+    const handleObjectChange = (
+        event: React.ChangeEvent<HTMLInputElement> | (Event & { target: { value: string[]; name: string; } }),
+        child: React.ReactNode
+    ) => {
         
+        const value = Array.isArray(event.target.value) ? event.target.value : [event.target.value];
+        console.log(value);
         const selectedObjects = value.map((obj: string) => {
             return objects.find((a) => {
                 return a.name === obj;
