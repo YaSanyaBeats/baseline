@@ -21,7 +21,19 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     }
 
     let objects = await collection.find({}).toArray();
-    res.send(objects);
+    const neededObjects = objects.map((object: any) => {
+        return {
+            id: object.id,
+            name: object.name,
+            roomTypes: object.roomTypes.map((room: any) => {
+                return {
+                    id: room.id,
+                    name: room.name
+                }
+            })
+        }
+    })
+    res.send(neededObjects);
     return;
     
 });

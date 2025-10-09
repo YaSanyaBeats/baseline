@@ -39,7 +39,15 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
             nextPageIsExist = prices.pages.nextPageExists;
         }
         else if(req.query.type == 'bookings') {
-
+            let prices = await beds24.get('bookings', {
+                includeInvoiceItems: true,
+                includeInfoItems: true,
+                includeGuests: true,
+                includeBookingGroup: true,
+                page: page
+            });
+            beds24data = prices.data;
+            nextPageIsExist = prices.pages.nextPageExists;
         }
         
 

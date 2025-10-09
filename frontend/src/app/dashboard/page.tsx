@@ -8,17 +8,7 @@ import { useSession } from 'next-auth/react'
 import { handleSignOut } from '../../lib/auth'
 import { getObject, getObjects } from '../../lib/beds24/objects'
 import { useEffect, useState } from 'react'
-
-interface Room {
-    id: number;
-    name: string;
-}
-
-interface Object {
-    id: number;
-    name: string;
-    roomTypes: Room[];
-}
+import { Object, Room } from '@/lib/types';
 
 function Row(props: { object: Object }) {
   const { object } = props;

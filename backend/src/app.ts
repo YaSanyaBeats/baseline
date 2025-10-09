@@ -13,6 +13,7 @@ import usersRouter from './routes/users';
 import loginRouter from './routes/login';
 import objectsRouter from './routes/objects';
 import syncRouter from './routes/sync';
+import analyticsRouter from './routes/analytics';
 
 const app = express();
 const port = process.env.API_PORT;
@@ -30,6 +31,7 @@ app.use('/users', usersRouter);
 app.use('/login', loginRouter);
 app.use('/objects', objectsRouter);
 app.use('/sync', syncRouter);
+app.use('/analytics', analyticsRouter);
 
 app.listen(port, () => {
   connectDB();
