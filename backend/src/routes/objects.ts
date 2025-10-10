@@ -25,10 +25,11 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         return {
             id: object.id,
             name: object.name,
-            roomTypes: object.roomTypes.map((room: any) => {
+            roomTypes: object.roomTypes[0].units.map((room: any) => {
+                console.log(room);
                 return {
                     id: room.id,
-                    name: room.name
+                    name: room.name,
                 }
             })
         }
