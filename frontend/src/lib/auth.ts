@@ -1,8 +1,8 @@
 import { signIn, signOut } from 'next-auth/react'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import axios from 'axios';
-import { DefaultSession, SessionOptions, SessionStrategy, User } from 'next-auth';
-import { DefaultJWT, JWTOptions } from 'next-auth/jwt';
+import { DefaultSession, SessionStrategy, User } from 'next-auth';
+import { DefaultJWT } from 'next-auth/jwt';
 
 export const authOptions = {
     providers: [

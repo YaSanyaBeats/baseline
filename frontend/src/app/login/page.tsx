@@ -2,20 +2,12 @@
 import * as React from 'react'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
-import Checkbox from '@mui/material/Checkbox'
-import FormControlLabel from '@mui/material/FormControlLabel'
-import Divider from '@mui/material/Divider'
 import FormControl from '@mui/material/FormControl'
-import Link from '@mui/material/Link'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
-import Stack from '@mui/material/Stack'
-import MuiCard from '@mui/material/Card'
-import { styled } from '@mui/material/styles'
 
 import { handleSignIn } from '../../lib/auth'
 import { Card, SignInContainer } from '../../components/styled/Card'
-import { signIn } from 'next-auth/react'
 
 export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
     const [emailError, setEmailError] = React.useState(false)

@@ -1,20 +1,15 @@
 'use client'
-import { Box, Button, Collapse, Container, Grid, IconButton, Paper, Skeleton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material'
-import LogoutIcon from '@mui/icons-material/Logout'
+import { Box, Collapse, IconButton, Paper, Skeleton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material'
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
-import { useSession } from 'next-auth/react'
-import { handleSignOut } from '../../lib/auth'
-import { getObject, getObjects } from '../../lib/beds24/objects'
+import { getObjects } from '../../lib/beds24/objects'
 import { useEffect, useState } from 'react'
 import { Object, Room } from '@/lib/types';
 
 function Row(props: { object: Object }) {
   const { object } = props;
   const [open, setOpen] = useState(false);
-
-  
 
   return (
     <>

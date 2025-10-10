@@ -2,7 +2,6 @@
 import { CssBaseline, createTheme, ThemeProvider } from '@mui/material'
 import { SessionProvider } from 'next-auth/react'
 import React from 'react'
-import localFont from 'next/font/local'
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
 

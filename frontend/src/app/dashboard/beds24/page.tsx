@@ -1,5 +1,5 @@
 'use client'
-import { getObjects, getObject, syncObjects, syncBookings, syncPrices } from "@/lib/beds24/objects"
+import { syncObjects } from "@/lib/beds24/objects"
 import { Button, Snackbar, Stack } from "@mui/material"
 import React from "react";
 

@@ -3,9 +3,8 @@
 import AnalyticsTable from "@/components/analytics/AnalyticsTable";
 import { getAnalytics } from "@/lib/beds24/getAnalytics";
 import { getObjects } from "@/lib/beds24/objects";
-import { AnalyticsFilterData, AnalyticsResult, Object, Room } from "@/lib/types";
-import { Analytics } from "@mui/icons-material";
-import { Box, Button, Checkbox, Chip, FormControl, InputLabel, ListItemText, MenuItem, OutlinedInput, Select, Skeleton, Stack, TextField } from "@mui/material"
+import { AnalyticsFilterData, AnalyticsResult, Object } from "@/lib/types";
+import { Box, Button, Chip, FormControl, InputLabel, MenuItem, OutlinedInput, Select, Skeleton, Stack, TextField } from "@mui/material"
 import React from "react";
 
 
@@ -54,10 +53,7 @@ export default function Page() {
             
     }, [])
 
-    const handleObjectChange = (
-        event: React.ChangeEvent<HTMLInputElement> | (Event & { target: { value: string[]; name: string; } }),
-        child: React.ReactNode
-    ) => {
+    const handleObjectChange = (event: React.ChangeEvent<HTMLInputElement> | (Event & { target: { value: string[]; name: string; } })) => {
         
         const value = Array.isArray(event.target.value) ? event.target.value : [event.target.value];
         console.log(value);
