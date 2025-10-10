@@ -2,7 +2,7 @@ import axios from 'axios';
 import { AnalyticsFilterData, AnalyticsResult } from '../types';
 import { Object, Room } from '@/lib/types';
 
-export async function getAnalytics(filterData: AnalyticsFilterData): Promise<AnalyticsResult[]>{
+export async function getAnalytics(filterData: AnalyticsFilterData): Promise<AnalyticsResult[][]>{
     if(!process.env.NEXT_PUBLIC_API_URL) {
         throw new Error('Нет NEXT_PUBLIC_API_URL в переменных окружения');
     }

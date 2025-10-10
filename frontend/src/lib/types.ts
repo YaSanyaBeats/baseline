@@ -18,13 +18,13 @@ export interface AnalyticsFilterData {
 export interface AnalyticsResult {
     bookings: {
         title: 'string',
-        arrival: Date,
-        departure: Date,
-        bookingTime: Date
+        arrival: string,
+        departure: string,
+        bookingTime: string
     }[],
     busyness: number,
-    startMedianResult: Date,
-    endMedianResult: Date,
-    firstNight: Date,
-    lastNight: Date,
+    startMedianResult: string,
+    endMedianResult: string,
+    firstNight: string,
+    lastNight: string,
 }

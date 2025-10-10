@@ -14,6 +14,8 @@ function Row(props: { object: Object }) {
   const { object } = props;
   const [open, setOpen] = useState(false);
 
+  
+
   return (
     <>
         <TableRow sx={{ '& > *': { borderBottom: 'unset' } }}>
@@ -41,14 +43,18 @@ function Row(props: { object: Object }) {
                 <Table size="small" aria-label="purchases">
                     <TableHead>
                     <TableRow>
+                        <TableCell>ID</TableCell>
                         <TableCell>Название</TableCell>
                     </TableRow>
                     </TableHead>
                     <TableBody>
                         {object.roomTypes.map((room: Room) => (
                             <TableRow key={room.id}>
-                                <TableCell component="th" scope="row">
-                                    {room.name}
+                                <TableCell component="th">
+                                    {room.id}
+                                </TableCell>
+                                <TableCell component="td" scope="row">
+                                    {room.name ? room.name : 'Unnamed'}
                                 </TableCell>
                                 {/* <TableCell>{historyRow.customerId}</TableCell>
                                 <TableCell align="right">{historyRow.amount}</TableCell>
@@ -110,7 +116,7 @@ export default function Page() {
                 <TableRow>
                     <TableCell />
                     <TableCell>Название объекта</TableCell>
-                    <TableCell align="right">Рейтинг</TableCell>
+                    <TableCell align="right">ID</TableCell>
                 </TableRow>
                 </TableHead>
                 <TableBody>

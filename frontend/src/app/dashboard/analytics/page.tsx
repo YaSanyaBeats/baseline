@@ -27,7 +27,8 @@ function checkNumber(value: unknown): value is number {
 export default function Page() {
     const [objects, setObjects] = React.useState<Object[]>([]);
     const [loading, setLoading] = React.useState(true);
-    const [analyticsData, setAnalyticsData] = React.useState<AnalyticsResult[]>([]);
+    const [loadAnalytics, setLoadAnalytics] = React.useState(false);
+    const [analyticsData, setAnalyticsData] = React.useState<AnalyticsResult[][]>([]);
 
     const [filterData, setFilterData] = React.useState<AnalyticsFilterData>({
         objects: [],
@@ -77,8 +78,10 @@ export default function Page() {
     }
 
     const handleSubmit = async () => {
+        setLoadAnalytics(true);
         const currentAnalyticsData = await getAnalytics(filterData);
         setAnalyticsData(currentAnalyticsData);
+        setLoadAnalytics(false);
     }
 
     const handleChangeStartMedian = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -163,9 +166,11 @@ export default function Page() {
                     onChange={handleChangeEndMedian} 
                     label="До" 
                     variant="outlined" />
-                <Button variant="contained" onClick={handleSubmit}>Отправить</Button>
+                <Button variant="contained" loading={loadAnalytics} onClick={handleSubmit}>Отправить</Button>
             </Stack>
-            <AnalyticsTable analyticsData={analyticsData}></AnalyticsTable>
+            {analyticsData.map((data: AnalyticsResult[], index) => {
+                return(<AnalyticsTable key={index} analyticsData={data} object={filterData.objects[index]}></AnalyticsTable>)
+            })}
         </Stack>
     )
 }
