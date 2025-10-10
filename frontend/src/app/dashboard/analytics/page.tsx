@@ -20,8 +20,8 @@ const MenuProps = {
   },
 };
 
-function checkNumber(value: unknown): value is number {
-    return typeof value === 'number';
+function checkNumber(value: string): boolean {
+    return !isNaN(Number(value)) && value.trim() !== '';
 }
 
 export default function Page() {
@@ -91,7 +91,7 @@ export default function Page() {
 
         setFilterData({
             ...filterData,
-            startMedian: event.target.value
+            startMedian: +event.target.value
         });
     }
 
@@ -102,7 +102,7 @@ export default function Page() {
 
         setFilterData({
             ...filterData,
-            endMedian: event.target.value
+            endMedian: +event.target.value
         });
     }
 

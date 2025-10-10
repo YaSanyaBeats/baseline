@@ -20,6 +20,8 @@ async function getAnalyticsForObject(options: any, objectID: number) {
 
         let periods = await pricesCollection.find({
             propertyId: objectID,
+        }).sort({
+            firstNight: 1
         }).toArray();
 
         let bookings = await bookingCollection.find({

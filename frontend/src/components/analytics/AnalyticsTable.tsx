@@ -70,7 +70,7 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResult[]
                                     }}
                                 >
                                     <Stack>
-                                        <Box>{`Занятость: ${round(row.busyness * 100, 0)}`}</Box>
+                                        <Box>Занятость: {round(row.busyness * 100, 0)}%</Box>
                                         <Box>
                                             Окно бронирования:
                                             <Stack direction={'row'} spacing={1} style={{fontSize: 24}}>
