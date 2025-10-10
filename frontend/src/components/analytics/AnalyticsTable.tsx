@@ -21,7 +21,7 @@ const rows = [
 ];
 
 function formatDate(date: string) {
-    let currentDate = new Date(date);
+    const currentDate = new Date(date);
     const day = String(currentDate.getDate()).padStart(2, '0');
     const month = String(currentDate.getMonth() + 1).padStart(2, '0');
     const year = currentDate.getFullYear();
@@ -55,11 +55,11 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResult[]
                         sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
                     >
                         {analyticsData.map((row, index) => {
-                            let startMedianDate = new Date(row.startMedianResult).getTime();
-                            let startMedianDays = startMedianDate / (24 * 60 * 60 * 1000);
+                            const startMedianDate = new Date(row.startMedianResult).getTime();
+                            const startMedianDays = startMedianDate / (24 * 60 * 60 * 1000);
 
-                            let endMedianDate = new Date(row.endMedianResult).getTime();
-                            let endMedianDays = endMedianDate / (24 * 60 * 60 * 1000);
+                            const endMedianDate = new Date(row.endMedianResult).getTime();
+                            const endMedianDays = endMedianDate / (24 * 60 * 60 * 1000);
 
                             return (
                                 <TableCell 
