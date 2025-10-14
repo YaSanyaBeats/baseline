@@ -25,12 +25,13 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResult[]
 
     const filterAnalyticsData = analyticsData.filter((elem) => {return elem.length})
 
+    console.log('old', filterAnalyticsData);
     filterAnalyticsData.forEach((analyticsObjectData) => {
         if(analyticsObjectData.length > maxObject.length) {
             maxObject = analyticsObjectData.slice();
         }
     })
-
+    
     maxObject = maxObject.map((elem) => {
         const currentRow = elem;
         if(currentRow) {
@@ -43,27 +44,28 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResult[]
         return currentRow;
     });
 
-    console.log('old', filterAnalyticsData);
+    
     filterAnalyticsData.forEach((analyticsObjectData, index) => {
         const object = objects.find((object) => {
             return object.id == analyticsObjectData[0].id;
         })
+
+        console.log(object);
         
         
         if(!object) {
             return;
         }
-        const currentData = maxObject.slice();
+        const currentData = JSON.parse(JSON.stringify(maxObject)) as AnalyticsResult[];
+        currentData.forEach((row, currIndex) => {
+            currentData[currIndex].id = object.id;
+        })
         currentData.forEach((row, currIndex) => {
             const index = analyticsObjectData.findIndex((dataRow) => {
                 return dataRow.firstNight === row.firstNight;
             })
             if(analyticsObjectData[index]) {
                 currentData[currIndex] = analyticsObjectData[index];
-                currentData[currIndex].id = object.id;
-            }
-            else {
-                currentData[currIndex].id = object.id;
             }
             
         })
