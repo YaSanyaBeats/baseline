@@ -16,6 +16,7 @@ export interface AnalyticsFilterData {
 }
 
 export interface AnalyticsResult {
+    id: number;
     bookings: {
         title: 'string',
         arrival: string,
@@ -27,4 +28,9 @@ export interface AnalyticsResult {
     endMedianResult: string,
     firstNight: string,
     lastNight: string,
+}
+
+export interface OptionsFormData {
+  excludeObjects: Object[];
+  excludeSubstr: string;
 }

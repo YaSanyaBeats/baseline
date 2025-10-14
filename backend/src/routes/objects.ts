@@ -2,6 +2,7 @@ import express, {Request, Response, NextFunction} from 'express';
 import { Beds24Connect } from '../lib/beds24/Beds24Connect';
 import bodyParser from 'body-parser';
 import db from './../db/getDB';
+import { getAllObjects, getObjects } from '../lib/getObjects';
 
 const router = express.Router();
 
@@ -20,20 +21,13 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         return;
     }
 
-    let objects = await collection.find({}).toArray();
-    const neededObjects = objects.map((object: any) => {
-        return {
-            id: object.id,
-            name: object.name,
-            roomTypes: object.roomTypes[0].units.map((room: any) => {
-                console.log(room);
-                return {
-                    id: room.id,
-                    name: room.name,
-                }
-            })
-        }
-    })
+    if(req?.query['all']) {
+        const neededObjects = await getAllObjects();
+        res.send(neededObjects);
+        return;
+    }
+    
+    const neededObjects = await getObjects();
     res.send(neededObjects);
     return;
     

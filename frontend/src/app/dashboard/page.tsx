@@ -6,6 +6,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { getObjects } from '../../lib/beds24/objects'
 import { useEffect, useState } from 'react'
 import { Object, Room } from '@/lib/types';
+import { useObjects } from '@/providers/ObjectsProvider';
 
 function Row(props: { object: Object }) {
   const { object } = props;
@@ -70,26 +71,7 @@ function Row(props: { object: Object }) {
 
 
 export default function Page() {
-    const [objects, setObjects] = useState<Object[]>([]);
-    const [loading, setLoading] = useState(true);
-    
-    useEffect(() => {
-        const fetchObjects = async () => {
-            try {
-                setLoading(true);
-                const obj = await getObjects();
-                console.log(obj);
-                if(Array.isArray(obj)) {
-                    setObjects(obj);
-                }
-            } finally {
-                setLoading(false); 
-            }
-        };
-
-        fetchObjects();
-         
-    }, [])
+    const { objects, loading, error, refreshObjects } = useObjects();
 
     if (loading) return (
         <Stack spacing={1}>

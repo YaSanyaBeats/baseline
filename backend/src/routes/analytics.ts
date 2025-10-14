@@ -20,6 +20,7 @@ async function getAnalyticsForObject(options: any, objectID: number) {
 
         let periods = await pricesCollection.find({
             propertyId: objectID,
+            firstNight: { $gt: '2024-12-15' }
         }).sort({
             firstNight: 1
         }).toArray();

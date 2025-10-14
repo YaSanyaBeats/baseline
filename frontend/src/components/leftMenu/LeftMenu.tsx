@@ -1,4 +1,4 @@
-import { Analytics, MonetizationOn, PeopleAlt,  Dashboard, House } from "@mui/icons-material";
+import { Analytics, MonetizationOn, PeopleAlt,  Dashboard, House, Settings } from "@mui/icons-material";
 import { MenuList, MenuItem, ListItemIcon, ListItemText, Divider, Stack } from "@mui/material";
 
 import Link from 'next/link'
@@ -44,6 +44,16 @@ return (
                         <MonetizationOn fontSize="small" />
                     </ListItemIcon>
                     <ListItemText>Бухгалтерия</ListItemText>
+                </Stack>
+            </MenuItem>
+        </Link>
+        <Link href="/dashboard/options" className={styles.link}>
+            <MenuItem>
+                <Stack direction="row" alignItems={'center'}>
+                    <ListItemIcon>
+                        <Settings fontSize="small" />
+                    </ListItemIcon>
+                    <ListItemText>Параметры</ListItemText>
                 </Stack>
             </MenuItem>
         </Link>
