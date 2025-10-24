@@ -26,7 +26,6 @@ export const authOptions = {
                     };
                 } catch (e: unknown) {
                     if (e instanceof Error) {
-                        console.log(e.message);
                         throw new Error(e.message);
                     } else {
                         throw new Error("INTERNAL ERROR");

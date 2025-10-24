@@ -4,7 +4,7 @@ import AnalyticsTable from "@/components/analytics/AnalyticsTable";
 import ObjectsMultiSelect from "@/components/objectsMultiSelect/ObjectsMultiSelect";
 import { getAnalytics } from "@/lib/beds24/getAnalytics";
 import { getObjects } from "@/lib/beds24/objects";
-import { AnalyticsFilterData, AnalyticsResult, Object } from "@/lib/types";
+import { AnalyticsFilterData, AnalyticsResult, FullAnalyticsResult, Object } from "@/lib/types";
 import { useObjects } from "@/providers/ObjectsProvider";
 import { Box, Button, Chip, FormControl, InputLabel, MenuItem, OutlinedInput, Select, Skeleton, Stack, TextField } from "@mui/material"
 import React from "react";
@@ -17,12 +17,14 @@ function checkNumber(value: string): boolean {
 export default function Page() {
     const { objects, loading, error, refreshObjects } = useObjects();
     const [loadAnalytics, setLoadAnalytics] = React.useState(false);
-    const [analyticsData, setAnalyticsData] = React.useState<AnalyticsResult[][]>([]);
+    const [analyticsData, setAnalyticsData] = React.useState<FullAnalyticsResult[]>([]);
 
     const [filterData, setFilterData] = React.useState<AnalyticsFilterData>({
         objects: [],
         startMedian: 20,
-        endMedian: 70
+        endMedian: 70,
+        startDate: '2025.01.01',
+        endDate: '2025.10.24'
     });
 
     const handleObjectChange = (selectedObjects: Object[]) => {
@@ -61,6 +63,20 @@ export default function Page() {
         });
     }
 
+    const handleChangeStartDate = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setFilterData({
+            ...filterData,
+            startDate: event.target.value
+        });
+    }
+
+    const handleChangeEndDate = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setFilterData({
+            ...filterData,
+            endDate: event.target.value
+        });
+    }
+
     if (loading) return (
         <Stack spacing={1}>
             <Skeleton variant="rounded" width={'100%'} height={50} />
@@ -89,6 +105,18 @@ export default function Page() {
                 <TextField 
                     onChange={handleChangeEndMedian} 
                     label="До" 
+                    variant="outlined" />
+            </Stack>
+            <Stack direction={'row'} alignItems={"center"} spacing={1}>
+                <Box>Анализируемый период c </Box>
+                <TextField 
+                    onChange={handleChangeStartDate} 
+                    label="____.__.__" 
+                    variant="outlined" />
+                <Box>по</Box>
+                <TextField
+                    onChange={handleChangeEndDate} 
+                    label="____.__.__" 
                     variant="outlined" />
                 <Button variant="contained" loading={loadAnalytics} onClick={handleSubmit}>Отправить</Button>
             </Stack>

@@ -20,8 +20,7 @@ export default function ObjectsMultiSelect(props: { objects: Object[], selectedO
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement> | (Event & { target: { value: string[]; name: string; } })) => {
         const value = Array.isArray(event.target.value) ? event.target.value : [event.target.value];
-        console.log(value);
-        
+
         let selectedObjects = value.map((obj: string) => {
             return objects.find((a) => {
                 return a.name === obj;
@@ -61,7 +60,6 @@ export default function ObjectsMultiSelect(props: { objects: Object[], selectedO
                 input={<OutlinedInput label="Выберите объект" />}
                 MenuProps={MenuProps}
                 renderValue={(selected: string[]) => {
-                    console.log(selected);
                     if(selected.length < 5) {
                         return (
                             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>

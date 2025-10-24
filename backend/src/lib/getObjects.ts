@@ -11,16 +11,23 @@ export async function getObjects() {
     });
     
     let objects = await collection.find({}).sort({name: 1}).toArray();
+    
     const neededObjects = objects.map((object: any) => {
+        let rooms = [];
+        
+        if(object?.roomTypes?.length) {
+            rooms = object?.roomTypes[0]?.units.map((room: any) => {
+                return {
+                    id: room?.id,
+                    name: room?.name,
+                }
+            })
+        }
+
         return {
             id: object.id,
             name: object.name,
-            roomTypes: object.roomTypes[0].units.map((room: any) => {
-                return {
-                    id: room.id,
-                    name: room.name,
-                }
-            })
+            roomTypes: rooms
         }
     })
 

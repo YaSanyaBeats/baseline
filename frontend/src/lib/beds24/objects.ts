@@ -8,7 +8,6 @@ export const getObjects = cache(async (): Promise<Object[]> => {
     }
 
     const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects');
-    console.log(response.data)
     return response.data;
 })
 

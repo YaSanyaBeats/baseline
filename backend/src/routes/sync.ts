@@ -19,7 +19,6 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     let page = 1;
 
     while(nextPageIsExist) {
-        console.log('Страница: ' + page);
         let beds24data = [];
         if(req.query.type == 'objects') {
             let objects = await beds24.get('properties', {

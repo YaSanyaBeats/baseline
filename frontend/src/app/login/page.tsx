@@ -25,7 +25,6 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
             ...prevState,
             [name]: value,
         }));
-        console.log(formData);
     }
 
     const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -35,7 +34,6 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
             return
         }
         handleSignIn(formData);
-        console.log(formData)
     }
 
     const validateInputs = () => {
