@@ -53,9 +53,11 @@ async function getAnalyticsForObject(options: any, objectID: number) {
             rooms: {} as any
         };
 
-        object.roomTypes[0].units.forEach((room: {id: any}) => {
-            bookingsPerPeriods.rooms[room.id] = []
-        })
+        if(object.roomTypes) {
+            object.roomTypes[0].units.forEach((room: {id: any}) => {
+                bookingsPerPeriods.rooms[room.id] = []
+            })
+        }
 
         periods.forEach((period: any) => {
             let bookingPerPeriod = {
@@ -77,7 +79,8 @@ async function getAnalyticsForObject(options: any, objectID: number) {
                         title: booking.title,
                         arrival: booking.arrival,
                         departure: booking.departure,
-                        bookingTime: booking.bookingTime
+                        bookingTime: booking.bookingTime,
+                        price: booking.price
                     };
                     bookingPerPeriod.bookings.push(newElem);
                     if(!bookingRoomsPerRoom[booking.unitId]) {
@@ -92,9 +95,6 @@ async function getAnalyticsForObject(options: any, objectID: number) {
             // })
 
             bookingsPerPeriods.all.push(bookingPerPeriod);
-            if(objectID == 110075) {
-                console.log(bookingRoomsPerRoom);
-            }
             for(const key in bookingRoomsPerRoom) {
                 bookingsPerPeriods.rooms[key].push(bookingRoomsPerRoom[key]);
             }
@@ -132,6 +132,17 @@ async function getAnalyticsForObject(options: any, objectID: number) {
             bookingsPerPeriods.all[index].unitsCount = unitsCount;
             bookingsPerPeriods.all[index].totalDays = unitsCount;
             bookingsPerPeriods.all[index].busyness = sumTime / totalTime;
+        })
+
+        // Считаем среднюю цену
+        bookingsPerPeriods.all.forEach((period, index) => {
+            let sum = 0;
+            period.bookings.forEach((booking: any) => {
+                sum += booking.price;
+            })
+
+            bookingsPerPeriods.all[index].middlePrice = sum / period.bookings.length;
+            
         })
 
         resolve(bookingsPerPeriods);
@@ -195,7 +206,6 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         endDate: req.query['endDate'],
         periods: normilizePeriods
     }))).then((value: any) => {
-        console.log(value.length);
         res.send(value);
     });
 });

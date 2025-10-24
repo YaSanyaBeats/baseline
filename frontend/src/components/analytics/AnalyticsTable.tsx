@@ -38,13 +38,14 @@ const renderResultSubRow = (elems: FullAnalyticsResult) => {
 
         const endMedianDate = new Date(elem.endMedianResult).getTime();
         const endMedianDays = endMedianDate / (24 * 60 * 60 * 1000);
+
         const background = !endMedianDays ? '#fff1f1ff' : 'transparent';
         
-        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{borderLeft: '1px solid #00000030', width: 150}}>{round(elem.busyness * 100, 0)}%</TableCell>);
-        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{width: 150}}>Средняя цена</TableCell>);
+        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{borderLeft: '1px solid #00000030', width: 150, fontSize: 21}}>{round(elem.busyness * 100, 0)}%</TableCell>);
+        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{width: 150, fontSize: 21}}>{Math.round(elem.middlePrice)}฿</TableCell>);
         cells.push(
             <TableCell key={index*3 + 2} align="left" style={{background}} sx={{width: 150}}>
-                <Stack direction={'row'} spacing={1} style={{fontSize: 24}}>
+                <Stack direction={'row'} spacing={1} style={{fontSize: 18}}>
                     <Box>{startMedianDays ? round(startMedianDays, 0) : '~'}</Box>
                     <Box>-</Box>
                     <Box>{endMedianDays ? round(endMedianDays, 0) : '~'}</Box>

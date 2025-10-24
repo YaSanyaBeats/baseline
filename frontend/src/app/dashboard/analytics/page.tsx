@@ -111,12 +111,12 @@ export default function Page() {
                 <Box>Анализируемый период c </Box>
                 <TextField 
                     onChange={handleChangeStartDate} 
-                    label="____.__.__" 
+                    label="ГГГГ-ММ-ДД" 
                     variant="outlined" />
                 <Box>по</Box>
                 <TextField
                     onChange={handleChangeEndDate} 
-                    label="____.__.__" 
+                    label="ГГГГ-ММ-ДД" 
                     variant="outlined" />
                 <Button variant="contained" loading={loadAnalytics} onClick={handleSubmit}>Отправить</Button>
             </Stack>

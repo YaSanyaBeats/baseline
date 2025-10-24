@@ -29,6 +29,7 @@ export interface AnalyticsResult {
     endMedianResult: string,
     firstNight: string,
     lastNight: string,
+    middlePrice: number
 }
 
 export interface FullAnalyticsResult {
