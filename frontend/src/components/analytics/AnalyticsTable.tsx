@@ -30,9 +30,9 @@ function round(num: number, decimals: number) {
 const renderHeader = (array: AnalyticsResult[]) => {
     const columns: ReactElement[] = [];
     for(let i = 0; i < array.length; i++) {
-        columns.push(<TableCell key={i * 3} align="left" style={{ top: 57, width: 70 }}>Заполняемость</TableCell>);
-        columns.push(<TableCell key={i * 3 + 1} align="left" style={{ top: 57, width: 70 }}>Средняя цена</TableCell>);
-        columns.push(<TableCell key={i * 3 + 2} align="left" style={{ top: 57, width: 100 }} sx={{borderRight: '1px solid #00000030'}}>Окно бронирования</TableCell>);
+        columns.push(<TableCell key={i * 3} align="left" size="small" style={{ fontSize: 12, lineHeight: 1.2, top: 57, padding: 4, fontWeight: 'bold' }}>Заполн.</TableCell>);
+        columns.push(<TableCell key={i * 3 + 1} align="left" size="small" style={{ fontSize: 12, lineHeight: 1.2, top: 57, padding: 4, fontWeight: 'bold' }}>Ср. ц.</TableCell>);
+        columns.push(<TableCell key={i * 3 + 2} align="left" size="small" style={{ fontSize: 12, lineHeight: 1.2, top: 57, padding: 4, fontWeight: 'bold' }} sx={{borderRight: '1px solid #00000030'}}>Окно бр.</TableCell>);
     }
     return columns;
 }
@@ -76,10 +76,10 @@ const renderResultSubRow = (rooms: RoomAnalyticsResult) => {
 
         const background = !endMedianDays ? '#fff1f1ff' : 'transparent';
         
-        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 16, width: 100}}>{round(elem.busyness * 100, 0)}%</TableCell>);
-        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 16, width: 100}}>{Math.round(elem.middlePrice)}฿</TableCell>);
+        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 16}}>{round(elem.busyness * 100, 0)}%</TableCell>);
+        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 16}}>{Math.round(elem.middlePrice)}฿</TableCell>);
         cells.push(
-            <TableCell key={index*3 + 2} align="left" style={{background}} sx={{borderRight: '1px solid #00000030', width: 158}}>
+            <TableCell key={index*3 + 2} align="left" style={{background}} sx={{borderRight: '1px solid #00000030'}}>
                 <Stack direction={'row'} spacing={1} style={{fontSize: 14}}>
                     <Box>{startMedianDays ? round(startMedianDays, 0) : '~'}</Box>
                     <Box>-</Box>
@@ -99,7 +99,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
     return (
         <>
             <TableRow>
-                <TableCell component="td" style={leftStickyCellStyle} sx={{width: 200}}>
+                <TableCell component="td" style={leftStickyCellStyle}>
                     <Stack direction={'row'} alignItems={'center'}>
                         <IconButton
                             aria-label="expand row"
@@ -114,14 +114,14 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
                 {renderResultRow(filterAnalyticsData)}
             </TableRow>
             <TableRow >
-                <TableCell sx={{padding: 0}} colSpan={filterAnalyticsData.objectAnalytics.length * 3 + 1}>
+                <TableCell sx={{padding: 0, width: '100%'}} colSpan={filterAnalyticsData.objectAnalytics.length * 3 + 1}>
                     <Collapse in={open} timeout="auto">
-                        <Table size={'small'} style={{borderBottom: '2px solid black', borderCollapse: 'separate'}}>
+                        <Table size={'small'} style={{borderBottom: '2px solid black', borderCollapse: 'separate', tableLayout: 'fixed'}}>
                             <TableBody>
                                 {filterAnalyticsData.roomsAnalytics.map((room) => {
                                     return (
                                         <TableRow key={room.roomID} >
-                                            <TableCell style={leftStickyCellStyle} component="td" sx={{width: 200}}>
+                                            <TableCell style={leftStickyCellStyle} sx={{width: 250}} component="td">
                                                 <Box>
                                                     {room.roomName || 'Room: ' + room.roomID}
                                                 </Box>
@@ -155,13 +155,13 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
     return (
         <Box>
             <TableContainer component={Paper} sx={{ maxHeight: '70vh', maxWidth: '80vw' }}>
-                <Table stickyHeader sx={{ minWidth: 'max-content', tableLayout: 'fixed' }} aria-label="simple table">
+                <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
                     <TableHead>
                         <TableRow>
-                            <TableCell align="left" sx={{borderRight: '1px solid #00000030'}}></TableCell>
+                            <TableCell align="left" sx={{borderRight: '1px solid #00000030', width: 250}}></TableCell>
                             {filterAnalyticsData[0].objectAnalytics.map((row, index) => {
                                 return (
-                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030'}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
+                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 250}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
                                 )
                             })}
                         </TableRow>
