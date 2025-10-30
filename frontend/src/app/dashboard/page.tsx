@@ -3,8 +3,7 @@ import { Box, Collapse, IconButton, Paper, Skeleton, Stack, Table, TableBody, Ta
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 
-import { getObjects } from '../../lib/beds24/objects'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Object, Room } from '@/lib/types';
 import { useObjects } from '@/providers/ObjectsProvider';
 
@@ -71,7 +70,7 @@ function Row(props: { object: Object }) {
 
 
 export default function Page() {
-    const { objects, loading, error, refreshObjects } = useObjects();
+    const { objects, loading } = useObjects();
 
     if (loading) return (
         <Stack spacing={1}>

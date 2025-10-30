@@ -1,6 +1,5 @@
 'use client'
 
-import { getObjects } from "@/lib/beds24/objects";
 import { useObjects } from "@/providers/ObjectsProvider";
 import { Box, Button, FormControl, Stack, TextField, Typography } from "@mui/material";
 import { Object, OptionsFormData } from "@/lib/types";
@@ -10,8 +9,7 @@ import { getOptions, sendOptions } from "@/lib/options";
 
 
 export default function Page() {
-    const { objects, loading, error, refreshObjects } = useObjects();
-    const [loadOptions, setLoadOptions] = React.useState(false);
+    const { objects } = useObjects();
     const [loadForm, setLoadForm] = React.useState(false);
 
     const [formData, setFormData] = React.useState<OptionsFormData>({
@@ -22,11 +20,9 @@ export default function Page() {
     React.useEffect(() => {
         const fetchObjects = async () => {
             try {
-                setLoadOptions(true);
                 const options = await getOptions();
                 setFormData(options);
             } finally {
-                setLoadOptions(false); 
             }
         };
 

@@ -25,8 +25,8 @@ interface ObjectsProviderProps {
 // Основной провайдер
 export function ObjectsProvider({ children, serverObjects }: ObjectsProviderProps) {
   const [objects, setObjects] = useState<Object[]>(serverObjects);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [loading] = useState(false);
+  const [error] = useState<string | null>(null);
 
   // Синхронизируем состояние с serverProps при изменении
   useEffect(() => {

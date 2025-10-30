@@ -15,7 +15,10 @@ export interface AnalyticsFilterData {
     endMedian: number;
     startDate: string;
     endDate: string;
+    periodMode: string;
+    step: number;
 }
+
 export interface AnalyticsResult {
     id: number;
     bookings: {
@@ -32,11 +35,17 @@ export interface AnalyticsResult {
     middlePrice: number
 }
 
-export interface FullAnalyticsResult {
-    all: AnalyticsResult[],
-    rooms: any  // eslint-disable-line @typescript-eslint/no-explicit-any
+export interface RoomAnalyticsResult {
+    roomAnalytics: AnalyticsResult[],
+    roomID: number,
+    roomName: string
 }
 
+export interface FullAnalyticsResult {
+    objectAnalytics: AnalyticsResult[],
+    objectID: number,
+    roomsAnalytics: RoomAnalyticsResult[]
+}
 
 export interface OptionsFormData {
   excludeObjects: Object[];

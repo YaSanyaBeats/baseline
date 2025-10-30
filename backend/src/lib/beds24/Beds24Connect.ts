@@ -60,7 +60,8 @@ export class Beds24Connect {
 					accept: 'application/json',
 					token: token
 				},
-				responseType: 'json'
+				responseType: 'json',
+				timeout: 5000
 			});
 			return response.data;
 		}

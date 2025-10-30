@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { cache } from 'react';
-import { AnalyticsFilterData, AnalyticsResult, Object } from "@/lib/types";
+import { Object } from "@/lib/types";
 
 export const getObjects = cache(async (): Promise<Object[]> => {
     if(!process.env.NEXT_PUBLIC_API_URL) {

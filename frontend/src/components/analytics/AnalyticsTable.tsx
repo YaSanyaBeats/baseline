@@ -1,10 +1,18 @@
-import { AnalyticsResult, FullAnalyticsResult } from "@/lib/types";
-import { Box, Collapse, IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import { AnalyticsResult, FullAnalyticsResult, RoomAnalyticsResult } from "@/lib/types";
+import { Box, Collapse, CSSProperties, IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
 import { Object } from '@/lib/types';
 import { useObjects } from "@/providers/ObjectsProvider";
 import React, { ReactElement, useState } from 'react';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+
+const leftStickyCellStyle: CSSProperties = {
+    position: 'sticky',
+    left: 0,
+    background: 'white',
+    zIndex: 1,
+    borderRight: '2px solid black'
+};
 
 function formatDate(date: string) {
     const currentDate = new Date(date);
@@ -22,30 +30,57 @@ function round(num: number, decimals: number) {
 const renderHeader = (array: AnalyticsResult[]) => {
     const columns: ReactElement[] = [];
     for(let i = 0; i < array.length; i++) {
-        columns.push(<TableCell key={i * 3} align="left" sx={{borderLeft: '1px solid #00000030'}}>Заполняемость</TableCell>);
-        columns.push(<TableCell key={i * 3 + 1} align="left">Средняя цена</TableCell>);
-        columns.push(<TableCell key={i * 3 + 2} align="left">Окно бронирования</TableCell>);
+        columns.push(<TableCell key={i * 3} align="left" style={{ top: 57, width: 70 }}>Заполняемость</TableCell>);
+        columns.push(<TableCell key={i * 3 + 1} align="left" style={{ top: 57, width: 70 }}>Средняя цена</TableCell>);
+        columns.push(<TableCell key={i * 3 + 2} align="left" style={{ top: 57, width: 100 }} sx={{borderRight: '1px solid #00000030'}}>Окно бронирования</TableCell>);
     }
     return columns;
 }
 
-const renderResultSubRow = (elems: FullAnalyticsResult) => {
+const renderResultRow = (elems: FullAnalyticsResult) => {
     const cells: ReactElement[] = [];
 
-    elems.all.map((elem, index) => {
+    elems.objectAnalytics.map((elem, index) => {
         const startMedianDate = new Date(elem.startMedianResult).getTime();
-        const startMedianDays = startMedianDate / (24 * 60 * 60 * 1000);
+        const startMedianDays = startMedianDate;
 
         const endMedianDate = new Date(elem.endMedianResult).getTime();
-        const endMedianDays = endMedianDate / (24 * 60 * 60 * 1000);
+        const endMedianDays = endMedianDate;
 
         const background = !endMedianDays ? '#fff1f1ff' : 'transparent';
         
-        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{borderLeft: '1px solid #00000030', width: 150, fontSize: 21}}>{round(elem.busyness * 100, 0)}%</TableCell>);
-        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{width: 150, fontSize: 21}}>{Math.round(elem.middlePrice)}฿</TableCell>);
+        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 21}}>{round(elem.busyness * 100, 0)}%</TableCell>);
+        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 21}}>{Math.round(elem.middlePrice)}฿</TableCell>);
         cells.push(
-            <TableCell key={index*3 + 2} align="left" style={{background}} sx={{width: 150}}>
+            <TableCell key={index*3 + 2} align="left" style={{background}} sx={{borderRight: '1px solid #00000030'}}>
                 <Stack direction={'row'} spacing={1} style={{fontSize: 18}}>
+                    <Box>{startMedianDays ? round(startMedianDays, 0) : '~'}</Box>
+                    <Box>-</Box>
+                    <Box>{endMedianDays ? round(endMedianDays, 0) : '~'}</Box>
+                </Stack>
+            </TableCell>
+        );
+    })
+    return cells;
+}
+
+const renderResultSubRow = (rooms: RoomAnalyticsResult) => {
+    const cells: ReactElement[] = [];
+
+    rooms.roomAnalytics.map((elem, index) => {
+        const startMedianDate = new Date(elem.startMedianResult).getTime();
+        const startMedianDays = startMedianDate;
+
+        const endMedianDate = new Date(elem.endMedianResult).getTime();
+        const endMedianDays = endMedianDate;
+
+        const background = !endMedianDays ? '#fff1f1ff' : 'transparent';
+        
+        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 16, width: 100}}>{round(elem.busyness * 100, 0)}%</TableCell>);
+        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 16, width: 100}}>{Math.round(elem.middlePrice)}฿</TableCell>);
+        cells.push(
+            <TableCell key={index*3 + 2} align="left" style={{background}} sx={{borderRight: '1px solid #00000030', width: 158}}>
+                <Stack direction={'row'} spacing={1} style={{fontSize: 14}}>
                     <Box>{startMedianDays ? round(startMedianDays, 0) : '~'}</Box>
                     <Box>-</Box>
                     <Box>{endMedianDays ? round(endMedianDays, 0) : '~'}</Box>
@@ -58,14 +93,14 @@ const renderResultSubRow = (elems: FullAnalyticsResult) => {
 
 function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }) {
     const { filterAnalyticsData, object } = props;
+    console.log(filterAnalyticsData);
     const [open, setOpen] = useState(false);
+
     return (
         <>
-            <TableRow
-                 sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
-            >
-                <TableCell component="td" sx={{width: 150}}>
-                    <Stack direction={'row'} alignItems={'center'} sx={{width: 150}}>
+            <TableRow>
+                <TableCell component="td" style={leftStickyCellStyle} sx={{width: 200}}>
+                    <Stack direction={'row'} alignItems={'center'}>
                         <IconButton
                             aria-label="expand row"
                             size="small"
@@ -76,24 +111,24 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
                         {object.name}
                     </Stack>
                 </TableCell>
-                {renderResultSubRow(filterAnalyticsData)}
+                {renderResultRow(filterAnalyticsData)}
             </TableRow>
-            <TableRow sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                <TableCell colSpan={175} sx={{padding: 0}}>
-                    <Collapse in={open} timeout="auto" unmountOnExit>
-                        <Table>
+            <TableRow >
+                <TableCell sx={{padding: 0}} colSpan={filterAnalyticsData.objectAnalytics.length * 3 + 1}>
+                    <Collapse in={open} timeout="auto">
+                        <Table size={'small'} style={{borderBottom: '2px solid black', borderCollapse: 'separate'}}>
                             <TableBody>
-                                {object.roomTypes.map((room) => {
+                                {filterAnalyticsData.roomsAnalytics.map((room) => {
                                     return (
-                                        <TableRow key={room.id} sx={{ '&:last-child td, &:last-child th': { border: 0 } }}>
-                                            <TableCell component="td" sx={{width: 150}}>
-                                                <Box sx={{width: 150}}>
-                                                    {room.name || room.id}
+                                        <TableRow key={room.roomID} >
+                                            <TableCell style={leftStickyCellStyle} component="td" sx={{width: 200}}>
+                                                <Box>
+                                                    {room.roomName || 'Room: ' + room.roomID}
                                                 </Box>
                                                 
                                             </TableCell>
                                             
-                                            {renderResultSubRow(filterAnalyticsData)}
+                                            {renderResultSubRow(room)}
                                         </TableRow>
                                     )
                                 })}
@@ -108,56 +143,10 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
 }
 
 export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResult[] }) {
-    const { objects, loading, error, refreshObjects } = useObjects();
-    
+    const { objects } = useObjects();
     const { analyticsData } = props;
 
-    // let maxObject: AnalyticsResult[] = [];
-
-    const filterAnalyticsData = analyticsData;//.filter((elem) => {return elem.length})
-
-    // filterAnalyticsData.forEach((analyticsObjectData) => {
-    //     if(analyticsObjectData.length > maxObject.length) {
-    //         maxObject = analyticsObjectData.slice();
-    //     }
-    // })
-    
-    // maxObject = maxObject.map((elem) => {
-    //     const currentRow = elem;
-    //     if(currentRow) {
-    //         currentRow.bookings = [];
-    //         currentRow.busyness = 0;
-    //         currentRow.startMedianResult = '';
-    //         currentRow.endMedianResult  = '';
-    //     }
-        
-    //     return currentRow;
-    // });
-
-    
-    // filterAnalyticsData.forEach((analyticsObjectData, index) => {
-    //     const object = objects.find((object) => {
-    //         return object.id == analyticsObjectData[0].id;
-    //     })
-        
-    //     if(!object) {
-    //         return;
-    //     }
-    //     const currentData = JSON.parse(JSON.stringify(maxObject)) as AnalyticsResult[];
-    //     currentData.forEach((row, currIndex) => {
-    //         currentData[currIndex].id = object.id;
-    //     })
-    //     currentData.forEach((row, currIndex) => {
-    //         const index = analyticsObjectData.findIndex((dataRow) => {
-    //             return dataRow.firstNight === row.firstNight;
-    //         })
-    //         if(analyticsObjectData[index]) {
-    //             currentData[currIndex] = analyticsObjectData[index];
-    //         }
-            
-    //     })
-    //     filterAnalyticsData[index] = currentData;
-    // })
+    const filterAnalyticsData = analyticsData;
 
     if(!filterAnalyticsData.length) {
         return;
@@ -165,44 +154,42 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
 
     return (
         <Box>
-            <Stack spacing={2} sx={{ overflow: 'hidden' }}>
-                <TableContainer component={Paper} sx={{ maxHeight: '70vh', maxWidth: '80vw' }}>
-                    <Table stickyHeader sx={{ minWidth: 650 }} aria-label="simple table">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell align="left"></TableCell>
-                                {filterAnalyticsData[0].all.map((row, index) => {
-                                    return (
-                                        <TableCell key={index} align="center" colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
-                                    )
-                                })}
-                            </TableRow>
-                            <TableRow>
-                                <TableCell align="left"></TableCell>
-                                {renderHeader(filterAnalyticsData[0].all)}
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {filterAnalyticsData.map((objectAnaliticData) => {
-                                const objectID = objectAnaliticData.all[0]?.id;
-                                const object = objects.find((object) => {
-                                    return object.id == objectID;
-                                })
-
-                                if(!object) {
-                                    return (<></>);
-                                }
-
+            <TableContainer component={Paper} sx={{ maxHeight: '70vh', maxWidth: '80vw' }}>
+                <Table stickyHeader sx={{ minWidth: 'max-content', tableLayout: 'fixed' }} aria-label="simple table">
+                    <TableHead>
+                        <TableRow>
+                            <TableCell align="left" sx={{borderRight: '1px solid #00000030'}}></TableCell>
+                            {filterAnalyticsData[0].objectAnalytics.map((row, index) => {
                                 return (
-                                    <Row key={object.id + Math.random()} filterAnalyticsData={objectAnaliticData} object={object}></Row>
+                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030'}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
                                 )
                             })}
-                            
-                        </TableBody>
+                        </TableRow>
+                        <TableRow>
+                            <TableCell style={{ top: 57 }} align="left" sx={{borderRight: '1px solid #00000030'}}></TableCell>
+                            {renderHeader(filterAnalyticsData[0].objectAnalytics)}
+                        </TableRow>
+                    </TableHead>
+                    <TableBody>
+                        {filterAnalyticsData.map((objectAnaliticData) => {
+                            const objectID = objectAnaliticData.objectID;
+                            const object = objects.find((object) => {
+                                return object.id == objectID;
+                            })
+
+                            if(!object) {
+                                return (<></>);
+                            }
+
+                            return (
+                                <Row key={object.id + Math.random()} filterAnalyticsData={objectAnaliticData} object={object}></Row>
+                            )
+                        })}
                         
-                    </Table>
-                </TableContainer>
-            </Stack>
+                    </TableBody>
+                    
+                </Table>
+            </TableContainer>
         </Box>
     )
 }

@@ -6,146 +6,205 @@ import { all } from 'axios';
 const router = express.Router();
 router.use(bodyParser.json());
 
-const removeDuplicates = (periods: any[]) => {
-    const seen = new Set();
-    const result = [] as any[];
-    
-    periods.forEach(period => {
-        // Преобразуем объект в строку для сравнения
-        const key = JSON.stringify(period);
-        
-        if (!seen.has(key)) {
-            seen.add(key);
-            result.push(period);
-        }
-    });
-    
-    return result;
-};
 
-async function getAnalyticsForObject(options: any, objectID: number) {
+function splitDateRange(
+  startString: string,
+  endString: string,
+  step: number
+): { firstNight: Date; lastNight: Date }[] {
+    // Валидация входных данных
+    if (step <= 0) {
+        throw new Error('Step must be a positive number');
+    }
+
+    let startDate = new Date(startString);
+    let endDate = new Date(endString);
+
+    if (startDate > endDate) {
+        throw new Error('startDate must be less than or equal to endDate');
+    }
+
+    const result: { firstNight: Date; lastNight: Date }[] = [];
+    let currentStart = new Date(startDate);
+
+    while (currentStart <= endDate) {
+        // Определяем конец текущего промежутка
+        const currentEnd = new Date(currentStart);
+        currentEnd.setDate(currentEnd.getDate() + step - 1); // -1, потому что считаем ночи
+
+        // Если конец промежутка выходит за endDate, ограничиваем его
+        if (currentEnd > endDate) {
+            currentEnd.setTime(endDate.getTime());
+        }
+
+        result.push({
+            firstNight: new Date(currentStart),
+            lastNight: new Date(currentEnd)
+        });
+
+        // Переходим к следующему промежутку
+        currentStart.setDate(currentStart.getDate() + step);
+    }
+
+  return result;
+}
+
+async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null) {
+    const bookingCollection = db.collection('bookings');
+
+    let bookingPerPeriod = {
+        firstNight: new Date(period.firstNight),
+        lastNight: new Date(period.lastNight),
+        bookings: [] as any[],
+        busyness: 0,
+        startMedianResult: 0,
+        endMedianResult: 0,
+        middlePrice: 0
+    };
+
+    let bookingDBRequestArgs = {
+        propertyId: object.id,
+        unitId: { $exists: true },
+        $and: [
+            {arrival: { $lte: period.lastNight }},
+            {departure: { $gte: period.firstNight}}
+        ]
+    }
+
+    if(room) {
+        bookingDBRequestArgs.unitId = room.id;
+    }
+
+    let bookings = await bookingCollection.find(bookingDBRequestArgs)
+    .sort({ bookingTime: 1 })
+    .toArray();
+
+    bookings.forEach((booking) => {
+        booking.arrival = new Date(booking.arrival);
+        booking.departure = new Date(booking.departure);
+        booking.bookingTime = new Date(booking.bookingTime);
+
+        const newBooking = {
+            title: booking.title,
+            arrival: booking.arrival,
+            departure: booking.departure,
+            bookingTime: booking.bookingTime,
+            price: booking.price
+        };
+
+        bookingPerPeriod.bookings.push(newBooking);
+    })
+
+    // Считаем занятость, окна бронирования и среднюю цену
+    let unitsCount = object.roomTypes[0].units.length;
+    if(room) {
+        unitsCount = 1;
+    }
+    let totalTime = (bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()) * unitsCount;
+    
     let startMedian = options.startMedian * 0.01;
     let endMedian = options.endMedian * 0.01;
-    let periods = options.periods;
-    let startDate = options.startDate;
-    let endDate = options.endDate;
+    let needDaysForStartMedian = totalTime * startMedian;
+    let needDaysForEndMedian = totalTime * endMedian;
 
+    
+    let sumTime = 0;
+    let sumPrice = 0;
+    let sumBookingDays = 0;
+    bookingPerPeriod.bookings.forEach((booking, index) => {
+        let arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
+        let departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
+
+        sumTime += departure - arrival;
+
+        let daysInPeriod = (departure - arrival) / (1000 * 60 * 60 * 24);
+        let daysInBooking = (booking.departure.getTime() - booking.arrival.getTime()) / (1000 * 60 * 60 * 24);
+        
+        
+        sumPrice += (booking.price / daysInBooking) * daysInPeriod;
+        sumBookingDays += daysInPeriod;
+
+        // Тут же считаем окна бронирования (медианы)
+        if(bookingPerPeriod.startMedianResult === 0 && sumTime > needDaysForStartMedian) {
+            bookingPerPeriod.startMedianResult = Math.round((bookingPerPeriod.firstNight.getTime() - booking.bookingTime.getTime()) / (1000 * 60 * 60 * 24));
+        }
+
+        if(bookingPerPeriod.endMedianResult === 0 && sumTime > needDaysForEndMedian) {
+            bookingPerPeriod.endMedianResult = Math.round((bookingPerPeriod.firstNight.getTime() - booking.bookingTime.getTime()) / (1000 * 60 * 60 * 24));
+        }
+    })
+    
+    bookingPerPeriod.busyness = sumTime / totalTime;
+    bookingPerPeriod.middlePrice = sumPrice / sumBookingDays;
+
+    return bookingPerPeriod;
+
+}
+
+async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: any, room: any) {
+    return {
+        roomID: room.id,
+        roomName: room.name,
+        roomAnalytics: await Promise.all(periods.map((period: any) => {
+            return new Promise(async (resolve, reject) => {
+                resolve(await getAnalyticsForPeriod(options, object, period, room));
+            })
+        }))
+    }
+}
+
+async function getAnalyticsForObject(options: any, objectID: number) {
+    let periods = options.periods;
 
     return new Promise(async (resolve, reject) => {
         const objectCollection = db.collection('objects');
-        const pricesCollection = db.collection('prices');
-        const bookingCollection = db.collection('bookings');
-
+        
         let objects = await objectCollection.find({
             id: objectID,
         }).toArray();
         let object = objects[0];
 
-        let bookings = await bookingCollection.find({
-            propertyId: objectID,
-        }).toArray();
-
-
         
         // Расскидываем бронирования по соответствующим периодам
         let bookingsPerPeriods = {
             all: [] as any[],
-            rooms: {} as any
+            rooms: {} as any,
+            id: objectID
         };
 
-        if(object.roomTypes) {
-            object.roomTypes[0].units.forEach((room: {id: any}) => {
-                bookingsPerPeriods.rooms[room.id] = []
-            })
-        }
+        
 
-        periods.forEach((period: any) => {
-            let bookingPerPeriod = {
-                id: objectID,
-                firstNight: new Date(period.firstNight),
-                lastNight: new Date(period.lastNight),
-                bookings: [] as any[],
-                busyness: 0,
-                startMedianResult: null,
-                endMedianResult: null
-            };
-            let bookingRoomsPerRoom = {} as any;
-            bookings.forEach((booking) => {
-                booking.arrival = new Date(booking.arrival);
-                booking.departure = new Date(booking.departure);
-                booking.bookingTime = new Date(booking.bookingTime);
-                if((booking.arrival <= bookingPerPeriod.lastNight) && (booking.departure >= bookingPerPeriod.firstNight)) {
-                    const newElem = {
-                        title: booking.title,
-                        arrival: booking.arrival,
-                        departure: booking.departure,
-                        bookingTime: booking.bookingTime,
-                        price: booking.price
-                    };
-                    bookingPerPeriod.bookings.push(newElem);
-                    if(!bookingRoomsPerRoom[booking.unitId]) {
-                        bookingRoomsPerRoom[booking.unitId] = [];
-                    }
-                    bookingRoomsPerRoom[booking.unitId].push(newElem);
-                }
-            })
-            bookingPerPeriod.bookings.sort((a, b) => { return a - b; })
-            // bookingRoomsPerRoom.forEach((room) => {
-            //     room.sort((a: any, b: any) => { return a - b; })
-            // })
 
-            bookingsPerPeriods.all.push(bookingPerPeriod);
-            for(const key in bookingRoomsPerRoom) {
-                bookingsPerPeriods.rooms[key].push(bookingRoomsPerRoom[key]);
+        Promise.all(periods.map((period: any) => {
+            return new Promise(async (resolve, reject) => {
+                resolve(await getAnalyticsForPeriod(options, object, period));
+            })
+        })).then((objectResult) => {
+            const rooms: {id: number, name: string}[] = [];
+            if(object.roomTypes) {
+                object.roomTypes[0].units.forEach((room: {id: number, name: string}) => {
+                    rooms.push({
+                        id: room.id,
+                        name: room.name
+                    });
+                })
             }
+
+            
+            
+            Promise.all(rooms.map((room: any) => {
+                return new Promise(async (resolve, reject) => {
+                    resolve(await getRoomsAnalyticsForPeriod(options, object, periods, room));
+                })
+            })).then((roomsResult) => {
+                resolve({
+                    objectAnalytics: objectResult,
+                    roomsAnalytics: roomsResult,
+                    objectID: object.id
+                });
+            })
             
         })
-
-        // Считаем занятость
-        bookingsPerPeriods.all.forEach((period, index) => {
-            if(!object.roomTypes) {
-                return;
-            }
-            let unitsCount = object.roomTypes[0].units.length;
-            let totalTime = (period.lastNight - period.firstNight) * unitsCount;
-
-            let needDaysForStartMedian = totalTime * startMedian;
-            let needDaysForEndMedian = totalTime * endMedian;
-
-            let sumTime = 0;
-            period.bookings.forEach((booking: any) => {
-                let arrival = Math.max(booking.arrival, period.firstNight);
-                let departure = Math.min(booking.departure, period.lastNight);
-
-                sumTime += departure - arrival;
-
-                // Тут же считаем окна бронирования (медианы)
-                if(bookingsPerPeriods.all[index].startMedianResult === null && sumTime > needDaysForStartMedian) {
-                    bookingsPerPeriods.all[index].startMedianResult = new Date(period.firstNight - booking.bookingTime);
-                }
-
-                if(bookingsPerPeriods.all[index].endMedianResult === null && sumTime > needDaysForEndMedian) {
-                    bookingsPerPeriods.all[index].endMedianResult = new Date(period.firstNight - booking.bookingTime);
-                }
-            })
-
-            bookingsPerPeriods.all[index].unitsCount = unitsCount;
-            bookingsPerPeriods.all[index].totalDays = unitsCount;
-            bookingsPerPeriods.all[index].busyness = sumTime / totalTime;
-        })
-
-        // Считаем среднюю цену
-        bookingsPerPeriods.all.forEach((period, index) => {
-            let sum = 0;
-            period.bookings.forEach((booking: any) => {
-                sum += booking.price;
-            })
-
-            bookingsPerPeriods.all[index].middlePrice = sum / period.bookings.length;
-            
-        })
-
-        resolve(bookingsPerPeriods);
     })
 }
 
@@ -165,6 +224,9 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     if(!req?.query['endDate']) {
         throw new Error('Нет параметра "Дата по"');
     }
+    if(!req?.query['step']) {
+        throw new Error('Нет параметра step');
+    }
     
     let objectFilterData = req?.query['objects[]'] as string[];
     if(typeof objectFilterData === "string") {
@@ -179,32 +241,64 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         id: { $in: objectIDs},
     }).toArray();
 
-    const pricesCollection = db.collection('prices');
-    let periods = await pricesCollection.find({
-        $and: [
-            {firstNight: { $lte: req.query['endDate'] }},
-            {lastNight: { $gte: req.query['startDate']}}
-        ]
-    }).sort({
-        firstNight: 1
-    }).toArray();
+    let periods = [];
+    if(req.query['periodMode'] == 'beds24') {
+        const periodsTemplate = [
+            {firstNight: '12-25', lastNight: '01-15'},
+            {firstNight: '01-16', lastNight: '01-31'},
+            {firstNight: '02-01', lastNight: '02-28'},
+            {firstNight: '03-01', lastNight: '03-31'},
+            {firstNight: '04-01', lastNight: '04-30'},
+            {firstNight: '05-01', lastNight: '05-31'},
+            {firstNight: '06-01', lastNight: '06-30'},
+            {firstNight: '07-01', lastNight: '07-31'},
+            {firstNight: '08-01', lastNight: '08-31'},
+            {firstNight: '09-01', lastNight: '10-14'},
+            {firstNight: '10-15', lastNight: '10-31'},
+            {firstNight: '11-01', lastNight: '11-19'},
+            {firstNight: '11-20', lastNight: '12-09'},
+            {firstNight: '12-10', lastNight: '12-24'},
+        ];
 
-    let normilizePeriods = periods.map((period) => {
-        return {
-            firstNight: period.firstNight,
-            lastNight: period.lastNight
+        for(let year = 2020; year <= 2025; year++) {
+            periods.push(...periodsTemplate.map((period, index) => {
+                let firstNight = period.firstNight;
+                let lastNight = period.lastNight;
+                if(index === 0) {
+                    return {
+                        firstNight: `${year-1}-${firstNight}`,
+                        lastNight: `${year}-${lastNight}`
+                    };
+                }
+                return {
+                    firstNight: `${year}-${firstNight}`,
+                    lastNight: `${year}-${lastNight}`
+                };
+            }));
         }
-    })
-    normilizePeriods = removeDuplicates(normilizePeriods);
-
-
+    }
+    else if(req.query['periodMode'] == 'custom') {
+        periods = splitDateRange(req.query['startDate'] as string, req.query['endDate'] as string, +req.query['step']);
+        periods = periods.map((period) => {
+            return {
+                firstNight: period.firstNight.toISOString().split('T')[0],
+                lastNight: period.lastNight.toISOString().split('T')[0],
+            }
+        })
+    }
+    else {
+        throw new Error('PeriodMode передан некорректно');
+    }
+    
 
     Promise.all(objectIDs.map(getAnalyticsForObject.bind(null, {
         startMedian: req.query['startMedian'],
         endMedian: req.query['endMedian'],
         startDate: req.query['startDate'],
         endDate: req.query['endDate'],
-        periods: normilizePeriods
+        periods: periods,
+        periodMode: req.query['periodMode'],
+        step: req.query['step']
     }))).then((value: any) => {
         res.send(value);
     });

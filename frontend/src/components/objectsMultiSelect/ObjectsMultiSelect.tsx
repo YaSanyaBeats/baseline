@@ -1,7 +1,7 @@
 'use client'
 
 import { FormControl, InputLabel, Select, OutlinedInput, Box, Chip, MenuItem } from "@mui/material";
-import { AnalyticsFilterData, AnalyticsResult, Object } from "@/lib/types";
+import { Object } from "@/lib/types";
 
 const ITEM_HEIGHT = 48;
 const ITEM_PADDING_TOP = 8;

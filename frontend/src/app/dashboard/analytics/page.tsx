@@ -3,11 +3,10 @@
 import AnalyticsTable from "@/components/analytics/AnalyticsTable";
 import ObjectsMultiSelect from "@/components/objectsMultiSelect/ObjectsMultiSelect";
 import { getAnalytics } from "@/lib/beds24/getAnalytics";
-import { getObjects } from "@/lib/beds24/objects";
-import { AnalyticsFilterData, AnalyticsResult, FullAnalyticsResult, Object } from "@/lib/types";
+import { AnalyticsFilterData, FullAnalyticsResult, Object } from "@/lib/types";
 import { useObjects } from "@/providers/ObjectsProvider";
-import { Box, Button, Chip, FormControl, InputLabel, MenuItem, OutlinedInput, Select, Skeleton, Stack, TextField } from "@mui/material"
-import React from "react";
+import { Box, Button, FormControl, InputLabel, MenuItem, Select, Skeleton, Stack, TextField } from "@mui/material"
+import React, { ChangeEvent } from "react";
 
 
 function checkNumber(value: string): boolean {
@@ -15,7 +14,7 @@ function checkNumber(value: string): boolean {
 }
 
 export default function Page() {
-    const { objects, loading, error, refreshObjects } = useObjects();
+    const { objects, loading } = useObjects();
     const [loadAnalytics, setLoadAnalytics] = React.useState(false);
     const [analyticsData, setAnalyticsData] = React.useState<FullAnalyticsResult[]>([]);
 
@@ -23,8 +22,10 @@ export default function Page() {
         objects: [],
         startMedian: 20,
         endMedian: 70,
-        startDate: '2025.01.01',
-        endDate: '2025.10.24'
+        startDate: '2019.01.01',
+        endDate: '2029.12.31',
+        periodMode: 'beds24',
+        step: 0
     });
 
     const handleObjectChange = (selectedObjects: Object[]) => {
@@ -77,6 +78,24 @@ export default function Page() {
         });
     }
 
+    const handleChangePeriod = (event: ChangeEvent<Omit<HTMLInputElement, "value"> & { value: string; }> | (Event & { target: { value: string; name: string; }; })) => {
+        setFilterData({
+            ...filterData,
+            periodMode: event.target.value
+        });
+    }
+
+    const handleChangeStep = (event: React.ChangeEvent<HTMLInputElement>) => {
+        if(!checkNumber(event?.target?.value)) {
+            return;
+        }
+
+        setFilterData({
+            ...filterData,
+            step: +event.target.value
+        });
+    }
+
     if (loading) return (
         <Stack spacing={1}>
             <Skeleton variant="rounded" width={'100%'} height={50} />
@@ -108,6 +127,30 @@ export default function Page() {
                     variant="outlined" />
             </Stack>
             <Stack direction={'row'} alignItems={"center"} spacing={1}>
+                <Box>Взять периоды</Box>
+                <FormControl>
+                    <InputLabel>Периоды</InputLabel>
+                    <Select
+                        value={filterData.periodMode}
+                        label="Периоды"
+                        onChange={handleChangePeriod}
+                    >
+                        <MenuItem value={'beds24'}>Из Beds24</MenuItem>
+                        <MenuItem value={'custom'}>Кастомный период</MenuItem>
+                    </Select>
+                </FormControl>
+                {filterData.periodMode === 'custom' && (
+                    <Stack direction={'row'} alignItems={"center"} spacing={1}>
+                        <Box>с шагом</Box>
+                        <TextField 
+                            onChange={handleChangeStep} 
+                            label="Дней" 
+                            variant="outlined" />
+                    </Stack>
+                )}
+            </Stack>
+
+            <Stack direction={'row'} alignItems={"center"} spacing={1}>
                 <Box>Анализируемый период c </Box>
                 <TextField 
                     onChange={handleChangeStartDate} 
@@ -121,9 +164,6 @@ export default function Page() {
                 <Button variant="contained" loading={loadAnalytics} onClick={handleSubmit}>Отправить</Button>
             </Stack>
             <AnalyticsTable analyticsData={analyticsData}></AnalyticsTable>
-            {/* {analyticsData.map((data: AnalyticsResult[], index) => {
-                return()
-            })} */}
         </Stack>
     )
 }

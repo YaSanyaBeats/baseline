@@ -1,5 +1,5 @@
 'use client'
-import { syncObjects } from "@/lib/beds24/objects"
+import { syncObjects, syncPrices, syncBookings } from "@/lib/beds24/objects"
 import { Button, Snackbar, Stack } from "@mui/material"
 import React from "react";
 
@@ -25,7 +25,7 @@ export default function Page() {
     }
 
     const handleSyncPrices = () => {
-        syncObjects();
+        syncPrices();
         setLoadPrices(true);
         setTimeout(() => {
             setMessage('Обновлено 0 ценовых периодов');
@@ -35,7 +35,7 @@ export default function Page() {
     }
 
     const handleSyncBookings = () => {
-        syncObjects();
+        syncBookings();
         setLoadBookings(true);
         setTimeout(() => {
             setMessage('Обновлено 0 новых бронирований');

@@ -20,6 +20,7 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
 
     while(nextPageIsExist) {
         let beds24data = [];
+        console.log('start sync');
         if(req.query.type == 'objects') {
             let objects = await beds24.get('properties', {
                 includeAllRooms: true,
@@ -43,6 +44,7 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
                 includeInfoItems: true,
                 includeGuests: true,
                 includeBookingGroup: true,
+                arrivalTo: '2029-01-01',
                 page: page
             });
             beds24data = prices.data;
@@ -51,16 +53,19 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         
 
         const collection = db.collection(req.query.type as string);
-        await processInBatches(beds24data, 10, async (object: any) => {
-            let objectFromDB = await collection.findOne({
-                id: object?.id
-            });
-
-            if(!objectFromDB) { 
-                await collection.insertOne(object);
-                newRows++;
+        const operations = beds24data.map((elem: any) => {
+            return {
+                replaceOne: {
+                    filter: { id: elem.id },
+                    replacement: elem,
+                    upsert: true
+                }
             }
-        });
+        })
+        
+        console.log('Page: ', page);
+        const bulkResult = await collection.bulkWrite(operations, { ordered: false });
+        console.log(bulkResult);
 
         page++;
     }

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { AnalyticsFilterData, AnalyticsResult, FullAnalyticsResult } from '../types';
+import { AnalyticsFilterData, FullAnalyticsResult } from '../types';
 import { Object } from '@/lib/types';
 
 export async function getAnalytics(filterData: AnalyticsFilterData): Promise<FullAnalyticsResult[]>{
@@ -18,6 +18,8 @@ export async function getAnalytics(filterData: AnalyticsFilterData): Promise<Ful
             endMedian: filterData.endMedian,
             startDate: filterData.startDate,
             endDate: filterData.endDate,
+            periodMode: filterData.periodMode,
+            step: filterData.step,
         }
     });
     return response.data;
