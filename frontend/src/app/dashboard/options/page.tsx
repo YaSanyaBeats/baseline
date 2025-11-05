@@ -54,7 +54,7 @@ export default function Page() {
         <Stack spacing={2}>
             <Box>
                 <Typography variant="h5" gutterBottom>Игнорировать в системе выбранные объекты:</Typography>
-                <ObjectsMultiSelect objects={objects} selectedObjects={formData.excludeObjects} onChange={handleObjectChange}></ObjectsMultiSelect>
+                <ObjectsMultiSelect id="objects" error={false} helperText="Выберите хотя бы один объект" objects={objects} selectedObjects={formData.excludeObjects} onChange={handleObjectChange}></ObjectsMultiSelect>
             </Box>
             <Box>
                 <Typography variant="h5" gutterBottom>Игнорировать в системе объекты, содержащие в названии:</Typography>
