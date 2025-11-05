@@ -5,6 +5,7 @@ import { useObjects } from "@/providers/ObjectsProvider";
 import React, { ReactElement, useState } from 'react';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import WarningIcon from '@mui/icons-material/Warning';
 
 const leftStickyCellStyle: CSSProperties = {
     position: 'sticky',
@@ -30,9 +31,9 @@ function round(num: number, decimals: number) {
 const renderHeader = (array: AnalyticsResult[]) => {
     const columns: ReactElement[] = [];
     for(let i = 0; i < array.length; i++) {
-        columns.push(<TableCell key={i * 3} align="left" size="small" style={{ fontSize: 12, lineHeight: 1.2, top: 57, padding: 4, fontWeight: 'bold' }}>Заполн.</TableCell>);
-        columns.push(<TableCell key={i * 3 + 1} align="left" size="small" style={{ fontSize: 12, lineHeight: 1.2, top: 57, padding: 4, fontWeight: 'bold' }}>Ср. ц.</TableCell>);
-        columns.push(<TableCell key={i * 3 + 2} align="left" size="small" style={{ fontSize: 12, lineHeight: 1.2, top: 57, padding: 4, fontWeight: 'bold' }} sx={{borderRight: '1px solid #00000030'}}>Окно бр.</TableCell>);
+        columns.push(<TableCell key={i * 3} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }}>Заполн.</TableCell>);
+        columns.push(<TableCell key={i * 3 + 1} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }}>Ср. цен.</TableCell>);
+        columns.push(<TableCell key={i * 3 + 2} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }} sx={{borderRight: '1px solid #00000030'}}>Окно бр.</TableCell>);
     }
     return columns;
 }
@@ -49,11 +50,11 @@ const renderResultRow = (elems: FullAnalyticsResult) => {
 
         const background = !endMedianDays ? '#fff1f1ff' : 'transparent';
         
-        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 21}}>{round(elem.busyness * 100, 0)}%</TableCell>);
-        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 21}}>{Math.round(elem.middlePrice)}฿</TableCell>);
+        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 18}}>{round(elem.busyness * 100, 0)}%</TableCell>);
+        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 18}}>{Math.round(elem.middlePrice)}฿</TableCell>);
         cells.push(
             <TableCell key={index*3 + 2} align="left" style={{background}} sx={{borderRight: '1px solid #00000030'}}>
-                <Stack direction={'row'} spacing={1} style={{fontSize: 18}}>
+                <Stack direction={'row'} spacing={1} style={{fontSize: 16}}>
                     <Box>{startMedianDays ? round(startMedianDays, 0) : '~'}</Box>
                     <Box>-</Box>
                     <Box>{endMedianDays ? round(endMedianDays, 0) : '~'}</Box>
@@ -76,8 +77,19 @@ const renderResultSubRow = (rooms: RoomAnalyticsResult) => {
 
         const background = !endMedianDays ? '#fff1f1ff' : 'transparent';
         
-        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 16}}>{round(elem.busyness * 100, 0)}%</TableCell>);
-        cells.push(<TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 16}}>{Math.round(elem.middlePrice)}฿</TableCell>);
+        cells.push(<TableCell key={index*3} align="left" style={{background}} sx={{fontSize: 14}}>{round(elem.busyness * 100, 0)}%</TableCell>);
+        cells.push(
+            <TableCell key={index*3 + 1} align="left" style={{background}} sx={{fontSize: 14}}>
+                <Stack direction={'row'} spacing={1}>
+                    <Box>
+                        {Math.round(elem.middlePrice)}฿
+                    </Box>
+                    <Box>
+                        {elem.warning && (<WarningIcon color="error" fontSize="small"/>)}
+                    </Box>
+                </Stack>
+            </TableCell>
+        );
         cells.push(
             <TableCell key={index*3 + 2} align="left" style={{background}} sx={{borderRight: '1px solid #00000030'}}>
                 <Stack direction={'row'} spacing={1} style={{fontSize: 14}}>
@@ -100,7 +112,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
         <>
             <TableRow>
                 <TableCell component="td" style={leftStickyCellStyle}>
-                    <Stack direction={'row'} alignItems={'center'}>
+                    <Stack direction={'row'} alignItems={'center'} spacing={1}>
                         <IconButton
                             aria-label="expand row"
                             size="small"
@@ -109,6 +121,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
                             {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                         </IconButton>
                         {object.name}
+                        {filterAnalyticsData.warning && (<WarningIcon color="error"/>)}
                     </Stack>
                 </TableCell>
                 {renderResultRow(filterAnalyticsData)}
@@ -121,10 +134,13 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
                                 {filterAnalyticsData.roomsAnalytics.map((room) => {
                                     return (
                                         <TableRow key={room.roomID} >
-                                            <TableCell style={leftStickyCellStyle} sx={{width: 250}} component="td">
-                                                <Box>
-                                                    {room.roomName || 'Room: ' + room.roomID}
-                                                </Box>
+                                            <TableCell style={leftStickyCellStyle} sx={{width: 300}} component="td">
+                                                <Stack direction={'row'} alignItems={'center'} spacing={1}>
+                                                    <Box>
+                                                        {room.roomName || 'Room: ' + room.roomID}
+                                                    </Box>
+                                                    {room.warning && (<WarningIcon color="error"/>)}
+                                                </Stack>
                                                 
                                             </TableCell>
                                             
@@ -158,10 +174,10 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
                 <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
                     <TableHead>
                         <TableRow>
-                            <TableCell align="left" sx={{borderRight: '1px solid #00000030', width: 250}}></TableCell>
+                            <TableCell align="left" sx={{borderRight: '1px solid #00000030', width: 300}}></TableCell>
                             {filterAnalyticsData[0].objectAnalytics.map((row, index) => {
                                 return (
-                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 250}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
+                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 300}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
                                 )
                             })}
                         </TableRow>

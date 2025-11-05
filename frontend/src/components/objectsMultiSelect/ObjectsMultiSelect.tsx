@@ -1,6 +1,6 @@
 'use client'
 
-import { FormControl, InputLabel, Select, OutlinedInput, Box, Chip, MenuItem } from "@mui/material";
+import { FormControl, InputLabel, Select, OutlinedInput, Box, Chip, MenuItem, FormHelperText } from "@mui/material";
 import { Object } from "@/lib/types";
 
 const ITEM_HEIGHT = 48;
@@ -15,8 +15,8 @@ const MenuProps = {
 };
 
 
-export default function ObjectsMultiSelect(props: { objects: Object[], selectedObjects: Object[], onChange: (selectedObjects: Object[]) => void}) {
-    const { objects, selectedObjects, onChange } = props;
+export default function ObjectsMultiSelect(props: { id: string, error: boolean, helperText: string, objects: Object[], selectedObjects: Object[], onChange: (selectedObjects: Object[]) => void}) {
+    const { id, error, helperText, objects, selectedObjects, onChange } = props;
 
     const handleChange = (event: React.ChangeEvent<HTMLInputElement> | (Event & { target: { value: string[]; name: string; } })) => {
         const value = Array.isArray(event.target.value) ? event.target.value : [event.target.value];
@@ -49,11 +49,11 @@ export default function ObjectsMultiSelect(props: { objects: Object[], selectedO
     }
 
     return (
-        <FormControl sx={{ width: 300 }}>
+        <FormControl sx={{ width: 300 }} {...error ? { error: true } : {} }>
             <InputLabel id="objects-select">Выберите объект</InputLabel>
             <Select
                 labelId="objects-select"
-                id="demo-multiple-checkbox"
+                id={id}
                 multiple
                 value={selectedObjects.map((obj) => {return obj.name})}
                 onChange={handleChange}
@@ -90,6 +90,7 @@ export default function ObjectsMultiSelect(props: { objects: Object[], selectedO
                     </MenuItem>
                 ))}
             </Select>
+            <FormHelperText>{helperText}</FormHelperText>
         </FormControl>
     )
 }

@@ -59,12 +59,14 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         busyness: 0,
         startMedianResult: 0,
         endMedianResult: 0,
-        middlePrice: 0
+        middlePrice: 0,
+        warning: false
     };
 
     let bookingDBRequestArgs = {
         propertyId: object.id,
         unitId: { $exists: true },
+        status: { $ne: 'black' },
         $and: [
             {arrival: { $lte: period.lastNight }},
             {departure: { $gte: period.firstNight}}
@@ -84,12 +86,21 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         booking.departure = new Date(booking.departure);
         booking.bookingTime = new Date(booking.bookingTime);
 
+        let price = 0;
+        if(booking?.invoiceItems.length) {
+            booking.invoiceItems.forEach((invoiceElem: any) => {
+                if(invoiceElem.type == 'charge' && !price) {
+                    price = invoiceElem.amount;
+                }
+            })
+        }
+
         const newBooking = {
             title: booking.title,
             arrival: booking.arrival,
             departure: booking.departure,
             bookingTime: booking.bookingTime,
-            price: booking.price
+            price: price
         };
 
         bookingPerPeriod.bookings.push(newBooking);
@@ -137,19 +148,28 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     bookingPerPeriod.busyness = sumTime / totalTime;
     bookingPerPeriod.middlePrice = sumPrice / sumBookingDays;
 
+    if(bookingPerPeriod.busyness && !bookingPerPeriod.middlePrice) {
+        bookingPerPeriod.warning = true;
+    }
+
     return bookingPerPeriod;
 
 }
 
 async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: any, room: any) {
+    const result = await Promise.all(periods.map((period: any) => {
+        return new Promise(async (resolve, reject) => {
+            resolve(await getAnalyticsForPeriod(options, object, period, room));
+        })
+    }))
+
+    const hasWarning = result.some(elem => elem.warning === true);
+
     return {
         roomID: room.id,
         roomName: room.name,
-        roomAnalytics: await Promise.all(periods.map((period: any) => {
-            return new Promise(async (resolve, reject) => {
-                resolve(await getAnalyticsForPeriod(options, object, period, room));
-            })
-        }))
+        roomAnalytics: result,
+        warning: hasWarning
     }
 }
 
@@ -197,10 +217,12 @@ async function getAnalyticsForObject(options: any, objectID: number) {
                     resolve(await getRoomsAnalyticsForPeriod(options, object, periods, room));
                 })
             })).then((roomsResult) => {
+                const hasWarning = roomsResult.some((elem: any) => elem?.warning === true);
                 resolve({
                     objectAnalytics: objectResult,
                     roomsAnalytics: roomsResult,
-                    objectID: object.id
+                    objectID: object.id,
+                    warning: hasWarning
                 });
             })
             
@@ -232,16 +254,10 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     if(typeof objectFilterData === "string") {
         objectFilterData = [objectFilterData];
     }
+
     let objectIDs = objectFilterData.map((e) => {return +e});
 
-    
-    const objectCollection = db.collection('objects');
-
-    let objects = await objectCollection.find({
-        id: { $in: objectIDs},
-    }).toArray();
-
-    let periods = [];
+    let periods: any[] = [];
     if(req.query['periodMode'] == 'beds24') {
         const periodsTemplate = [
             {firstNight: '12-25', lastNight: '01-15'},
@@ -260,21 +276,40 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
             {firstNight: '12-10', lastNight: '12-24'},
         ];
 
-        for(let year = 2020; year <= 2025; year++) {
-            periods.push(...periodsTemplate.map((period, index) => {
+        const startDate = new Date(req?.query['startDate'] as string);
+        const endDate = new Date(req?.query['endDate'] as string);
+        const startYear = startDate.getFullYear();
+        const endYear = endDate.getFullYear() + 1;
+
+        for (let year = startYear; year <= endYear; year++) {
+            periodsTemplate.forEach((period, index) => {
                 let firstNight = period.firstNight;
                 let lastNight = period.lastNight;
-                if(index === 0) {
-                    return {
-                        firstNight: `${year-1}-${firstNight}`,
-                        lastNight: `${year}-${lastNight}`
-                    };
+
+                // Для первого периода шаблона — переход на следующий год
+                let firstDate: Date;
+                let lastDate: Date;
+
+                if (index === 0) {
+                    firstDate = new Date(`${year - 1}-${firstNight}`);
+                    lastDate = new Date(`${year}-${lastNight}`);
+                } else {
+                    firstDate = new Date(`${year}-${firstNight}`);
+                    lastDate = new Date(`${year}-${lastNight}`);
                 }
-                return {
-                    firstNight: `${year}-${firstNight}`,
-                    lastNight: `${year}-${lastNight}`
-                };
-            }));
+
+                // Корректируем границы, если период выходит за [start, end]
+                const adjustedFirst = (firstDate < startDate) ? startDate : firstDate;
+                const adjustedLast = (lastDate > endDate) ? endDate : lastDate;
+
+                // Если период пересекается с диапазоном — добавляем
+                if (adjustedFirst <= endDate && adjustedLast >= startDate) {
+                    periods.push({
+                        firstNight: adjustedFirst.toISOString().split('T')[0], // YYYY-MM-DD
+                        lastNight: adjustedLast.toISOString().split('T')[0]
+                    });
+                }
+            });
         }
     }
     else if(req.query['periodMode'] == 'custom') {

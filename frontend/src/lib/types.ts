@@ -11,12 +11,12 @@ export interface Object {
 
 export interface AnalyticsFilterData {
     objects: Object[];
-    startMedian: number;
-    endMedian: number;
+    startMedian: string;
+    endMedian: string;
     startDate: string;
     endDate: string;
     periodMode: string;
-    step: number;
+    step: string;
 }
 
 export interface AnalyticsResult {
@@ -32,19 +32,22 @@ export interface AnalyticsResult {
     endMedianResult: string,
     firstNight: string,
     lastNight: string,
-    middlePrice: number
+    middlePrice: number,
+    warning: boolean
 }
 
 export interface RoomAnalyticsResult {
     roomAnalytics: AnalyticsResult[],
     roomID: number,
-    roomName: string
+    roomName: string,
+    warning: boolean
 }
 
 export interface FullAnalyticsResult {
     objectAnalytics: AnalyticsResult[],
     objectID: number,
-    roomsAnalytics: RoomAnalyticsResult[]
+    roomsAnalytics: RoomAnalyticsResult[],
+    warning: boolean
 }
 
 export interface OptionsFormData {
