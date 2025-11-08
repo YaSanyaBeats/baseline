@@ -5,9 +5,8 @@ import ObjectsMultiSelect from "@/components/objectsMultiSelect/ObjectsMultiSele
 import { getAnalytics } from "@/lib/beds24/getAnalytics";
 import { AnalyticsFilterData, FullAnalyticsResult, Object } from "@/lib/types";
 import { useObjects } from "@/providers/ObjectsProvider";
-import { Alert, Box, Button, FormControl, InputLabel, MenuItem, Select, Skeleton, Snackbar, Stack, TextField } from "@mui/material"
+import { Alert, Box, Button, FormControl, FormHelperText, MenuItem, Select, Skeleton, Snackbar, Stack, TextField, Typography } from "@mui/material"
 import React, { ChangeEvent } from "react";
-
 
 function checkNumber(value: string): boolean {
     return !isNaN(Number(value)) && value.trim() !== '';
@@ -316,81 +315,140 @@ export default function Page() {
 
     
     return (
-        <Stack spacing={4}>
-            <Stack direction={'row'} alignItems={"center"} spacing={1}>
-                <Box>Получить аналитику для:</Box>
-                <ObjectsMultiSelect 
-                    id="objects"
-                    error={errors.objects.error}
-                    helperText={errors.objects.message}
-                    objects={objects} 
-                    selectedObjects={filterData.objects} 
-                    onChange={handleObjectChange} />
-                <Box>за периоды из Beds24 c медианой от</Box>
-                <TextField
-                    id="startMedian"
-                    error={errors.startMedian.error}
-                    helperText={errors.startMedian.message}
-                    onChange={handleChangeStartMedian} 
-                    label="От" 
-                    variant="outlined" />
-                <Box>до</Box>
-                <TextField
-                    id="endMedian"
-                    error={errors.endMedian.error}
-                    helperText={errors.endMedian.message}
-                    onChange={handleChangeEndMedian} 
-                    label="До" 
-                    variant="outlined" />
-            </Stack>
-            <Stack direction={'row'} alignItems={"center"} spacing={1}>
-                <Box>Взять периоды</Box>
-                <FormControl>
-                    <InputLabel>Периоды</InputLabel>
-                    <Select
-                        value={filterData.periodMode}
-                        label="Периоды"
-                        onChange={handleChangePeriod}
-                    >
-                        <MenuItem value={'beds24'}>Из Beds24</MenuItem>
-                        <MenuItem value={'custom'}>Кастомный период</MenuItem>
-                    </Select>
-                </FormControl>
-                {filterData.periodMode === 'custom' && (
-                    <Stack direction={'row'} alignItems={"center"} spacing={1}>
-                        <Box>с шагом</Box>
-                        <TextField
-                            id="step"
-                            error={errors.step.error}
-                            helperText={errors.step.message}
-                            onChange={handleChangeStep} 
-                            label="Дней" 
-                            variant="outlined"
-                            />
+        <>
+            <Stack spacing={4}>
+                <Stack direction={'row'} alignItems={"end"} spacing={3} flexWrap={'wrap'} useFlexGap>
+                    <Stack direction={'column'} spacing={1}>
+                        <Typography variant="body1" gutterBottom>Объекты</Typography>
+                        <ObjectsMultiSelect 
+                        id="objects"
+                        error={errors.objects.error}
+                        helperText={errors.objects.message}
+                        objects={objects} 
+                        selectedObjects={filterData.objects} 
+                        onChange={handleObjectChange} />
                     </Stack>
-                )}
+                    <Stack direction={'column'} spacing={1}>
+                        <Typography variant="body1" gutterBottom>Медианы</Typography>
+                        <FormControl {...(errors.startMedian.error || errors.endMedian.error) ? { error: true } : {} }>
+                            <Stack direction={'row'}>
+                                <TextField
+                                    id="startMedian"
+                                    error={errors.startMedian.error}
+                                    onChange={handleChangeStartMedian} 
+                                    label="От" 
+                                    variant="outlined"
+                                    sx={{
+                                        width: '100px',
+                                        '& .MuiOutlinedInput-root': {
+                                            borderBottomRightRadius: 0,
+                                            borderTopRightRadius: 0
+                                        },
+                                    }}
+                                />
+                                <TextField
+                                    id="endMedian"
+                                    error={errors.endMedian.error}
+                                    onChange={handleChangeEndMedian} 
+                                    label="До" 
+                                    variant="outlined" 
+                                    sx={{
+                                        width: '100px',
+                                        '& .MuiOutlinedInput-root': {
+                                            borderBottomLeftRadius: 0,
+                                            borderTopLeftRadius: 0,
+                                        },
+                                        '& .MuiOutlinedInput-notchedOutline': {
+                                            borderLeftColor: 'transparent',
+                                        },
+                                    }}
+                                />
+                            </Stack>
+                            <FormHelperText id="my-helper-text">{errors.startMedian.message || errors.endMedian.message}</FormHelperText>
+                        </FormControl>
+                    </Stack>
+
+                    <Stack direction={'column'} spacing={1}>
+                        <Typography variant="body1" gutterBottom>Периоды</Typography>
+                        <FormControl>
+                            <Select
+                                value={filterData.periodMode}
+                                onChange={handleChangePeriod}
+                            >
+                                <MenuItem value={'beds24'}>Из Beds24</MenuItem>
+                                <MenuItem value={'custom'}>Кастомный период</MenuItem>
+                            </Select>
+                        </FormControl>
+                    </Stack>
+
+                    {filterData.periodMode === 'custom' && (
+                        <Stack direction={'column'} spacing={1}>
+                            <Box>С шагом</Box>
+                            <TextField
+                                id="step"
+                                error={errors.step.error}
+                                helperText={errors.step.message}
+                                onChange={handleChangeStep} 
+                                label="Дней" 
+                                variant="outlined"
+                                />
+                        </Stack>
+                    )}
+
+                    <Stack direction={'column'} spacing={1}>
+                        <Box>Анализируемый период</Box>
+                        <FormControl {...(errors.startDate.error || errors.endDate.error) ? { error: true } : {} }>
+                            <Stack direction={'row'}>
+                                <TextField
+                                    id="startDate"
+                                    error={errors.startDate.error}
+                                    onChange={handleChangeStartDate} 
+                                    label="ГГГГ-ММ-ДД" 
+                                    variant="outlined"
+                                    sx={{
+                                        width: '200px',
+                                        '& .MuiOutlinedInput-root': {
+                                            borderBottomRightRadius: 0,
+                                            borderTopRightRadius: 0
+                                        },
+                                    }}
+                                />
+                                <TextField
+                                    id="endDate"
+                                    error={errors.endDate.error}
+                                    onChange={handleChangeEndDate} 
+                                    label="ГГГГ-ММ-ДД" 
+                                    variant="outlined"
+                                    sx={{
+                                        width: '200px',
+                                        '& .MuiOutlinedInput-root': {
+                                            borderBottomLeftRadius: 0,
+                                            borderTopLeftRadius: 0,
+                                        },
+                                        '& .MuiOutlinedInput-notchedOutline': {
+                                            borderLeftColor: 'transparent',
+                                        },
+                                    }}
+                                />
+                            </Stack>
+                            <FormHelperText id="my-helper-text">{errors.startDate.message || errors.endDate.message}</FormHelperText>
+                        </FormControl>
+                    </Stack>
+
+                    <Button 
+                        variant="contained" 
+                        size="large" 
+                        loading={loadAnalytics} 
+                        onClick={handleSubmit}
+                        sx={{ height: '56px' }}
+                    >
+                        Отправить
+                    </Button>
+                </Stack>
+
+                <AnalyticsTable analyticsData={analyticsData}></AnalyticsTable>
             </Stack>
 
-            <Stack direction={'row'} alignItems={"center"} spacing={1}>
-                <Box>Анализируемый период c </Box>
-                <TextField
-                    id="startDate"
-                    error={errors.startDate.error}
-                    helperText={errors.startDate.message}
-                    onChange={handleChangeStartDate} 
-                    label="ГГГГ-ММ-ДД" 
-                    variant="outlined" />
-                <Box>по</Box>
-                <TextField
-                    id="endDate"
-                    error={errors.endDate.error}
-                    helperText={errors.endDate.message}
-                    onChange={handleChangeEndDate} 
-                    label="ГГГГ-ММ-ДД" 
-                    variant="outlined" />
-                <Button variant="contained" loading={loadAnalytics} onClick={handleSubmit}>Отправить</Button>
-            </Stack>
-            <AnalyticsTable analyticsData={analyticsData}></AnalyticsTable>
             <Snackbar
                 open={snackbarOpen}
                 autoHideDuration={6000}
@@ -404,6 +462,6 @@ export default function Page() {
                     Ошибка сервера
                 </Alert>
             </Snackbar>
-        </Stack>
+        </>
     )
 }

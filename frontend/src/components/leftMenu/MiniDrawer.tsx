@@ -125,7 +125,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
     };
 
     return (
-        <Box sx={{ display: 'flex' }}>
+        <Box sx={{ display: 'flex', width: '100%' }}>
             <AppBar position="fixed" open={open}>
                 <Toolbar>
                     <IconButton
@@ -211,7 +211,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                 </List>
             </Drawer>
 
-            <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
+            <Box component="main" sx={{ flexGrow: 1, p: 3, overflowX: 'auto' }}>
                 <DrawerHeader />
                 {children}
             </Box>

@@ -11,7 +11,7 @@ const leftStickyCellStyle: CSSProperties = {
     position: 'sticky',
     left: 0,
     background: 'white',
-    zIndex: 1,
+    zIndex: 3,
     borderRight: '2px solid black'
 };
 
@@ -128,7 +128,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object }
             </TableRow>
             <TableRow >
                 <TableCell sx={{padding: 0, width: '100%'}} colSpan={filterAnalyticsData.objectAnalytics.length * 3 + 1}>
-                    <Collapse in={open} timeout="auto">
+                    <Collapse in={open} unmountOnExit>
                         <Table size={'small'} style={{borderBottom: '2px solid black', borderCollapse: 'separate', tableLayout: 'fixed'}}>
                             <TableBody>
                                 {filterAnalyticsData.roomsAnalytics.map((room) => {
@@ -169,43 +169,41 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
     }
 
     return (
-        <Box>
-            <TableContainer component={Paper} sx={{ maxHeight: '70vh', maxWidth: '80vw' }}>
-                <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
-                    <TableHead>
-                        <TableRow>
-                            <TableCell align="left" sx={{borderRight: '1px solid #00000030', width: 300}}></TableCell>
-                            {filterAnalyticsData[0].objectAnalytics.map((row, index) => {
-                                return (
-                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 300}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
-                                )
-                            })}
-                        </TableRow>
-                        <TableRow>
-                            <TableCell style={{ top: 57 }} align="left" sx={{borderRight: '1px solid #00000030'}}></TableCell>
-                            {renderHeader(filterAnalyticsData[0].objectAnalytics)}
-                        </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {filterAnalyticsData.map((objectAnaliticData) => {
-                            const objectID = objectAnaliticData.objectID;
-                            const object = objects.find((object) => {
-                                return object.id == objectID;
-                            })
-
-                            if(!object) {
-                                return (<></>);
-                            }
-
+        <TableContainer component={Paper}>
+            <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
+                <TableHead>
+                    <TableRow>
+                        <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030', width: 300}}></TableCell>
+                        {filterAnalyticsData[0].objectAnalytics.map((row, index) => {
                             return (
-                                <Row key={object.id + Math.random()} filterAnalyticsData={objectAnaliticData} object={object}></Row>
+                                <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 300}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
                             )
                         })}
-                        
-                    </TableBody>
+                    </TableRow>
+                    <TableRow>
+                        <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030'}}></TableCell>
+                        {renderHeader(filterAnalyticsData[0].objectAnalytics)}
+                    </TableRow>
+                </TableHead>
+                <TableBody>
+                    {filterAnalyticsData.map((objectAnaliticData) => {
+                        const objectID = objectAnaliticData.objectID;
+                        const object = objects.find((object) => {
+                            return object.id == objectID;
+                        })
+
+                        if(!object) {
+                            return (<></>);
+                        }
+
+                        return (
+                            <Row key={object.id} filterAnalyticsData={objectAnaliticData} object={object}></Row>
+                        )
+                    })}
                     
-                </Table>
-            </TableContainer>
-        </Box>
+                </TableBody>
+                
+            </Table>
+        </TableContainer>
     )
 }
