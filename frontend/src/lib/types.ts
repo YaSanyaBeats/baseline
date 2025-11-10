@@ -19,14 +19,33 @@ export interface AnalyticsFilterData {
     step: string;
 }
 
+/*
+firstName: booking.firstName,
+            lastName: booking.lastName,
+            status: booking.status,
+            title: booking.title,
+            arrival: booking.arrival,
+            departure: booking.departure,
+            bookingTime: booking.bookingTime,
+            price: price,
+            invoiceItems: booking.invoiceItems
+*/
+
+export interface AnalyticsBooking {
+    id: number,
+    firstName: string,
+    lastName: string,
+    status: string,
+    title: string,
+    arrival: string,
+    departure: string,
+    bookingTime: string,
+    price: number
+}
+
 export interface AnalyticsResult {
     id: number;
-    bookings: {
-        title: 'string',
-        arrival: string,
-        departure: string,
-        bookingTime: string
-    }[],
+    bookings: AnalyticsBooking[],
     busyness: number,
     startMedianResult: string,
     endMedianResult: string,

@@ -96,17 +96,26 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         }
 
         const newBooking = {
+            id: booking.id,
+            firstName: booking.firstName,
+            lastName: booking.lastName,
+            status: booking.status,
             title: booking.title,
             arrival: booking.arrival,
             departure: booking.departure,
             bookingTime: booking.bookingTime,
-            price: price
+            price: price,
+            invoiceItems: booking.invoiceItems
         };
 
         bookingPerPeriod.bookings.push(newBooking);
     })
 
     // Считаем занятость, окна бронирования и среднюю цену
+    if(!object?.roomTypes || !object.roomTypes.length || !object.roomTypes[0].units.length) {
+        return;
+    }
+
     let unitsCount = object.roomTypes[0].units.length;
     if(room) {
         unitsCount = 1;
