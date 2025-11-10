@@ -87,7 +87,7 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         booking.bookingTime = new Date(booking.bookingTime);
 
         let price = 0;
-        if(booking?.invoiceItems.length) {
+        if(booking?.invoiceItems?.length) {
             booking.invoiceItems.forEach((invoiceElem: any) => {
                 if(invoiceElem.type == 'charge' && !price) {
                     price = invoiceElem.amount;
