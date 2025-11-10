@@ -239,7 +239,7 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
 
     return (
         <>
-            <TableContainer component={Paper}>
+            <TableContainer component={Paper} sx={{ maxHeight: '70vh' }}>
                 <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
                     <TableHead>
                         <TableRow>
