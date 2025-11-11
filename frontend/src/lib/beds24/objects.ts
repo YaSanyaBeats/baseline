@@ -1,15 +1,26 @@
 import axios from 'axios';
-import { cache } from 'react';
-import { Object } from "@/lib/types";
 
-export const getObjects = cache(async (): Promise<Object[]> => {
+export async function getObjects(){
     if(!process.env.NEXT_PUBLIC_API_URL) {
         return [];
     }
 
     const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects');
     return response.data;
-})
+}
+
+export async function getAllObjects() {
+    if(!process.env.NEXT_PUBLIC_API_URL) {
+        return [];
+    }
+
+    const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
+        params: {
+            all: true
+        }
+    });
+    return response.data;
+}
 
 export async function getObject(IDs: number[]){
     if(!process.env.NEXT_PUBLIC_API_URL) {

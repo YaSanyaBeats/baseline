@@ -73,3 +73,8 @@ export interface OptionsFormData {
   excludeObjects: Object[];
   excludeSubstr: string;
 }
+
+export interface SyncResponse {
+    success: boolean;
+    message: string;
+}

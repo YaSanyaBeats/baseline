@@ -1,47 +1,63 @@
 'use client'
 import { syncObjects, syncPrices, syncBookings } from "@/lib/beds24/objects"
-import { Button, Snackbar, Stack } from "@mui/material"
+import { Alert, Button, Snackbar, Stack } from "@mui/material"
 import React from "react";
 
 
 
 export default function Page() {
-    const [open, setOpen] = React.useState(false);
-    const [message, setMessage] = React.useState('');
+    const [snackBarOptions, setSnackBarOptions] = React.useState({
+        open: false,
+        message: '',
+        severity: 'success' as 'success' | 'info' | 'warning' | 'error'
+    })
+    
     const [loadObjects, setLoadObjects] = React.useState(false);
     const [loadPrices, setLoadPrices] = React.useState(false);
     const [loadBookings, setLoadBookings] = React.useState(false);
     
 
     const handleSyncObjects = () => {
-        syncObjects();
         setLoadObjects(true);
-        setTimeout(() => {
-            setMessage('Обновлено 0 объектов');
+        syncObjects().then((res) => {
+            setSnackBarOptions({
+                open: true,
+                message: res.message,
+                severity: res.success ? 'success' : 'error',
+            });
             setLoadObjects(false);
-            setOpen(true);
-        }, 3000);
-        
+        });
     }
 
     const handleSyncPrices = () => {
-        syncPrices();
         setLoadPrices(true);
-        setTimeout(() => {
-            setMessage('Обновлено 0 ценовых периодов');
+        syncPrices().then((res) => {
+            setSnackBarOptions({
+                open: true,
+                message: res.message,
+                severity: res.success ? 'success' : 'error',
+            });
             setLoadPrices(false);
-            setOpen(true);
-        }, 3000);
+        });
     }
 
     const handleSyncBookings = () => {
-        syncBookings();
         setLoadBookings(true);
-        setTimeout(() => {
-            setMessage('Обновлено 0 новых бронирований');
+        syncBookings().then((res) => {
+            setSnackBarOptions({
+                open: true,
+                message: res.message,
+                severity: res.success ? 'success' : 'error',
+            });
             setLoadBookings(false);
-            setOpen(true);
-        }, 3000);
+        });
+    }
+
+    const handleClose = () => {
+        setSnackBarOptions({
+            ...snackBarOptions,
+            open: false
+        });
     }
   
     return (
@@ -51,12 +67,21 @@ export default function Page() {
                 <Button onClick={handleSyncPrices} variant="contained" loading={loadPrices}>Sync Prices</Button>
                 <Button onClick={handleSyncBookings} variant="contained" loading={loadBookings}>Sync Bookings</Button>
             </Stack>
-            <Snackbar
-                open={open}
-                autoHideDuration={6000}
-                message={message}
+            <Snackbar 
+                open={snackBarOptions.open} 
+                autoHideDuration={6000} 
+                onClose={handleClose}
                 anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
-            />
+            >
+                <Alert
+                    onClose={handleClose}
+                    severity={snackBarOptions.severity}
+                    variant="filled"
+                    sx={{ width: '100%' }}
+                >
+                    {snackBarOptions.message}
+                </Alert>
+            </Snackbar>
         </>
     )
 }

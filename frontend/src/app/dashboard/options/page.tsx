@@ -1,15 +1,16 @@
 'use client'
 
 import { useObjects } from "@/providers/ObjectsProvider";
-import { Box, Button, FormControl, Stack, TextField, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, FormControl, Stack, TextField, Typography } from "@mui/material";
 import { Object, OptionsFormData } from "@/lib/types";
 import React from "react";
 import ObjectsMultiSelect from "@/components/objectsMultiSelect/ObjectsMultiSelect";
 import { getOptions, sendOptions } from "@/lib/options";
-
+import { getAllObjects } from '@/lib/beds24/objects';
 
 export default function Page() {
-    const { objects } = useObjects();
+    const { refreshObjects } = useObjects();
+    const [ allObjects, setAllObjects] = React.useState<Object[] | null>(null);
     const [loadForm, setLoadForm] = React.useState(false);
 
     const [formData, setFormData] = React.useState<OptionsFormData>({
@@ -18,16 +19,13 @@ export default function Page() {
     });
 
     React.useEffect(() => {
-        const fetchObjects = async () => {
-            try {
-                const options = await getOptions();
-                setFormData(options);
-            } finally {
-            }
-        };
+        getAllObjects().then((result) => {
+            setAllObjects(result);
+        })
 
-        fetchObjects();
-            
+        getOptions().then((options) => {
+            setFormData(options);
+        })
     }, [])
 
     const handleObjectChange = (selectedObjects: Object[]) => {
@@ -47,14 +45,19 @@ export default function Page() {
     const handleSubmit = async () => {
         setLoadForm(true);
         await sendOptions(formData);
+        refreshObjects();
         setLoadForm(false);
+    }
+
+    if(allObjects === null) {
+        return <CircularProgress />;
     }
     
     return (
         <Stack spacing={2}>
             <Box>
                 <Typography variant="h5" gutterBottom>Игнорировать в системе выбранные объекты:</Typography>
-                <ObjectsMultiSelect id="objects" error={false} helperText="Выберите хотя бы один объект" objects={objects} selectedObjects={formData.excludeObjects} onChange={handleObjectChange}></ObjectsMultiSelect>
+                <ObjectsMultiSelect id="objects" error={false} helperText="Выберите хотя бы один объект" objects={allObjects} selectedObjects={formData.excludeObjects} onChange={handleObjectChange}></ObjectsMultiSelect>
             </Box>
             <Box>
                 <Typography variant="h5" gutterBottom>Игнорировать в системе объекты, содержащие в названии:</Typography>
