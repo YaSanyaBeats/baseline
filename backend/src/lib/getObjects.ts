@@ -32,7 +32,15 @@ export async function getObjects() {
     })
 
     const result = neededObjects.filter((object) => {
-        return !object.name.includes(options.excludeSubstr);
+        if(object.name.includes(options.excludeSubstr)) {
+            return false;
+        }
+
+        if(options.excludeObjects?.includes(object.id)) {
+            return false;
+        }
+
+        return true;
     })
 
     return result;
@@ -41,7 +49,7 @@ export async function getObjects() {
 export async function getAllObjects() {
     const collection = db.collection('objects');
     
-    let objects = await collection.find({}).toArray();
+    let objects = await collection.find({}).sort({name: 1}).toArray();
     const neededObjects = objects.map((object: any) => {
         return {
             id: object.id,

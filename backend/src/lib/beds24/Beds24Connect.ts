@@ -46,7 +46,7 @@ export class Beds24Connect {
         }
     }
 
-    async get(endpoint: string, params: any): Promise<any> {
+    async sendGetRequest(endpoint: string, params: any): Promise<any> {
         const collection = db.collection('beds24');
         const tokenObj = await collection.findOne();
         const token = tokenObj?.token;
@@ -63,91 +63,37 @@ export class Beds24Connect {
 				responseType: 'json',
 				timeout: 5000
 			});
-			return response.data;
+			return response;
 		}
 		catch(response: any) {
 			if(response?.status === 401) {
 				this.refreshToken();
-				return this.get(endpoint, params);
+				return this.sendGetRequest(endpoint, params);
 			}
-			return response;
+			return {'error': 'Error in Beds24 API request'};
 		}
     }
+
+	async get(endpoint: string, params: any): Promise<any> {
+		let result = await this.sendGetRequest(endpoint, params);
+		if(result?.data && result?.data?.success) {
+			return result.data;
+		}
+		return {'error': 'Error in Beds24 API request'};
+	}
+
+	async getTokens() {
+		let result = await this.sendGetRequest('properties', { page: 1 });
+		if(result?.data && result?.data?.success) {
+			return {
+				remaining: result?.headers['x-five-min-limit-remaining'],
+				resetsIn: result?.headers['x-five-min-limit-resets-in'],
+			}
+		}
+		return {'error': 'Error in Beds24 API request'};
+	}
 
     async post() {
 		// TODO Make post requests in Beds24
     }
 }
-
-/*function sendRequestGET($url) {
-	$curl = curl_init();
-
-	curl_setopt_array($curl, array(
-	  CURLOPT_URL => $url,
-	  CURLOPT_RETURNTRANSFER => true,
-	  CURLOPT_ENCODING => '',
-	  CURLOPT_MAXREDIRS => 10,
-	  CURLOPT_TIMEOUT => 0,
-	  CURLOPT_FOLLOWLOCATION => true,
-	  CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-	  CURLOPT_CUSTOMREQUEST => 'GET',
-	  CURLOPT_HTTPHEADER => array(
-	    'token: ' . file_get_contents(get_theme_file_path() . '/token.txt'),
-	  ),
-	));
-
-	$response = json_decode(curl_exec($curl), true);
-	curl_close($curl);
-
-
-	
-	if(!$response['success'] && $response['code'] === 401) {
-		$path = 'https://beds24.com/api/v2/';
-		$endpoint = 'authentication/token/';
-
-		if(getToken()) {
-			return sendRequestGET($url);
-		}
-		return ['success' => false];
-	}
-
-
-	return $response;
-}
-
-function sendRequestPOST($url, $postFields) {
-	$curl = curl_init();
-
-	curl_setopt_array($curl, array(
-	  CURLOPT_URL => $url,
-	  CURLOPT_RETURNTRANSFER => true,
-	  CURLOPT_ENCODING => '',
-	  CURLOPT_MAXREDIRS => 10,
-	  CURLOPT_TIMEOUT => 0,
-	  CURLOPT_FOLLOWLOCATION => true,
-	  CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-	  CURLOPT_CUSTOMREQUEST => 'POST',
-	  CURLOPT_POSTFIELDS => $postFields,
-	  CURLOPT_HTTPHEADER => array(
-	  	'accept: application/json',
-	    'token: ' . file_get_contents(get_theme_file_path() . '/token.txt'),
-	    'Content-Type: application/json'
-	  ),
-	));
-
-	$response = json_decode(curl_exec($curl), true);
-	curl_close($curl);
-
-	if(!empty($response[0]) && !$response[0]['success'] && $response[0]['code'] === 401) {
-		$path = 'https://beds24.com/api/v2/';
-		$endpoint = 'authentication/token/';
-
-		if(getToken()) {
-			return sendRequestGET($url);
-		}
-		return ['success' => false];
-	}
-
-
-	return $response;
-}*/
