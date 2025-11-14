@@ -19,18 +19,6 @@ export interface AnalyticsFilterData {
     step: string;
 }
 
-/*
-firstName: booking.firstName,
-            lastName: booking.lastName,
-            status: booking.status,
-            title: booking.title,
-            arrival: booking.arrival,
-            departure: booking.departure,
-            bookingTime: booking.bookingTime,
-            price: price,
-            invoiceItems: booking.invoiceItems
-*/
-
 export interface AnalyticsBooking {
     id: number,
     firstName: string,
@@ -52,13 +40,17 @@ export interface AnalyticsResult {
     firstNight: string,
     lastNight: string,
     middlePrice: number,
-    warning: boolean
+    error: boolean,
+    warning: boolean,
+    busynessGrow: boolean,
+    priceGrow: boolean
 }
 
 export interface RoomAnalyticsResult {
     roomAnalytics: AnalyticsResult[],
     roomID: number,
     roomName: string,
+    error: boolean,
     warning: boolean
 }
 
@@ -66,7 +58,20 @@ export interface FullAnalyticsResult {
     objectAnalytics: AnalyticsResult[],
     objectID: number,
     roomsAnalytics: RoomAnalyticsResult[],
+    error: boolean,
     warning: boolean
+}
+
+export interface AnalyticsHeader {
+    firstNight: string,
+    lastNight: string,
+    middleBusyness: number,
+    middlePrice: number
+}
+
+export interface AnalyticsResponse {
+    header: AnalyticsHeader[],
+    data: FullAnalyticsResult[]
 }
 
 export interface OptionsFormData {

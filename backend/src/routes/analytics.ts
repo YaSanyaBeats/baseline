@@ -60,13 +60,13 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         startMedianResult: 0,
         endMedianResult: 0,
         middlePrice: 0,
-        warning: false
+        error: false
     };
 
     let bookingDBRequestArgs = {
         propertyId: object.id,
         unitId: { $exists: true },
-        status: { $ne: 'black' },
+        status: { $nin: ['black', 'inquiry'] },
         $and: [
             {arrival: { $lte: period.lastNight }},
             {departure: { $gte: period.firstNight}}
@@ -89,8 +89,8 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         let price = 0;
         if(booking?.invoiceItems?.length) {
             booking.invoiceItems.forEach((invoiceElem: any) => {
-                if(invoiceElem.type == 'charge' && !price) {
-                    price = invoiceElem.amount;
+                if(invoiceElem.type == 'charge' && invoiceElem.lineTotal > price) {
+                    price = invoiceElem.lineTotal;
                 }
             })
         }
@@ -141,6 +141,7 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         let daysInBooking = (booking.departure.getTime() - booking.arrival.getTime()) / (1000 * 60 * 60 * 24);
         
         
+        
         sumPrice += (booking.price / daysInBooking) * daysInPeriod;
         sumBookingDays += daysInPeriod;
 
@@ -158,7 +159,11 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     bookingPerPeriod.middlePrice = sumPrice / sumBookingDays;
 
     if(bookingPerPeriod.busyness && !bookingPerPeriod.middlePrice) {
-        bookingPerPeriod.warning = true;
+        bookingPerPeriod.error = true;
+    }
+
+    if(bookingPerPeriod.busyness == 1 && bookingPerPeriod.middlePrice < 500) {
+        bookingPerPeriod.error = true;
     }
 
     return bookingPerPeriod;
@@ -172,13 +177,13 @@ async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: an
         })
     }))
 
-    const hasWarning = result.some(elem => elem.warning === true);
+    const hasError = result.some(elem => elem.error === true);
 
     return {
         roomID: room.id,
         roomName: room.name,
         roomAnalytics: result,
-        warning: hasWarning
+        error: hasError
     }
 }
 
@@ -226,17 +231,101 @@ async function getAnalyticsForObject(options: any, objectID: number) {
                     resolve(await getRoomsAnalyticsForPeriod(options, object, periods, room));
                 })
             })).then((roomsResult) => {
-                const hasWarning = roomsResult.some((elem: any) => elem?.warning === true);
+                const hasError = roomsResult.some((elem: any) => elem?.error === true);
                 resolve({
                     objectAnalytics: objectResult,
                     roomsAnalytics: roomsResult,
                     objectID: object.id,
-                    warning: hasWarning
+                    error: hasError,
                 });
             })
             
         })
     })
+}
+
+function getHeaderValues(periods: any, data: any) {
+    let result = [] as any[];
+    periods.map((period: any, index: number) => {
+        let resultPerPeriod = {
+            firstNight: period.firstNight,
+            lastNight: period.lastNight,
+            middleBusyness: 0,
+            middlePrice: 0
+        }
+        data.forEach((objectData: any) => {
+            resultPerPeriod.middleBusyness += objectData.objectAnalytics[index].busyness;
+            resultPerPeriod.middlePrice += objectData.objectAnalytics[index].middlePrice;
+        })
+
+        resultPerPeriod.middleBusyness /= data.length;
+        resultPerPeriod.middlePrice /= data.length;
+
+        result.push(resultPerPeriod);
+    })
+    return result;
+}
+
+function fillAverageCompareResult(data: any) {
+    data.header.forEach((period: any, index: number) => {
+        data.data.forEach((objectPerPeriod: any) => {
+            objectPerPeriod.objectAnalytics[index].busynessGrow = objectPerPeriod.objectAnalytics[index].busyness > period.middleBusyness;
+            objectPerPeriod.objectAnalytics[index].priceGrow = objectPerPeriod.objectAnalytics[index].middlePrice > period.middlePrice;
+        })
+    })
+    return data;
+}
+
+function checkDeviations(median: number, value: number) {
+    if(!value) {
+        return false;
+    }
+
+    const deviation = ((value - median) / median) * 100;
+    if(Math.abs(deviation) > 50) {
+        return true;
+    }
+
+    return false;
+}
+
+function fillWarnings(data: any) {
+    data.header.forEach((period: any, index: number) => {
+        data.data.forEach((object: any) => {
+            let prices = [] as number[];
+            object.roomsAnalytics.forEach((room: any) => {
+                if(room.roomAnalytics[index].middlePrice) {
+                    prices.push(room.roomAnalytics[index].middlePrice);
+                }
+            })
+            const median = prices.slice().sort((a, b) => a - b)[Math.floor(prices.length / 2)];
+            object.roomsAnalytics.forEach((room: any) => {
+                room.roomAnalytics[index].warning = checkDeviations(median, room.roomAnalytics[index].middlePrice);
+            })
+        })
+    })
+
+    data.data.forEach((object: any) => {
+        object.objectAnalytics.forEach((objectPerPeriod: any) => {
+            if(objectPerPeriod.busyness > 1) {
+                objectPerPeriod.warning = true;
+            }
+        })
+    })
+
+    data.data.forEach((object: any) => {
+        object.roomsAnalytics.forEach((room: any) => {
+            const hasWarning = room.roomAnalytics.some((elem: any) => elem.warning === true);
+            room.warning = hasWarning;
+        })
+    })
+
+    data.data.forEach((object: any) => {
+        const hasWarning = object.roomsAnalytics.some((elem: any) => elem.warning === true);
+        object.warning = hasWarning;
+    })
+
+    return data;
 }
 
 router.get('/', async function(req: Request, res: Response, next: NextFunction) {
@@ -344,7 +433,13 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         periodMode: req.query['periodMode'],
         step: req.query['step']
     }))).then((value: any) => {
-        res.send(value);
+        let result = {
+            header: getHeaderValues(periods, value),
+            data: value
+        } as any;
+        result = fillAverageCompareResult(result);
+        result = fillWarnings(result);
+        res.send(result);
     });
 });
 

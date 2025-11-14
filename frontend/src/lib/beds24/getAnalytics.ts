@@ -1,8 +1,8 @@
 import axios from 'axios';
-import { AnalyticsFilterData, FullAnalyticsResult } from '../types';
+import { AnalyticsFilterData, AnalyticsResponse } from '../types';
 import { Object } from '@/lib/types';
 
-export async function getAnalytics(filterData: AnalyticsFilterData): Promise<FullAnalyticsResult[]>{
+export async function getAnalytics(filterData: AnalyticsFilterData): Promise<AnalyticsResponse>{
     if(!process.env.NEXT_PUBLIC_API_URL) {
         throw new Error('Нет NEXT_PUBLIC_API_URL в переменных окружения');
     }

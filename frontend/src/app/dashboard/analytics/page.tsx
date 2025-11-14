@@ -3,7 +3,7 @@
 import AnalyticsTable from "@/components/analytics/AnalyticsTable";
 import ObjectsMultiSelect from "@/components/objectsMultiSelect/ObjectsMultiSelect";
 import { getAnalytics } from "@/lib/beds24/getAnalytics";
-import { AnalyticsFilterData, FullAnalyticsResult, Object } from "@/lib/types";
+import { AnalyticsFilterData, AnalyticsResponse, Object } from "@/lib/types";
 import { useObjects } from "@/providers/ObjectsProvider";
 import { Alert, Box, Button, FormControl, FormHelperText, MenuItem, Select, Skeleton, Snackbar, Stack, TextField, Typography } from "@mui/material"
 import React, { ChangeEvent } from "react";
@@ -38,8 +38,8 @@ function isValidDateString(str: string): boolean {
 
 const defaultFilterData = {
     objects: [],
-    startMedian: '20',
-    endMedian: '70',
+    startMedian: '25',
+    endMedian: '75',
     startDate: '2019-01-01',
     endDate: '2026-12-31',
     periodMode: 'beds24',
@@ -76,7 +76,7 @@ const defaultErrors = {
 export default function Page() {
     const { objects, loading } = useObjects();
     const [loadAnalytics, setLoadAnalytics] = React.useState(false);
-    const [analyticsData, setAnalyticsData] = React.useState<FullAnalyticsResult[]>([]);
+    const [analyticsData, setAnalyticsData] = React.useState<AnalyticsResponse | null>(null);
 
     const [filterData, setFilterData] = React.useState<AnalyticsFilterData>(defaultFilterData);
     const [errors, setErrors] = React.useState(defaultErrors);
@@ -446,7 +446,10 @@ export default function Page() {
                     </Button>
                 </Stack>
 
-                <AnalyticsTable analyticsData={analyticsData}></AnalyticsTable>
+                {analyticsData && (
+                    <AnalyticsTable analyticsData={analyticsData}></AnalyticsTable>
+                )}
+                
             </Stack>
 
             <Snackbar

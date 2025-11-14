@@ -1,5 +1,5 @@
-import { AnalyticsBooking, AnalyticsResult, FullAnalyticsResult, RoomAnalyticsResult } from "@/lib/types";
-import { Box, Collapse, CSSProperties, IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material";
+import { AnalyticsBooking, AnalyticsHeader, AnalyticsResponse, FullAnalyticsResult, RoomAnalyticsResult } from "@/lib/types";
+import { Box, Collapse, CSSProperties, IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import { Object } from '@/lib/types';
 import { useObjects } from "@/providers/ObjectsProvider";
 import React, { ReactElement, useState } from 'react';
@@ -7,6 +7,9 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import WarningIcon from '@mui/icons-material/Warning';
 import BookingPopup from "./BookingPopup";
+import FunctionsIcon from '@mui/icons-material/Functions';
+import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp';
+import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 
 const leftStickyCellStyle: CSSProperties = {
     position: 'sticky',
@@ -47,13 +50,47 @@ function round(num: number, decimals: number) {
     return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals);
 }
 
-const renderHeader = (array: AnalyticsResult[]) => {
+const renderHeader = (periods: AnalyticsHeader[]) => {
     const columns: ReactElement[] = [];
-    for(let i = 0; i < array.length; i++) {
-        columns.push(<TableCell key={i * 3} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }}>Заполн.</TableCell>);
-        columns.push(<TableCell key={i * 3 + 1} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }}>Ср. цен.</TableCell>);
+    periods.forEach((period, i) => {
+        columns.push(
+            <TableCell key={i * 3} align="left" size="small" sx={{ top: 57 }}>
+                <Typography variant="body2" sx={{fontWeight: 600}}>
+                    Заполн.
+                </Typography>
+            </TableCell>
+        );
+        columns.push(
+            <TableCell key={i * 3 + 1} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }}>
+                <Typography variant="body2" sx={{fontWeight: 600}}>
+                    Ср. цен.
+                </Typography>
+            </TableCell>
+        );
         columns.push(<TableCell key={i * 3 + 2} align="left" size="small" style={{ fontSize: 14, lineHeight: 1.2, top: 57, fontWeight: 'bold' }} sx={{borderRight: '1px solid #00000030'}}>Окно бр.</TableCell>);
-    }
+    })
+    return columns;
+}
+
+const renderAverageHeader = (periods: AnalyticsHeader[]) => {
+    const columns: ReactElement[] = [];
+    periods.forEach((period, i) => {
+        columns.push(
+            <TableCell key={i * 3} align="left" size="small" sx={{ background: '#F0F0F0', zIndex: 1 }}>
+                <Typography variant="body1" sx={{fontWeight: 600 }}>
+                    {round(period.middleBusyness * 100, 0)}%
+                </Typography>
+            </TableCell>
+        );
+        columns.push(
+            <TableCell key={i * 3 + 1} align="left" size="small" sx={{ background: '#F0F0F0', zIndex: 1 }}>
+                <Typography variant="body1" sx={{fontWeight: 600 }}>
+                    {Math.round(period.middlePrice)}฿
+                </Typography>
+            </TableCell>
+        );
+        columns.push(<TableCell key={i * 3 + 2} align="left" size="small" sx={{borderRight: '1px solid #00000030', background: '#F0F0F0', zIndex: 1}}></TableCell>);
+    })
     return columns;
 }
 
@@ -77,7 +114,17 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
                 align="left" 
                 sx={{fontSize: 18, ...cellStyles}}
             >
-                {round(elem.busyness * 100, 0)}%
+                <Stack direction={'row'} alignItems={'start'}>
+                    <Box>
+                        {round(elem.busyness * 100, 0)}%
+                    </Box>
+                    <Box>
+                        <Tooltip title="Сравнение со средним по выборке">
+                            {elem.busynessGrow ? (<ArrowDropUpIcon color={'success'}></ArrowDropUpIcon>) : (<ArrowDropDownIcon color={'error'}></ArrowDropDownIcon>)}
+                        </Tooltip>
+                    </Box>
+                </Stack>
+                
             </TableCell>
         );
         cells.push(
@@ -87,7 +134,20 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
                 align="left"
                 sx={{fontSize: 18, ...cellStyles}}
             >
-                {Math.round(elem.middlePrice)}฿
+                <Stack direction={'row'} alignItems={'start'}>
+                    <Box>
+                        {Math.round(elem.middlePrice)}฿
+                    </Box>
+                    <Box>
+                        {elem.error && (<WarningIcon color="error" fontSize="small"/>)}
+                        {elem.warning && (<WarningIcon color="warning" fontSize="small"/>)}
+                    </Box>
+                    <Box>
+                        <Tooltip title="Сравнение со средним по выборке">
+                            {elem.priceGrow ? (<ArrowDropUpIcon color={'success'}></ArrowDropUpIcon>) : (<ArrowDropDownIcon color={'error'}></ArrowDropDownIcon>)}
+                        </Tooltip>
+                    </Box>
+                </Stack>
             </TableCell>
         );
         cells.push(
@@ -142,7 +202,8 @@ const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: A
                         {Math.round(elem.middlePrice)}฿
                     </Box>
                     <Box>
-                        {elem.warning && (<WarningIcon color="error" fontSize="small"/>)}
+                        {elem.error && (<WarningIcon color="error" fontSize="small"/>)}
+                        {elem.warning && (<WarningIcon color="warning" fontSize="small"/>)}
                     </Box>
                 </Stack>
             </TableCell>
@@ -182,7 +243,8 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                             {openCollapse ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                         </IconButton>
                         {object.name}
-                        {filterAnalyticsData.warning && (<WarningIcon color="error"/>)}
+                        {filterAnalyticsData.error && (<WarningIcon color="error"/>)}
+                        {filterAnalyticsData.warning && (<WarningIcon color="warning"/>)}
                     </Stack>
                 </TableCell>
                 {renderResultRow(filterAnalyticsData, handleClick)}
@@ -200,7 +262,8 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                                                     <Box>
                                                         {room.roomName || 'Room: ' + room.roomID}
                                                     </Box>
-                                                    {room.warning && (<WarningIcon color="error"/>)}
+                                                    {room.error && (<WarningIcon color="error"/>)}
+                                                    {room.warning && (<WarningIcon color="warning"/>)}
                                                 </Stack>
                                                 
                                             </TableCell>
@@ -219,7 +282,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
     )
 }
 
-export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResult[] }) {
+export default function AnalyticsTable(props: { analyticsData: AnalyticsResponse }) {
     const [openBookingsPopup, setOpenBookingsPopup] = React.useState(false);
     const [selectedBookings, setSelectedBookings] = React.useState<AnalyticsBooking[]>([]);
 
@@ -233,18 +296,18 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
         setOpenBookingsPopup(true);
     }
 
-    if(!filterAnalyticsData.length) {
+    if(!filterAnalyticsData.data?.length) {
         return;
     }
 
     return (
         <>
-            <TableContainer component={Paper} sx={{ maxHeight: '70vh' }}>
+            <TableContainer component={Paper} sx={{ maxHeight: '70vh', paddingBottom: '8px' }}>
                 <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
                     <TableHead>
                         <TableRow>
                             <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030', width: 300}}></TableCell>
-                            {filterAnalyticsData[0].objectAnalytics.map((row, index) => {
+                            {filterAnalyticsData.header.map((row, index) => {
                                 return (
                                     <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 300}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
                                 )
@@ -252,11 +315,20 @@ export default function AnalyticsTable(props: { analyticsData: FullAnalyticsResu
                         </TableRow>
                         <TableRow>
                             <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030'}}></TableCell>
-                            {renderHeader(filterAnalyticsData[0].objectAnalytics)}
+                            {renderHeader(filterAnalyticsData.header)}
+                        </TableRow>
+                        <TableRow>
+                            <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030'}}>
+                                <Stack direction={'row'} spacing={1}>
+                                    <FunctionsIcon></FunctionsIcon>
+                                    <Typography sx={{fontWeight: 600}}>Среднее по выборке</Typography>
+                                </Stack>
+                            </TableCell>
+                            {renderAverageHeader(filterAnalyticsData.header)}
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {filterAnalyticsData.map((objectAnaliticData) => {
+                        {filterAnalyticsData.data.map((objectAnaliticData) => {
                             const objectID = objectAnaliticData.objectID;
                             const object = objects.find((object) => {
                                 return object.id == objectID;
