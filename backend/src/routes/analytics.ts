@@ -255,7 +255,9 @@ function getHeaderValues(periods: any, data: any) {
         }
         data.forEach((objectData: any) => {
             resultPerPeriod.middleBusyness += objectData.objectAnalytics[index].busyness;
-            resultPerPeriod.middlePrice += objectData.objectAnalytics[index].middlePrice;
+            if(objectData.objectAnalytics[index].middlePrice) {
+                resultPerPeriod.middlePrice += objectData.objectAnalytics[index].middlePrice;
+            }
         })
 
         resultPerPeriod.middleBusyness /= data.length;
