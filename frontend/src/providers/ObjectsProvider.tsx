@@ -41,7 +41,6 @@ export function ObjectsProvider({ children, serverObjects, session }: ObjectsPro
         
         try {
             const fetchedObjects = await getObjects(session);
-            console.log(fetchedObjects);
             setObjects(fetchedObjects);
             return fetchedObjects;
 

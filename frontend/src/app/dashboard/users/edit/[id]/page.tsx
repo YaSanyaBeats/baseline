@@ -37,6 +37,7 @@ export default function Page() {
                 password: user.password,
                 objects: currentUser.objects
             });
+            console.log(currentUser);
         })
     }, [])
 

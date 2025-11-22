@@ -132,7 +132,7 @@ export default function Page() {
                         </FormControl>
                     </Box>
                     <Box>
-                        <RoomsMultiSelect onChange={handleChangeRooms} value={[]}></RoomsMultiSelect>
+                        <RoomsMultiSelect value={user.objects} onChange={handleChangeRooms}></RoomsMultiSelect>
                     </Box>
                     <Box>
                         <FormControl variant="outlined" sx={{width: '100%'}}>
