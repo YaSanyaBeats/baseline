@@ -1,8 +1,19 @@
 import axios from 'axios';
+import { UserObject } from '../types';
 
-export async function getObjects(){
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getObjects(session: any){
     if(!process.env.NEXT_PUBLIC_API_URL) {
         return [];
+    }
+
+    if(session.user.role == 'owner') {
+        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
+            params: {
+                objectsInfo: session.user.objects
+            }
+        });
+        return response.data;
     }
 
     const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects');
@@ -30,6 +41,21 @@ export async function getObject(IDs: number[]){
     const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
         params: {
             id: IDs
+        }
+    });
+    return response.data;
+}
+
+export async function getRooms(roomInfo: UserObject[]){
+    if(!process.env.NEXT_PUBLIC_API_URL) {
+        return;
+    }
+
+    console.log(roomInfo);
+
+    const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
+        params: {
+            roomInfo: roomInfo
         }
     });
     return response.data;

@@ -3,21 +3,7 @@ import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Paper, Table
 import Link from "next/link";
 import React from "react";
 import LaunchIcon from '@mui/icons-material/Launch';
-
-const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const formattedDate = date.toLocaleDateString('ru-RU').replace(/\./g, '.');
-    return formattedDate;
-}
-
-const formatTitle = (firstName: string, lastName: string, title: string) => {
-    if(title) {
-        title = `(${title})`;
-    }
-
-
-    return [firstName, lastName, title].join(' ');
-}
+import { formatDate, formatTitle } from "@/lib/format";
 
 export default function BookingPopup(props: { open: boolean, bookings: AnalyticsBooking[], onClose: () => void }) {
     const { open, bookings, onClose } = props;

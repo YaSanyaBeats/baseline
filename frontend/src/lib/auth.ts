@@ -18,8 +18,9 @@ export const authOptions = {
                 }
                 try {
                     const response = await axios.post(process.env.NEXT_PUBLIC_API_URL + 'login', credentials);
-                    const { token } = response.data;
+                    const { user, token } = response.data;
                     return {
+                        user: user,
                         id: credentials.login,
                         token,
                         login: credentials.login
@@ -45,11 +46,12 @@ export const authOptions = {
             session: DefaultSession, 
             token: DefaultJWT  
         }) {
+            token.user
             return {
                 ...session,
                 user: {
-                ...session.user,
-                id: token.id,
+                    ...session.user,
+                    ...(token.user ? token.user : {}),
                 },
             };
         },

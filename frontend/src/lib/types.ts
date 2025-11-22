@@ -9,6 +9,24 @@ export interface Object {
     roomTypes: Room[];
 }
 
+export interface Booking {
+    id: number,
+    firstName: string,
+    lastName: string,
+    status: string,
+    title: string,
+    arrival: string,
+    departure: string,
+    bookingTime: string,
+    invoiceItems: InvoiceItem[]
+}
+
+export interface InvoiceItem {
+    id: number,
+    type: string,
+    lineTotal: number,
+}
+
 export interface AnalyticsFilterData {
     objects: Object[];
     startMedian: string;
@@ -79,7 +97,21 @@ export interface OptionsFormData {
   excludeSubstr: string;
 }
 
-export interface SyncResponse {
+export interface User {
+    _id?: string,
+    login: string,
+    role: 'admin' | 'owner',
+    name: string,
+    password: string,
+    objects: UserObject[]
+}
+
+export interface UserObject {
+    id: number,
+    rooms: number[]
+}
+
+export interface CommonResponse {
     success: boolean;
     message: string;
 }

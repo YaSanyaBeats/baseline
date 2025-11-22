@@ -2,8 +2,9 @@
 'use client';
 
 import React, { createContext, useContext, ReactNode, useEffect, useState } from 'react';
-import { Object } from "@/lib/types";
-import { getObjects } from '@/lib/beds24/objects';
+import { Object, User } from "@/lib/types";
+import { getRooms, getObjects } from '@/lib/beds24/objects';
+import { useSession } from 'next-auth/react';
 
 // Тип для контекста
 interface ObjectsContextType {
@@ -18,12 +19,14 @@ const ObjectsContext = createContext<ObjectsContextType | undefined>(undefined);
 
 // Пропсы для провайдера
 interface ObjectsProviderProps {
-children: ReactNode;
-serverObjects: Object[];
+    children: ReactNode;
+    serverObjects: Object[];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    session: any
 }
 
 // Основной провайдер
-export function ObjectsProvider({ children, serverObjects }: ObjectsProviderProps) {
+export function ObjectsProvider({ children, serverObjects, session }: ObjectsProviderProps) {
     const [objects, setObjects] = useState<Object[]>(serverObjects);
     const [loading] = useState(false);
     const [error] = useState<string | null>(null);
@@ -35,10 +38,14 @@ export function ObjectsProvider({ children, serverObjects }: ObjectsProviderProp
 
     // Функция для обновления объектов
     const refreshObjects = async () => {
+        
         try {
-            const fetchedObjects = await getObjects();
+            const fetchedObjects = await getObjects(session);
+            console.log(fetchedObjects);
             setObjects(fetchedObjects);
             return fetchedObjects;
+
+            
         } catch (err) {
             throw err;
         }
@@ -61,13 +68,13 @@ export function ObjectsProvider({ children, serverObjects }: ObjectsProviderProp
 
 // Хук для использования контекста в клиентских компонентах
 export function useObjects() {
-const context = useContext(ObjectsContext);
+    const context = useContext(ObjectsContext);
 
-if (context === undefined) {
-    throw new Error('useObjects должен использоваться внутри ObjectsProvider');
-}
+    if (context === undefined) {
+        throw new Error('useObjects должен использоваться внутри ObjectsProvider');
+    }
 
-return context;
+    return context;
 }
 
 export default ObjectsProvider;

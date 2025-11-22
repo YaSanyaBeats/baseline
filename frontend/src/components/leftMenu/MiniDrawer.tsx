@@ -16,9 +16,11 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, ControlPointDuplicateTwoTone } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
+import { useSession } from 'next-auth/react';
+import { User } from '@/lib/types';
 
 const drawerWidth = 240;
 
@@ -105,16 +107,64 @@ const Drawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 'open' 
 );
 
 const menu = [
-    { text: 'Главная', icon: <Dashboard fontSize="small" />, link: '/dashboard' },
-    { text: 'Аналитика', icon: <Analytics fontSize="small" />, link: '/dashboard/analytics' },
-    { text: 'Пользователи', icon: <PeopleAlt fontSize="small" />, link: '/dashboard/users' },
-    { text: 'Бухгалтерия', icon: <MonetizationOn fontSize="small" />, link: '/dashboard/accountancy' },
-    { text: 'Параметры', icon: <Settings fontSize="small" />, link: '/dashboard/options' },
-    { text: 'Beds24', icon: <House fontSize="small" />, link: '/dashboard/beds24' },
+    { 
+        text: 'Главная', 
+        icon: <Dashboard fontSize="small" />, 
+        link: '/dashboard',
+        isAdmin: false
+    },
+    { 
+        text: 'Аналитика', 
+        icon: <Analytics fontSize="small" />, 
+        link: '/dashboard/analytics',
+        isAdmin: true
+    },
+    { 
+        text: 'Пользователи', 
+        icon: <PeopleAlt fontSize="small" />, 
+        link: '/dashboard/users',
+        isAdmin: true
+    },
+    { 
+        text: 'Бухгалтерия', 
+        icon: <MonetizationOn fontSize="small" />, 
+        link: '/dashboard/accountancy',
+        isAdmin: true
+    },
+    { 
+        text: 'Параметры', 
+        icon: <Settings fontSize="small" />, 
+        link: '/dashboard/options',
+        isAdmin: true
+    },
+    { 
+        text: 'Beds24', 
+        icon: <House fontSize="small" />, 
+        link: '/dashboard/beds24',
+        isAdmin: true
+    },
 ];
 
 export default function MiniDrawer({ children }: { children: React.ReactNode }) {
     const [open, setOpen] = React.useState(false);
+    const { data: session, status } = useSession();
+    
+    
+    const getMenu = () => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const user: User = session?.user as any; 
+        if(!user) {
+            return [];
+        }
+        
+        if(user.role == 'owner') {
+            return menu.filter((menuElem) => {
+                return !menuElem.isAdmin;
+            })
+        }
+
+        return menu;
+    }
 
     const handleDrawerOpen = () => {
         setOpen(true);
@@ -157,7 +207,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                 <Divider />
 
                 <List>
-                    {menu.map((item, index) => (
+                    {getMenu().map((item, index) => (
                         <ListItem key={index} disablePadding sx={{ display: 'block' }}>
                             <Link href={item.link} className={styles.link}>
                                 <ListItemButton
