@@ -117,7 +117,7 @@ export default function BusynessCalendarModal(props: {
                             </Stack>
                             <Stack direction={'row'} alignItems={'center'} spacing={1}>
                                 <Box sx={{width: '20px', height: '20px', background: 'white', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>
-                                <Typography>- Занято</Typography>
+                                <Typography>- Свободно</Typography>
                             </Stack>
                         </Stack>
                     </>
