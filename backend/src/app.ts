@@ -16,6 +16,7 @@ import syncRouter from './routes/sync';
 import analyticsRouter from './routes/analytics';
 import optionsRouter from './routes/options';
 import bookingsRouter from './routes/bookings';
+import bysunessRouter from './routes/bysuness';
 
 const app = express();
 const port = process.env.API_PORT;
@@ -36,6 +37,7 @@ app.use('/sync', syncRouter);
 app.use('/analytics', analyticsRouter);
 app.use('/options', optionsRouter);
 app.use('/bookings', bookingsRouter);
+app.use('/bysuness', bysunessRouter);
 
 app.listen(port, () => {
   connectDB();

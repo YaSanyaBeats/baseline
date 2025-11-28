@@ -1,15 +1,15 @@
 'use client'
 
-import { Alert, Box, Button, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, OutlinedInput, Select, Snackbar, Stack, TextField, Typography } from "@mui/material"
+import { Box, Button, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, OutlinedInput, Select, Stack, TextField, Typography } from "@mui/material"
 import SendIcon from '@mui/icons-material/Send';
 import Link from "next/link";
 import { ChangeEvent, useEffect, useState } from "react";
 import { CommonResponse, User, UserObject } from "@/lib/types";
 import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import { VisibilityOff, Visibility } from "@mui/icons-material";
-import { getUser, sendEditUser, sendNewUser } from "@/lib/users";
+import { getUser, sendEditUser } from "@/lib/users";
 import { useSnackbar } from "@/providers/SnackbarContext";
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 
 const defaultUser: User = {
     login: '',
@@ -23,8 +23,7 @@ export default function Page() {
     const [user, setUser] = useState<User>(defaultUser);
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
-    const { snackbar, setSnackbar } = useSnackbar();
-    const router = useRouter();
+    const { setSnackbar } = useSnackbar();
     const params = useParams();
 
     useEffect(() => {

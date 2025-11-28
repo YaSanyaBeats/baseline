@@ -5,7 +5,7 @@ import CheckBoxOutlineBlankIcon from '@mui/icons-material/CheckBoxOutlineBlank';
 import CheckBoxIcon from '@mui/icons-material/CheckBox';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useEffect, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Typography } from '@mui/material';
 import { UserObject } from '@/lib/types';
 
 const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
@@ -42,7 +42,7 @@ const groupByObjectValue = (data: Option[]): UserObject[] => {
 
 export default function RoomsMultiSelect(props: {value: UserObject[], onChange: (value: UserObject[]) => void}) {
     const { value, onChange } = props;
-    const {objects, loading} = useObjects();
+    const {objects} = useObjects();
     const [options, setOptions] = useState<Option[]>();
     const [selectedOptions, setSelectedOptions] = useState<Option[]>([]);
 

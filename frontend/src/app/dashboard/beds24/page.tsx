@@ -7,7 +7,7 @@ import React from "react";
 
 
 export default function Page() {
-    const { snackbar, setSnackbar } = useSnackbar();
+    const { setSnackbar } = useSnackbar();
     
     const [loadObjects, setLoadObjects] = React.useState(false);
     const [loadPrices, setLoadPrices] = React.useState(false);

@@ -115,3 +115,14 @@ export interface CommonResponse {
     success: boolean;
     message: string;
 }
+
+export interface BusynessRow {
+    busyness: BusynessItem[],
+    roomID: number,
+    roomName: string
+}
+
+export interface BusynessItem {
+    date: string,
+    busyness: boolean
+}

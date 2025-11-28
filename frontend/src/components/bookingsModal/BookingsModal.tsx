@@ -2,10 +2,9 @@
 
 import { getBookingsPerRoom } from "@/lib/bookings";
 import { Booking, InvoiceItem, Object, Room } from "@/lib/types";
-import { Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions, Button, CircularProgress, IconButton, Link, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material"
+import { Dialog, DialogTitle, DialogContent, CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material"
 import { useEffect, useState } from "react";
 import { formatDate, formatTitle } from "@/lib/format";
-import LaunchIcon from '@mui/icons-material/Launch';
 
 const getMaxInvoice = (invoiceItems: InvoiceItem[]) => {
     let maxInvoice: InvoiceItem | undefined;

@@ -1,6 +1,6 @@
 'use client'
 
-import { Alert, Box, Button, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, OutlinedInput, Select, Snackbar, Stack, TextField, Typography } from "@mui/material"
+import { Box, Button, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, OutlinedInput, Select, Stack, TextField, Typography } from "@mui/material"
 import SendIcon from '@mui/icons-material/Send';
 import Link from "next/link";
 import { ChangeEvent, useState } from "react";
@@ -23,7 +23,7 @@ export default function Page() {
     const [user, setUser] = useState<User>(defaultUser);
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
-    const { snackbar, setSnackbar } = useSnackbar();
+    const { setSnackbar } = useSnackbar();
     const router = useRouter();
 
     const handleClickShowPassword = () => setShowPassword((show) => !show);

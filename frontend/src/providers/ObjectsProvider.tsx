@@ -2,9 +2,8 @@
 'use client';
 
 import React, { createContext, useContext, ReactNode, useEffect, useState } from 'react';
-import { Object, User } from "@/lib/types";
-import { getRooms, getObjects } from '@/lib/beds24/objects';
-import { useSession } from 'next-auth/react';
+import { Object } from "@/lib/types";
+import { getObjects } from '@/lib/beds24/objects';
 
 // Тип для контекста
 interface ObjectsContextType {

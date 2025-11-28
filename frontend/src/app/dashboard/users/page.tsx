@@ -1,8 +1,8 @@
 'use client'
 
-import { Room, User, UserObject } from "@/lib/types";
+import { User, UserObject } from "@/lib/types";
 import { getUsers, sendDeleteUser } from "@/lib/users";
-import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Typography, Grid } from "@mui/material";
+import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid } from "@mui/material";
 import { useEffect, useState } from "react";
 import StarIcon from '@mui/icons-material/Star';
 import EditIcon from '@mui/icons-material/Edit';
@@ -19,11 +19,11 @@ const roleDictionary = {
 }
 
 export default function Page() {
-    const { objects, loading } = useObjects();
+    const { objects } = useObjects();
     const [users, setUsers] = useState<User[]>([]);
     const [openConfirm, setOpenConfirm] = useState(false);
     const [selectedDeleteUser, setSelectedDeleteUser] = useState('');
-    const { snackbar, setSnackbar } = useSnackbar();
+    const { setSnackbar } = useSnackbar();
     
     const handleClose = () => {
         setOpenConfirm(false);

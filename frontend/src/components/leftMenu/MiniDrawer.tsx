@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, ControlPointDuplicateTwoTone } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react';
@@ -147,7 +147,7 @@ const menu = [
 
 export default function MiniDrawer({ children }: { children: React.ReactNode }) {
     const [open, setOpen] = React.useState(false);
-    const { data: session, status } = useSession();
+    const { data: session } = useSession();
     
     
     const getMenu = () => {
