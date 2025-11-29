@@ -124,5 +124,5 @@ export interface BusynessRow {
 
 export interface BusynessItem {
     date: string,
-    busyness: boolean
+    busyness: 'free' | 'busyness' | 'black'
 }

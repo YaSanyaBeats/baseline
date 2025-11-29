@@ -9,6 +9,12 @@ const leftStickyCellStyle: CSSProperties = {
     width: '40px'
 };
 
+const busynessColors = {
+    'free' : 'white',
+    'busyness' : '#1976D2',
+    'black' : 'black'
+}
+
 function getDoubleNumber(value: number) {
     if(value <= 9) {
         return '0' + value;
@@ -38,7 +44,14 @@ export default function BusynessCalendarTable(props: {busynessItems: BusynessRow
                         <TableRow key={index}>
                             <TableCell sx={{whiteSpace: 'nowrap'}} size="small">{busynessItem.roomName}</TableCell>
                             {busynessItem.busyness.map((item, index) => (
-                                <TableCell size="small" key={index} sx={{...leftStickyCellStyle, background: item.busyness ? '#fff1f1ff' : 'white'}}></TableCell>
+                                <TableCell 
+                                    size="small" 
+                                    key={index} 
+                                    sx={{
+                                        ...leftStickyCellStyle,
+                                        background: busynessColors[item.busyness]
+                                    }}
+                                />
                             ))}
                         </TableRow>
                     ))}

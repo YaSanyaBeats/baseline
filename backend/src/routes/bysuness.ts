@@ -1,6 +1,7 @@
 import express, {Request, Response, NextFunction} from 'express';
 import bodyParser from 'body-parser';
 import db from '../db/getDB';
+import { ObjectId } from 'mongodb';
 
 const router = express.Router();
 router.use(bodyParser.json());
@@ -28,7 +29,7 @@ async function getBusynessPerRoom(objectID: number, room: any) {
         while (currentDate <= endDate) {
             result.push({
                 date: currentDate.toISOString().split('T')[0],
-                busyness: false
+                busyness: 'free'
             });
             currentDate.setDate(currentDate.getDate() + 1);
         }
@@ -36,7 +37,7 @@ async function getBusynessPerRoom(objectID: number, room: any) {
         const neededBookings = await bookings.find({
             propertyId: +objectID,
             unitId: +room.id,
-            status: { $nin: ['black', 'inquiry'] },
+            status: { $nin: ['inquiry'] },
             $and: [
                 {arrival: { $lte: endDate.toISOString().split('T')[0] }},
                 {departure: { $gte: startDate.toISOString().split('T')[0] }}
@@ -48,9 +49,16 @@ async function getBusynessPerRoom(objectID: number, room: any) {
             let departure = booking.departure;
 
             result = result.map((dateObject: any) => {
+                let newBusyness = dateObject.busyness;
+                if(dateObject.date >= arrival && dateObject.date < departure) {
+                    newBusyness = 'busyness';
+                    if(booking.status == 'black') {
+                        newBusyness = 'black';
+                    }
+                }
                 return {
                     date: dateObject.date,
-                    busyness: dateObject.busyness || (dateObject.date >= arrival && dateObject.date < departure),
+                    busyness: newBusyness,
                 }
             })
         })        
@@ -66,9 +74,9 @@ async function getBusynessPerRoom(objectID: number, room: any) {
 
 router.get('/', async function(req: Request, res: Response, next: NextFunction) {
     const objectID = req.query['objectID'];
+    const userID = req.query['userID'];
     const objects = db.collection('objects');
     
-
     if(!objectID) {
         res.send('error');
         return;
@@ -78,10 +86,24 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         id: +objectID
     }).toArray();
 
-    const rooms = neededObject[0].roomTypes[0].units;
-
-    let busynessResult = {}
-
+    
+    let rooms = neededObject[0].roomTypes[0].units;
+    if(userID) {
+        const users = db.collection('users');
+        const user = await users.findOne({
+            '_id': new ObjectId(req.query['userID'] as string)
+        });
+        if(!user) {
+            return;
+        }
+        
+        const userObject = user.objects.find((userObject: any) => {
+            return userObject.id == objectID;
+        })
+        rooms = rooms.filter((room: any) => {
+            return userObject.rooms.includes(room.id);
+        })
+    }
 
     Promise.all(rooms.map((room: any) => {
         return getBusynessPerRoom(+objectID, room);

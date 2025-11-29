@@ -2,6 +2,7 @@ import express, {Request, Response, NextFunction} from 'express';
 import bodyParser from 'body-parser';
 import db from './../db/getDB';
 import { getAllObjects, getObjects } from '../lib/getObjects';
+import { ObjectId } from 'mongodb';
 
 const router = express.Router();
 function parseObjectsInfo(query: any) {
@@ -45,10 +46,18 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         return;
     }
     
-    if(req?.query['objectsInfo[0][id]']) {
-        let objectInfo = parseObjectsInfo(req.query);
-        let IDsNumbers = objectInfo.map((e) => {return +e.object});
-        console.log(req.query, objectInfo);
+    if(req?.query['userID']) {
+        const users = db.collection('users');
+        const user = await users.findOne({
+            '_id': new ObjectId(req.query['userID'] as string)
+        });
+
+        if(!user) {
+            return;
+        }
+
+        let objectInfo = user.objects;
+        let IDsNumbers = objectInfo.map((e: any) => {return +e.id});
 
         let objects = await collection.find({
             id: { $in: IDsNumbers},
@@ -65,12 +74,13 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
                     }
                 })
             }
-
+            
             rooms = rooms.filter((room: any) => {
-                let neededObject = objectInfo.find((innerObject) => {
-                    return innerObject.object == object.id;
+                let neededObject = objectInfo.find((innerObject: any) => {
+                    return innerObject.id == object.id;
                 })
-                return neededObject.rooms.includes(room.id.toString());
+                
+                return neededObject.rooms.includes(room.id);
             })
 
             return {

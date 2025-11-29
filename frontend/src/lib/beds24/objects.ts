@@ -6,11 +6,11 @@ export async function getObjects(session: any){
     if(!process.env.NEXT_PUBLIC_API_URL) {
         return [];
     }
-
-    if(session.user.role == 'owner') {
+    
+    if(session?.user?.role == 'owner') {
         const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
             params: {
-                objectsInfo: session.user.objects
+                userID: session.user._id
             }
         });
         return response.data;

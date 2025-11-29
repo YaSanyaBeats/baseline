@@ -5,6 +5,9 @@ import { getBusynessPerDays } from "@/lib/bysuness";
 import BusynessCalendarTable from "./BusynessCalendarTable";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import { useSession } from "next-auth/react";
+
+const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
 const getBusynessItemsPage = (busynessRooms: BusynessRow[], page: number) => {
     if(!busynessRooms.length || !busynessRooms[0].busyness.length) {
@@ -34,9 +37,10 @@ const getBusynessItemsPage = (busynessRooms: BusynessRow[], page: number) => {
 
 const getCurrentMonth = (page: number) => {
     const date = new Date();
-    date.setMonth(date.getMonth() - 12 + page);
     date.setDate(1);
-    return date.toISOString().split('T')[0];
+    date.setMonth(date.getMonth() - 12 + page);
+    
+    return `${months[date.getMonth()]} ${date.getFullYear()}`;
 }
 
 export default function BusynessCalendarModal(props: { 
@@ -49,6 +53,7 @@ export default function BusynessCalendarModal(props: {
     const [loading, setLoading] = useState(true);
     const [busynessItems, setBusynessItems] = useState<BusynessRow[]>([]);
     const [page, setPage] = useState(0);
+    const {data: session} = useSession();
 
     const handleClose = () => {
         setOpen(false);
@@ -68,7 +73,7 @@ export default function BusynessCalendarModal(props: {
         }
 
         setLoading(true);
-        getBusynessPerDays(object).then((bysuness: BusynessRow[]) => {
+        getBusynessPerDays(object, session).then((bysuness: BusynessRow[]) => {
             setBusynessItems(bysuness);
             setLoading(false);
             setPage(0);
@@ -93,7 +98,7 @@ export default function BusynessCalendarModal(props: {
         >
             <DialogTitle>
                 <Stack direction={'row'} justifyContent={'space-between'}>
-                    <Box>Бронирования {object.name} за период {getCurrentMonth(page)}</Box>
+                    <Box>Бронирования {object.name} ({getCurrentMonth(page)})</Box>
                     <Box>
                         <IconButton disabled={page === 0} onClick={prevPage}>
                             <ArrowBackIcon/>
@@ -110,14 +115,18 @@ export default function BusynessCalendarModal(props: {
                 ) : (
                     <>
                         <BusynessCalendarTable busynessItems={getBusynessItemsPage(busynessItems, page)}></BusynessCalendarTable>
-                        <Stack direction={'row'} mt={2} spacing={3}>
-                            <Stack direction={'row'} alignItems={'center'} spacing={1}>
-                                <Box sx={{width: '20px', height: '20px', background: '#fff1f1ff', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>
-                                <Typography>- Занято</Typography>
-                            </Stack>
+                        <Stack direction={'row'} mt={3} spacing={3}>
                             <Stack direction={'row'} alignItems={'center'} spacing={1}>
                                 <Box sx={{width: '20px', height: '20px', background: 'white', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>
                                 <Typography>- Свободно</Typography>
+                            </Stack>
+                            <Stack direction={'row'} alignItems={'center'} spacing={1}>
+                                <Box sx={{width: '20px', height: '20px', background: '#1976D2', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>
+                                <Typography>- Занято</Typography>
+                            </Stack>
+                            <Stack direction={'row'} alignItems={'center'} spacing={1}>
+                                <Box sx={{width: '20px', height: '20px', background: 'black', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>
+                                <Typography>- Закрыто вручную</Typography>
                             </Stack>
                         </Stack>
                     </>
