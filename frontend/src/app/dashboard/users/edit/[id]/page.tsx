@@ -38,7 +38,7 @@ export default function Page() {
             });
             console.log(currentUser);
         })
-    }, [])
+    }, [user.password, params.id])
 
     const handleClickShowPassword = () => setShowPassword((show) => !show);
 

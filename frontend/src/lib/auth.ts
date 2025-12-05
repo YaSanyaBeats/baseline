@@ -46,7 +46,6 @@ export const authOptions = {
             session: DefaultSession, 
             token: DefaultJWT  
         }) {
-            token.user
             return {
                 ...session,
                 user: {

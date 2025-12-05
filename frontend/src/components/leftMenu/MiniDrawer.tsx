@@ -21,6 +21,7 @@ import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react';
 import { User } from '@/lib/types';
+import HeaderMenu from '../headerMenu/HeaderMenu';
 
 const drawerWidth = 240;
 
@@ -179,22 +180,24 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
             <AppBar position="fixed" open={open}>
                 <Toolbar>
                     <IconButton
-                    color="inherit"
-                    aria-label="open drawer"
-                    onClick={handleDrawerOpen}
-                    edge="start"
-                    sx={[
-                        {
-                        marginRight: 4,
-                        },
-                        open && { display: 'none' },
-                    ]}
+                        color="inherit"
+                        onClick={handleDrawerOpen}
+                        edge="start"
+                        sx={[
+                            {
+                            marginRight: 4,
+                            },
+                            open && { display: 'none' },
+                        ]}
                     >
-                    <MenuIcon />
+                        <MenuIcon />
                     </IconButton>
-                    <Link href="/dashboard">
-                        <Image src="/logo-new.svg" alt="HolyCow logo" width={90} height={40}></Image>
-                    </Link>
+                    <Box sx={{ flexGrow: 1 }}>
+                        <Link href="/dashboard" >
+                            <Image src="/logo-new.svg" alt="HolyCow logo" width={90} height={40}></Image>
+                        </Link>
+                    </Box>
+                    <HeaderMenu></HeaderMenu>
                 </Toolbar>
             </AppBar>
 

@@ -17,6 +17,7 @@ function checkMedian(value: string): boolean {
 }
 
 function isValidDateString(str: string): boolean {
+
     // Сначала проверяем формат
     if (!/^\d{4}-\d{2}-\d{2}$/.test(str)) {
         return false;
@@ -40,8 +41,8 @@ const defaultFilterData = {
     objects: [],
     startMedian: '25',
     endMedian: '75',
-    startDate: '2019-01-01',
-    endDate: '2026-12-31',
+    startDate: '01-01-2019',
+    endDate: '31-12-2026',
     periodMode: 'beds24',
     step: '31'
 }
@@ -140,7 +141,7 @@ export default function Page() {
                 ...newErrors,
                 startDate: {
                     error: true,
-                    message: 'Введите дату в формате ГГГГ-ММ-ДД'
+                    message: 'Введите дату в формате ДД-ММ-ГГГГ'
                 }
             };
             isValid = false;
@@ -151,7 +152,7 @@ export default function Page() {
                 ...newErrors,
                 endDate: {
                     error: true,
-                    message: 'Введите дату в формате ГГГГ-ММ-ДД'
+                    message: 'Введите дату в формате ДД-ММ-ГГГГ'
                 }
             };
             isValid = false;
@@ -247,6 +248,7 @@ export default function Page() {
             }
         });
 
+        value = value.split('-').reverse().join('-');
         setFilterData({
             ...filterData,
             startDate: value
@@ -267,6 +269,7 @@ export default function Page() {
             }
         });
 
+        value = value.split('-').reverse().join('-');
         setFilterData({
             ...filterData,
             endDate: value
@@ -336,7 +339,8 @@ export default function Page() {
                                     id="startMedian"
                                     error={errors.startMedian.error}
                                     onChange={handleChangeStartMedian} 
-                                    label="От" 
+                                    label="От"
+                                    placeholder="25"
                                     variant="outlined"
                                     sx={{
                                         width: '100px',
@@ -350,7 +354,8 @@ export default function Page() {
                                     id="endMedian"
                                     error={errors.endMedian.error}
                                     onChange={handleChangeEndMedian} 
-                                    label="До" 
+                                    label="До"
+                                    placeholder="75"
                                     variant="outlined" 
                                     sx={{
                                         width: '100px',
@@ -389,7 +394,8 @@ export default function Page() {
                                 error={errors.step.error}
                                 helperText={errors.step.message}
                                 onChange={handleChangeStep} 
-                                label="Дней" 
+                                label="Дней"
+                                placeholder="31"
                                 variant="outlined"
                                 />
                         </Stack>
@@ -403,7 +409,8 @@ export default function Page() {
                                     id="startDate"
                                     error={errors.startDate.error}
                                     onChange={handleChangeStartDate} 
-                                    label="ГГГГ-ММ-ДД" 
+                                    label="ДД-ММ-ГГГГ"
+                                    placeholder="01-01-2019"
                                     variant="outlined"
                                     sx={{
                                         width: '200px',
@@ -417,7 +424,8 @@ export default function Page() {
                                     id="endDate"
                                     error={errors.endDate.error}
                                     onChange={handleChangeEndDate} 
-                                    label="ГГГГ-ММ-ДД" 
+                                    label="ДД-ММ-ГГГГ"
+                                    placeholder="31-12-2026"
                                     variant="outlined"
                                     sx={{
                                         width: '200px',

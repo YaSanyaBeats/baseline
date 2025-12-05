@@ -2,6 +2,7 @@ import express, {Request, Response, NextFunction} from 'express';
 import bodyParser from 'body-parser';
 import db from '../db/getDB';
 import { all } from 'axios';
+import { Collection } from 'mongodb';
 
 const router = express.Router();
 router.use(bodyParser.json());
@@ -49,6 +50,28 @@ function splitDateRange(
   return result;
 }
 
+async function checkRoomDisable(bookingCollection: any, object: any, room: any, period: any) {
+    const countEarlyBookings = await bookingCollection.countDocuments({
+        propertyId: object.id,
+        unitId: room ? room.id : { $exists: true },
+        status: { $nin: ['inquiry'] },
+        $and: [
+            {arrival: { $lt: period.lastNight }},
+        ]
+    });
+
+    const countLateBookings = await bookingCollection.countDocuments({
+        propertyId: object.id,
+        unitId: room ? room.id : { $exists: true },
+        status: { $nin: ['inquiry'] },
+        $and: [
+            {departure: { $gte: period.firstNight }},
+        ]
+    });
+
+    return !countEarlyBookings || !countLateBookings;
+}
+
 async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null) {
     const bookingCollection = db.collection('bookings');
 
@@ -60,26 +83,27 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         startMedianResult: 0,
         endMedianResult: 0,
         middlePrice: 0,
-        error: false
+        error: false,
+        disable: false
     };
 
     let bookingDBRequestArgs = {
         propertyId: object.id,
-        unitId: { $exists: true },
-        status: { $nin: ['black', 'inquiry'] },
+        unitId: room ? room.id : { $exists: true },
+        status: { $nin: ['inquiry'] },
         $and: [
             {arrival: { $lte: period.lastNight }},
-            {departure: { $gte: period.firstNight}}
+            {departure: { $gt: period.firstNight}}
         ]
-    }
-
-    if(room) {
-        bookingDBRequestArgs.unitId = room.id;
     }
 
     let bookings = await bookingCollection.find(bookingDBRequestArgs)
     .sort({ bookingTime: 1 })
     .toArray();
+
+    bookingPerPeriod.disable = await checkRoomDisable(bookingCollection, object, room, period);
+
+    let blackTime = 0;
 
     bookings.forEach((booking) => {
         booking.arrival = new Date(booking.arrival);
@@ -109,6 +133,12 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         };
 
         bookingPerPeriod.bookings.push(newBooking);
+
+        let arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
+        let departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
+        if(booking.status == 'black') {
+            blackTime += departure - arrival;
+        }
     })
 
     // Считаем занятость, окна бронирования и среднюю цену
@@ -120,7 +150,14 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     if(room) {
         unitsCount = 1;
     }
-    let totalTime = (bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()) * unitsCount;
+    else {
+        let promises = object.roomTypes[0].units.map((room: any) => {
+            return checkRoomDisable(bookingCollection, object, room, period);
+        })
+        const results = await Promise.all(promises);
+        unitsCount = results.filter(value => !value).length;
+    }
+    let totalTime = (bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()) * unitsCount - blackTime;
     
     let startMedian = options.startMedian * 0.01;
     let endMedian = options.endMedian * 0.01;
@@ -132,6 +169,10 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     let sumPrice = 0;
     let sumBookingDays = 0;
     bookingPerPeriod.bookings.forEach((booking, index) => {
+        if(booking.status == 'black') {
+            return;
+        }
+
         let arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
         let departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
 
@@ -247,21 +288,39 @@ async function getAnalyticsForObject(options: any, objectID: number) {
 function getHeaderValues(periods: any, data: any) {
     let result = [] as any[];
     periods.map((period: any, index: number) => {
+        let notDisableRoomsCount = 0;
+
         let resultPerPeriod = {
             firstNight: period.firstNight,
             lastNight: period.lastNight,
             middleBusyness: 0,
             middlePrice: 0
         }
+
         data.forEach((objectData: any) => {
-            resultPerPeriod.middleBusyness += objectData.objectAnalytics[index].busyness;
-            if(objectData.objectAnalytics[index].middlePrice) {
-                resultPerPeriod.middlePrice += objectData.objectAnalytics[index].middlePrice;
+            const object = objectData.objectAnalytics[index];
+            if(object.disable) {
+                return;
             }
+
+            objectData.roomsAnalytics.forEach((roomData: any) => {
+                const room = roomData.roomAnalytics[index];
+                if(room.disable) {
+                    return;
+                }
+
+                resultPerPeriod.middleBusyness += room.busyness;
+                if(room.middlePrice) {
+                    resultPerPeriod.middlePrice += room.middlePrice;
+                }
+                notDisableRoomsCount++;
+            })
+            
+            
         })
 
-        resultPerPeriod.middleBusyness /= data.length;
-        resultPerPeriod.middlePrice /= data.length;
+        resultPerPeriod.middleBusyness /= notDisableRoomsCount;
+        resultPerPeriod.middlePrice /= notDisableRoomsCount;
 
         result.push(resultPerPeriod);
     })

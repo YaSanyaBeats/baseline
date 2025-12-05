@@ -78,7 +78,7 @@ export default function BusynessCalendarModal(props: {
             setLoading(false);
             setPage(0);
         })
-    }, [object])
+    }, [object, session])
 
     if(!object) {
         return;

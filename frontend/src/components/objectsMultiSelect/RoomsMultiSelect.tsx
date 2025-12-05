@@ -74,7 +74,7 @@ export default function RoomsMultiSelect(props: {value: UserObject[], onChange: 
             })
         })
         setSelectedOptions(selectedOptons);
-    }, [value]);
+    }, [options, value]);
 
     if(!options) {
         return (<></>);

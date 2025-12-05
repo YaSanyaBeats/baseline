@@ -2,7 +2,7 @@ import { AnalyticsBooking, AnalyticsHeader, AnalyticsResponse, FullAnalyticsResu
 import { Box, Collapse, CSSProperties, IconButton, Paper, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Tooltip, Typography } from "@mui/material";
 import { Object } from '@/lib/types';
 import { useObjects } from "@/providers/ObjectsProvider";
-import React, { ReactElement, useState } from 'react';
+import React, { ReactElement, useEffect, useState } from 'react';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -10,6 +10,17 @@ import BookingPopup from "./BookingPopup";
 import FunctionsIcon from '@mui/icons-material/Functions';
 import ArrowDropUpIcon from '@mui/icons-material/ArrowDropUp';
 import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
+import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
+import BookmarkIcon from '@mui/icons-material/Bookmark';
+
+const compareColumnStyle: CSSProperties = {
+    borderRight: '1px solid #00000030',
+}
+
+const columnStyle: CSSProperties = {
+    borderRight: '1px solid #00000030',
+    width: 300
+}
 
 const leftStickyCellStyle: CSSProperties = {
     position: 'sticky',
@@ -35,6 +46,12 @@ const warningCellStyle: CSSProperties = {
     '&:hover': {
         background: '#f5dedeff'
     }
+};
+
+const disableCellStyle: CSSProperties = {
+    cursor: 'not-allowed',
+    background: '#e6e6e6ff',
+    transition: '.2s',
 };
 
 function formatDate(date: string) {
@@ -105,7 +122,7 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
         const endMedianDate = new Date(elem.endMedianResult).getTime();
         const endMedianDays = endMedianDate;
 
-        const cellStyles = !endMedianDays ? warningCellStyle : cellStyle;
+        const cellStyles = elem.disable ? disableCellStyle : (!endMedianDays ? warningCellStyle : cellStyle);
         
         cells.push(
             <TableCell 
@@ -134,13 +151,13 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
                 align="left"
                 sx={{fontSize: 18, ...cellStyles}}
             >
-                <Stack direction={'row'} alignItems={'start'}>
+                <Stack direction={'row'}>
                     <Box>
                         {Math.round(elem.middlePrice)}฿
                     </Box>
-                    <Box>
+                    <Box mt={'2px'} ml={'2px'}>
                         {elem.error && (<WarningIcon color="error" fontSize="small"/>)}
-                        {elem.warning && (<WarningIcon color="warning" fontSize="small"/>)}
+                        {elem.warning && (<WarningIcon sx={{color: "#EDB802"}} fontSize="small"/>)}
                     </Box>
                     <Box>
                         <Tooltip title="Сравнение со средним по выборке">
@@ -178,7 +195,7 @@ const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: A
         const endMedianDate = new Date(elem.endMedianResult).getTime();
         const endMedianDays = endMedianDate;
 
-        const cellStyles = !endMedianDays ? warningCellStyle : cellStyle;
+        const cellStyles = elem.disable ? disableCellStyle : (!endMedianDays ? warningCellStyle : cellStyle);
         
         cells.push(
             <TableCell 
@@ -201,10 +218,10 @@ const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: A
                     <Box>
                         {Math.round(elem.middlePrice)}฿
                     </Box>
-                    <Box>
+                    <Stack direction={'row'}>
                         {elem.error && (<WarningIcon color="error" fontSize="small"/>)}
-                        {elem.warning && (<WarningIcon color="warning" fontSize="small"/>)}
-                    </Box>
+                        {elem.warning && (<WarningIcon sx={{color: "#EDB802"}} fontSize="small"/>)}
+                    </Stack>
                 </Stack>
             </TableCell>
         );
@@ -233,10 +250,9 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
     return (
         <>
             <TableRow>
-                <TableCell component="td" style={leftStickyCellStyle}>
+                <TableCell component="td" style={leftStickyCellStyle} sx={{width: 300}}>
                     <Stack direction={'row'} alignItems={'center'} spacing={1}>
                         <IconButton
-                            aria-label="expand row"
                             size="small"
                             onClick={() => setOpenCollapse(!openCollapse)}
                         >
@@ -244,7 +260,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                         </IconButton>
                         {object.name}
                         {filterAnalyticsData.error && (<WarningIcon color="error"/>)}
-                        {filterAnalyticsData.warning && (<WarningIcon color="warning"/>)}
+                        {filterAnalyticsData.warning && (<WarningIcon sx={{color: "#EDB802"}}/>)}
                     </Stack>
                 </TableCell>
                 {renderResultRow(filterAnalyticsData, handleClick)}
@@ -263,7 +279,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                                                         {room.roomName || 'Room: ' + room.roomID}
                                                     </Box>
                                                     {room.error && (<WarningIcon color="error"/>)}
-                                                    {room.warning && (<WarningIcon color="warning"/>)}
+                                                    {room.warning && (<WarningIcon sx={{color: "#EDB802"}}/>)}
                                                 </Stack>
                                                 
                                             </TableCell>
@@ -286,30 +302,81 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResponse
     const [openBookingsPopup, setOpenBookingsPopup] = React.useState(false);
     const [selectedBookings, setSelectedBookings] = React.useState<AnalyticsBooking[]>([]);
 
-    const { objects } = useObjects();
     const { analyticsData } = props;
+    const [filterAnalyticsData, setFilterAnalyticsData] = React.useState<AnalyticsResponse>(analyticsData);
+    const [isCompare, setIsCompare] = React.useState(false);
 
-    const filterAnalyticsData = analyticsData;
-
+    const { objects } = useObjects();
     const handleCellClick = (bookings: AnalyticsBooking[]) => {
         setSelectedBookings(bookings);
         setOpenBookingsPopup(true);
     }
 
+    useEffect(() => {
+        setFilterAnalyticsData(analyticsData);
+        setIsCompare(false);
+    }, [analyticsData])
+
     if(!filterAnalyticsData.data?.length) {
         return;
+    }
+
+    const handleCompareChange = (firstNight: string) => {
+        if(isCompare) {
+            setFilterAnalyticsData(analyticsData);
+            setIsCompare(false);
+            return;
+        }
+
+        const neededDate = firstNight.split('-').slice(1, 3).join('-');
+        const newData: AnalyticsResponse = {
+            ...analyticsData,
+            data: analyticsData.data.map(object => {
+                return {
+                    ...object,
+                    objectAnalytics: object.objectAnalytics.filter(objectAnalyticsItem => {
+                        return objectAnalyticsItem.firstNight.split('T')[0].includes(neededDate);
+                    }),
+                    roomsAnalytics: object.roomsAnalytics.map((room) => {
+                        return {
+                            ...room,
+                            roomAnalytics: room.roomAnalytics.filter(roomAnalyticsItem => {
+                                return roomAnalyticsItem.firstNight.split('T')[0].includes(neededDate);
+                            })
+                        }
+                    })
+                }
+            }),
+            header: analyticsData.header.filter(headerItem => {
+                return headerItem.firstNight.split('T')[0].includes(neededDate);
+            })
+        };
+
+        setFilterAnalyticsData(newData);
+        setIsCompare(true);
     }
 
     return (
         <>
             <TableContainer component={Paper} sx={{ maxHeight: '70vh', paddingBottom: '8px' }}>
-                <Table stickyHeader sx={{ tableLayout: 'fixed' }} aria-label="simple table">
+                <Table stickyHeader sx={{ tableLayout: 'fixed' }}>
                     <TableHead>
                         <TableRow>
                             <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030', width: 300}}></TableCell>
                             {filterAnalyticsData.header.map((row, index) => {
                                 return (
-                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 300}} colSpan={3}>{`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}</TableCell>
+                                    <TableCell key={index} align="center" sx={isCompare ? compareColumnStyle : columnStyle} colSpan={3}>
+                                        <Stack ml={4} direction={'row'} alignItems={'center'} justifyContent={'center'} spacing={1}>
+                                            <Box>
+                                                {`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}
+                                            </Box>
+                                            <Box>
+                                                <IconButton onClick={handleCompareChange.bind(null, row.firstNight)}>
+                                                    {isCompare ? <BookmarkIcon color="primary"/> : <BookmarkBorderIcon color="primary"/>}
+                                                </IconButton>
+                                            </Box>
+                                        </Stack>
+                                    </TableCell>
                                 )
                             })}
                         </TableRow>

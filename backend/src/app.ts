@@ -17,6 +17,7 @@ import analyticsRouter from './routes/analytics';
 import optionsRouter from './routes/options';
 import bookingsRouter from './routes/bookings';
 import bysunessRouter from './routes/bysuness';
+import debugRouter from './routes/debug';
 
 const app = express();
 const port = process.env.API_PORT;
@@ -38,6 +39,7 @@ app.use('/analytics', analyticsRouter);
 app.use('/options', optionsRouter);
 app.use('/bookings', bookingsRouter);
 app.use('/bysuness', bysunessRouter);
+app.use('/debug', debugRouter);
 
 app.listen(port, () => {
   connectDB();

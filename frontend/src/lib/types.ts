@@ -61,7 +61,8 @@ export interface AnalyticsResult {
     error: boolean,
     warning: boolean,
     busynessGrow: boolean,
-    priceGrow: boolean
+    priceGrow: boolean,
+    disable: boolean
 }
 
 export interface RoomAnalyticsResult {
