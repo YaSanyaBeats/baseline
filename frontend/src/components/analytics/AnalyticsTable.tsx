@@ -13,15 +13,6 @@ import ArrowDropDownIcon from '@mui/icons-material/ArrowDropDown';
 import BookmarkBorderIcon from '@mui/icons-material/BookmarkBorder';
 import BookmarkIcon from '@mui/icons-material/Bookmark';
 
-const compareColumnStyle: CSSProperties = {
-    borderRight: '1px solid #00000030',
-}
-
-const columnStyle: CSSProperties = {
-    borderRight: '1px solid #00000030',
-    width: 300
-}
-
 const leftStickyCellStyle: CSSProperties = {
     position: 'sticky',
     left: 0,
@@ -270,6 +261,12 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                     <Collapse in={openCollapse} unmountOnExit>
                         <Table size={'small'} style={{borderBottom: '2px solid black', borderCollapse: 'separate', tableLayout: 'fixed'}}>
                             <TableBody>
+                                <TableRow>
+                                    <TableCell sx={{width: 300, padding: 0, border: 'none'}} />
+                                    {Array.from({ length: filterAnalyticsData.roomsAnalytics[0].roomAnalytics.length }, (_, index) => (
+                                        <TableCell key={index} colSpan={3} sx={{width: 300, padding: 0, border: 'none'}} />
+                                    ))}
+                                </TableRow>
                                 {filterAnalyticsData.roomsAnalytics.map((room) => {
                                     return (
                                         <TableRow key={room.roomID} >
@@ -365,7 +362,7 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResponse
                             <TableCell style={leftStickyCellStyle} align="left" sx={{borderRight: '1px solid #00000030', width: 300}}></TableCell>
                             {filterAnalyticsData.header.map((row, index) => {
                                 return (
-                                    <TableCell key={index} align="center" sx={isCompare ? compareColumnStyle : columnStyle} colSpan={3}>
+                                    <TableCell key={index} align="center" sx={{borderRight: '1px solid #00000030', width: 300}} colSpan={3}>
                                         <Stack ml={4} direction={'row'} alignItems={'center'} justifyContent={'center'} spacing={1}>
                                             <Box>
                                                 {`${formatDate(row.firstNight)} - ${formatDate(row.lastNight)}`}
