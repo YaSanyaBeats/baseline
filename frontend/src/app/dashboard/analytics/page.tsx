@@ -41,8 +41,8 @@ const defaultFilterData = {
     objects: [],
     startMedian: '25',
     endMedian: '75',
-    startDate: '01-01-2019',
-    endDate: '31-12-2026',
+    startDate: '2019-01-01',
+    endDate: '2026-12-31',
     periodMode: 'beds24',
     step: '31'
 }
@@ -136,6 +136,7 @@ export default function Page() {
             isValid = false;
         }
 
+        console.log(filterData.startDate, isValidDateString(filterData.startDate));
         if(!filterData.startDate || !isValidDateString(filterData.startDate)) {
             newErrors = {
                 ...newErrors,
