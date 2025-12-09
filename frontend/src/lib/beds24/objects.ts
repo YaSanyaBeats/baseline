@@ -1,4 +1,4 @@
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 import { UserObject } from '../types';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -7,17 +7,35 @@ export async function getObjects(session: any){
         return [];
     }
     
-    if(session?.user?.role == 'owner') {
-        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
-            params: {
-                userID: session.user._id
-            }
-        });
+    try {
+        if(session?.user?.role == 'owner') {
+            const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects', {
+                params: {
+                    userID: session.user._id
+                }
+            });
+            return response.data;
+        }
+
+        const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects');
         return response.data;
     }
+    catch (error) {
+        if (axios.isAxiosError(error)) {
+            const axiosError = error as AxiosError;
+            console.error('Axios error:', {
+                message: axiosError.message,
+                status: axiosError.response?.status,
+                data: axiosError.response?.data,
+            });
+        } else {
+            console.error('Unexpected error:', error);
+        }
 
-    const response = await axios.get(process.env.NEXT_PUBLIC_API_URL + 'objects');
-    return response.data;
+        // Возвращаем пустой массив при любой ошибке
+        return [];
+    }
+    
 }
 
 export async function getAllObjects() {

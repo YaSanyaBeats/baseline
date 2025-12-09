@@ -16,15 +16,28 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     if (!session) {
         redirect('/login')
     }
+    
+    let defaultSnackbarState = {
+        open: false,
+        message: '',
+        severity: 'success' as 'success' | 'error' | 'warning' | 'info',
+    }
+    if(!objects.length) {
+        defaultSnackbarState = {
+            open: true,
+            message: 'Ошибка получения объектов',
+            severity: 'error' as 'success' | 'error' | 'warning' | 'info',
+        }
+    }
 
     return (
-        <ObjectsProvider serverObjects={objects} session={session}>
-            <SnackbarProvider>
+        <SnackbarProvider defaultState={defaultSnackbarState}>
+            <ObjectsProvider serverObjects={objects} session={session}>
                 <MiniDrawer>
                     {children}
                 </MiniDrawer>
                 <GlobalSnackbar/>
-            </SnackbarProvider>
-        </ObjectsProvider>
+            </ObjectsProvider>
+        </SnackbarProvider>
     )
 }

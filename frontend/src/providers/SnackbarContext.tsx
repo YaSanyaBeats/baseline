@@ -13,6 +13,11 @@ type SnackbarContextType = {
   setSnackbar: Dispatch<SetStateAction<SnackbarState>>;
 };
 
+type SnackbarProviderProps = {
+  children: ReactNode;
+  defaultState: SnackbarState;
+};
+
 export const SnackbarContext = createContext<SnackbarContextType | undefined>(undefined);
 
 export function useSnackbar() {
@@ -23,12 +28,8 @@ export function useSnackbar() {
   return context;
 }
 
-export function SnackbarProvider({ children }: { children: ReactNode }) {
-  const [snackbar, setSnackbar] = useState({
-    open: false,
-    message: '',
-    severity: 'success' as 'success' | 'error' | 'warning' | 'info',
-  });
+export function SnackbarProvider({ children, defaultState }: SnackbarProviderProps) {
+  const [snackbar, setSnackbar] = useState(defaultState);
 
   return (
     <SnackbarContext.Provider value={{ snackbar, setSnackbar }}>
