@@ -7,7 +7,9 @@
     "dev": "nodemon src/app.ts",
     "db-client": "mongosh",
     "db-server": "mongod -auth",
-    "compass": "MongoDBCompass"
+    "compass": "MongoDBCompass",
+    "build": "tsc",
+    "start": "node .dist/app.js"
   },
   "repository": {
     "type": "git",
