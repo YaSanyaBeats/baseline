@@ -53,26 +53,26 @@ function splitDateRange(
 
 async function checkRoomDisable(object: any, room: any, period: any) {
 
-    return false;
-    // const countEarlyBookings = await bookingCollection.countDocuments({
-    //     propertyId: object.id,
-    //     unitId: room ? room.id : { $exists: true },
-    //     status: { $nin: ['inquiry'] },
-    //     $and: [
-    //         {arrival: { $lt: period.lastNight }},
-    //     ]
-    // });
+    const bookingCollection = db.collection('bookings');
+    const countEarlyBookings = await bookingCollection.countDocuments({
+        propertyId: object.id,
+        unitId: room ? room.id : { $exists: true },
+        status: { $nin: ['inquiry'] },
+        $and: [
+            {arrival: { $lt: period.lastNight }},
+        ]
+    });
 
-    // const countLateBookings = await bookingCollection.countDocuments({
-    //     propertyId: object.id,
-    //     unitId: room ? room.id : { $exists: true },
-    //     status: { $nin: ['inquiry'] },
-    //     $and: [
-    //         {departure: { $gte: period.firstNight }},
-    //     ]
-    // });
+    const countLateBookings = await bookingCollection.countDocuments({
+        propertyId: object.id,
+        unitId: room ? room.id : { $exists: true },
+        status: { $nin: ['inquiry'] },
+        $and: [
+            {departure: { $gte: period.firstNight }},
+        ]
+    });
 
-    // return !countEarlyBookings || !countLateBookings;
+    return !countEarlyBookings || !countLateBookings;
 }
 
 async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null, bookings: any[]) {
