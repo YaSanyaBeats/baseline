@@ -35,7 +35,7 @@ function Row(
 
   return (
     <>
-        <TableRow sx={{ '& > *': { borderBottom: 'unset' } }}>
+        <TableRow sx={{ background: (open ? '#00000020' : '') }}>
             <TableCell>
                 <IconButton
                     size="small"
@@ -44,54 +44,49 @@ function Row(
                     {open ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
                 </IconButton>
             </TableCell>
-            <TableCell component="th" scope="row">
+            <TableCell component="th" scope="row" onClick={() => setOpen(!open)}>
                 {object.name}
             </TableCell>
-            <TableCell align="right">{object.id}</TableCell>
-            <TableCell>
+            <TableCell sx={{width: '30px'}}>
                 <IconButton onClick={handleBusynessModal.bind(null, object)}>
                     <CalendarMonthIcon/>
                 </IconButton>
             </TableCell>
         </TableRow>
         <TableRow>
-            <TableCell style={{ paddingBottom: 0, paddingTop: 0 }} colSpan={6}>
-            <Collapse in={open} timeout="auto" unmountOnExit>
-                <Box sx={{ margin: 1 }}>
-                <Typography variant="h6" gutterBottom component="div">
-                    Комнаты
-                </Typography>
-                <Table size="small" aria-label="purchases">
-                    <TableHead>
-                    <TableRow>
-                        <TableCell>ID</TableCell>
-                        <TableCell>Название</TableCell>
-                        <TableCell/>
-                    </TableRow>
-                    </TableHead>
-                    <TableBody>
-                        {object.roomTypes.map((room: Room) => (
-                            <TableRow key={room.id}>
-                                <TableCell component="th">
-                                    {room.id}
-                                </TableCell>
-                                <TableCell component="td" scope="row">
-                                    {room.name ? room.name : 'Unnamed'}
-                                </TableCell>
-                                <TableCell align="right">
-                                    <IconButton onClick={handleOpenBook.bind(null, {
-                                        object: object,
-                                        room: room
-                                    })}>
-                                        <LaunchIcon/>
-                                    </IconButton>
-                                </TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-                </Box>
-            </Collapse>
+            <TableCell colSpan={6} sx={{borderBottom: 'none', paddingBottom: 0, paddingTop: 0}}>
+                <Collapse in={open} unmountOnExit component={Paper} sx={{marginBlock: 2}}>
+                    <Box sx={{ margin: 1 }}>
+                    <Typography variant="h6" gutterBottom component="div">
+                        Комнаты
+                    </Typography>
+                    <Table size="small" aria-label="purchases" sx={{borderBottom: 'none'}}>
+                        <TableHead>
+                        <TableRow>
+                            <TableCell>Название</TableCell>
+                            <TableCell/>
+                        </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {object.roomTypes.map((room: Room) => (
+                                <TableRow key={room.id}>
+                                    <TableCell component="th">
+                                        {room.name ? room.name : 'Unnamed'}
+                                    </TableCell>
+                                    <TableCell align="right">
+                                        <IconButton onClick={handleOpenBook.bind(null, {
+                                            object: object,
+                                            room: room
+                                        })}>
+                                            <LaunchIcon/>
+                                        </IconButton>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                    </Box>
+                </Collapse>
             </TableCell>
         </TableRow>
     </>
@@ -125,16 +120,9 @@ export default function Page() {
 
     return (
         <>
+            <Typography variant='h5' sx={{fontWeight: 600, mb: 2}}>Мои объекты</Typography>
             <TableContainer component={Paper}>
                 <Table>
-                    <TableHead>
-                    <TableRow>
-                        <TableCell />
-                        <TableCell>Название объекта</TableCell>
-                        <TableCell align="right">ID</TableCell>
-                        <TableCell sx={{width: '30px'}}/>
-                    </TableRow>
-                    </TableHead>
                     <TableBody>
                         {objects.map((object: Object) => (
                             <Row 

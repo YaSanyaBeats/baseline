@@ -6,7 +6,7 @@ const router = express.Router();
 router.use(bodyParser.json());
 
 async function runBenchmark() {
-  const collection = db.collection('bookings');
+  
 
   try {
 
@@ -28,7 +28,7 @@ async function runBenchmark() {
                 {departure: { $gt: '2023-01-01'}}
             ]
         }
-    
+        const collection = db.collection('bookings');
         collection.find(bookingDBRequestArgs)
             .sort({ bookingTime: 1 })
             .toArray();

@@ -2,10 +2,11 @@
 
 import { getBookingsPerRoom } from "@/lib/bookings";
 import { Booking, InvoiceItem, Object, Room } from "@/lib/types";
-import { Dialog, DialogTitle, DialogContent, CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow } from "@mui/material"
+import { Dialog, DialogTitle, DialogContent, CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, useMediaQuery, AppBar, IconButton, Toolbar, Accordion, AccordionDetails, AccordionSummary, Typography, Stack } from "@mui/material"
 import { useEffect, useState } from "react";
 import { formatDate, formatTitle } from "@/lib/format";
-
+import CloseIcon from '@mui/icons-material/Close';
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 const getMaxInvoice = (invoiceItems: InvoiceItem[]) => {
     let maxInvoice: InvoiceItem | undefined;
     invoiceItems.forEach((invoiceItem) => {
@@ -27,6 +28,7 @@ export default function BookingsModal(props: {
         setOpen: (arg0: boolean) => void 
     }) {
 
+    const isMobile = !useMediaQuery('(min-width:768px)');
     const { roomInfo, open, setOpen } = props;
     const [loading, setLoading] = useState(true);
     const [bookings, setBookings] = useState<Booking[]>([]);
@@ -56,45 +58,89 @@ export default function BookingsModal(props: {
 
     return (
         <Dialog
+            fullScreen={isMobile}
             open={open}
             onClose={handleClose}
             scroll={'paper'}
             fullWidth={true}
             maxWidth={'lg'}
         >
+            <AppBar sx={{ position: 'relative' }}>
+                <Toolbar sx={{justifyContent: 'end'}}>
+                    <IconButton
+                        edge="start"
+                        color="inherit"
+                        onClick={handleClose}
+                    >
+                        <CloseIcon />
+                    </IconButton>
+                </Toolbar>
+            </AppBar>
             <DialogTitle>Бронирования 
             </DialogTitle>
             <DialogContent>
                 {loading ? (
                     <CircularProgress />
                 ) : (
-                    <TableContainer component={Paper}>
-                        <Table sx={{ minWidth: 650 }} aria-label="simple table">
-                            <TableHead>
-                                <TableRow>
-                                    <TableCell sx={{fontWeight: 'bold'}}>Название</TableCell>
-                                    <TableCell sx={{fontWeight: 'bold'}}>Статус</TableCell>
-                                    <TableCell sx={{fontWeight: 'bold'}}>Период заселения</TableCell>
-                                    <TableCell sx={{fontWeight: 'bold'}}>Стоимость</TableCell>
-                                </TableRow>
-                            </TableHead>
-                            <TableBody>
-                                {bookings.map((booking) => (
-                                    <TableRow
-                                        key={booking.id}
-                                    >
-                                        <TableCell component="th" scope="row" sx={{whiteSpace: 'nowrap'}}>{formatTitle(booking.firstName, booking.lastName, booking.title)}</TableCell>
-                                        <TableCell sx={{whiteSpace: 'nowrap'}}>{booking.status}</TableCell>
-                                        <TableCell sx={{whiteSpace: 'nowrap'}}>
-                                            {formatDate(booking.arrival)} - {formatDate(booking.departure)}
-                                        </TableCell>
-                                        <TableCell sx={{whiteSpace: 'nowrap'}}>{getMaxInvoice(booking.invoiceItems)?.lineTotal || 0} ฿</TableCell>
+                    !isMobile ? (
+                        <TableContainer component={Paper}>
+                            <Table sx={{ minWidth: 650 }} aria-label="simple table">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell sx={{fontWeight: 'bold'}}>Название</TableCell>
+                                        <TableCell sx={{fontWeight: 'bold'}}>Статус</TableCell>
+                                        <TableCell sx={{fontWeight: 'bold'}}>Период заселения</TableCell>
+                                        <TableCell sx={{fontWeight: 'bold'}}>Стоимость</TableCell>
                                     </TableRow>
-                                ))}
+                                </TableHead>
+                                <TableBody>
+                                    {bookings.map((booking) => (
+                                        <TableRow
+                                            key={booking.id}
+                                        >
+                                            <TableCell component="th" scope="row" sx={{whiteSpace: 'nowrap'}}>{formatTitle(booking.firstName, booking.lastName, booking.title)}</TableCell>
+                                            <TableCell sx={{whiteSpace: 'nowrap'}}>{booking.status}</TableCell>
+                                            <TableCell sx={{whiteSpace: 'nowrap'}}>
+                                                {formatDate(booking.arrival)} - {formatDate(booking.departure)}
+                                            </TableCell>
+                                            <TableCell sx={{whiteSpace: 'nowrap'}}>{getMaxInvoice(booking.invoiceItems)?.lineTotal || 0} ฿</TableCell>
+                                        </TableRow>
+                                    ))}
 
-                            </TableBody>
-                        </Table>
-                    </TableContainer>
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    ): (
+                        <>
+                            {bookings.map((booking) => (
+                                <Accordion key={booking.id}>
+                                    <AccordionSummary
+                                        expandIcon={<ExpandMoreIcon />}
+                                    >
+                                        <Typography component="span">{formatTitle(booking.firstName, booking.lastName, booking.title)}</Typography>
+                                    </AccordionSummary>
+                                    <AccordionDetails>
+                                        <Stack direction={'row'} justifyContent={'space-between'} sx={{borderBottom: '1px solid #00000030', paddingBlock: 1}}>
+                                            <Typography sx={{fontWeight: 600}}>Статус:</Typography>
+                                            <Typography>{booking.status}</Typography>
+                                        </Stack>
+                                        <Stack direction={'row'} justifyContent={'space-between'} sx={{borderBottom: '1px solid #00000030', paddingBlock: 1}}>
+                                            <Typography sx={{fontWeight: 600}}>Дата заезда:</Typography>
+                                            <Typography>{formatDate(booking.arrival)}</Typography>
+                                        </Stack>
+                                        <Stack direction={'row'} justifyContent={'space-between'} sx={{borderBottom: '1px solid #00000030', paddingBlock: 1}}>
+                                            <Typography sx={{fontWeight: 600}}>Дата выезда:</Typography>
+                                            <Typography>{formatDate(booking.departure)}</Typography>
+                                        </Stack>
+                                        <Stack direction={'row'} justifyContent={'space-between'} sx={{paddingBlock: 1}}>
+                                            <Typography sx={{fontWeight: 600}}>Стоимость:</Typography>
+                                            <Typography>{getMaxInvoice(booking.invoiceItems)?.lineTotal || 0} ฿</Typography>
+                                        </Stack>
+                                    </AccordionDetails>
+                                </Accordion>
+                            ))}
+                        </>
+                    )
                 )}
             </DialogContent>
         </Dialog>

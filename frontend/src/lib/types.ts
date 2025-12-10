@@ -78,7 +78,7 @@ export interface FullAnalyticsResult {
     objectID: number,
     roomsAnalytics: RoomAnalyticsResult[],
     error: boolean,
-    warning: boolean
+    warning: boolean,
 }
 
 export interface AnalyticsHeader {

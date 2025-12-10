@@ -1,4 +1,4 @@
-import { Dialog, DialogTitle, DialogContent, CircularProgress, Stack, Box, IconButton, Typography } from "@mui/material";
+import { Dialog, DialogTitle, DialogContent, CircularProgress, Stack, Box, IconButton, Typography, AppBar, Toolbar, useMediaQuery } from "@mui/material";
 import { BusynessRow, Object } from '@/lib/types';
 import { useEffect, useState } from "react";
 import { getBusynessPerDays } from "@/lib/bysuness";
@@ -6,6 +6,7 @@ import BusynessCalendarTable from "./BusynessCalendarTable";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { useSession } from "next-auth/react";
+import CloseIcon from '@mui/icons-material/Close';
 
 const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
@@ -49,6 +50,7 @@ export default function BusynessCalendarModal(props: {
         setOpen: (arg0: boolean) => void 
     }) {
 
+    const isMobile = !useMediaQuery('(min-width:768px)');
     const { object, open, setOpen } = props;
     const [loading, setLoading] = useState(true);
     const [busynessItems, setBusynessItems] = useState<BusynessRow[]>([]);
@@ -90,23 +92,35 @@ export default function BusynessCalendarModal(props: {
 
     return (
         <Dialog
+            fullScreen={isMobile}
             open={open}
             onClose={handleClose}
             scroll={'paper'}
             fullWidth={true}
             maxWidth={'lg'}
         >
+            <AppBar sx={{ position: 'relative' }}>
+                <Toolbar sx={{justifyContent: 'end'}}>
+                    <IconButton
+                        edge="start"
+                        color="inherit"
+                        onClick={handleClose}
+                    >
+                        <CloseIcon />
+                    </IconButton>
+                </Toolbar>
+            </AppBar>
             <DialogTitle>
-                <Stack direction={'row'} justifyContent={'space-between'}>
+                <Stack direction={{xs: 'column', sm: 'row'}} spacing={1} justifyContent={'space-between'} alignItems={'end'}>
                     <Box>Бронирования {object.name} ({getCurrentMonth(page)})</Box>
-                    <Box>
+                    <Stack direction={'row'}>
                         <IconButton disabled={page === 0} onClick={prevPage}>
                             <ArrowBackIcon/>
                         </IconButton>
                         <IconButton disabled={page === 15} onClick={nextPage}>
                             <ArrowForwardIcon/>
                         </IconButton>
-                    </Box>
+                    </Stack>
                 </Stack>
             </DialogTitle>
             <DialogContent>
@@ -115,7 +129,7 @@ export default function BusynessCalendarModal(props: {
                 ) : (
                     <>
                         <BusynessCalendarTable busynessItems={getBusynessItemsPage(busynessItems, page)}></BusynessCalendarTable>
-                        <Stack direction={'row'} mt={3} spacing={3}>
+                        <Stack direction={{xs: 'column', sm: 'row'}} mt={3} spacing={{xs: 2, sm: 3}}>
                             <Stack direction={'row'} alignItems={'center'} spacing={1}>
                                 <Box sx={{width: '20px', height: '20px', background: 'white', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>
                                 <Typography>- Свободно</Typography>

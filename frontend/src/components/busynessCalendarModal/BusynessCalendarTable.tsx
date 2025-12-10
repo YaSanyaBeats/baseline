@@ -6,7 +6,7 @@ const leftStickyCellStyle: CSSProperties = {
     borderLeft: '2px solid rgba(224, 224, 224, 0.5)',
     padding: '2px',
     textAlign: 'center',
-    width: '40px'
+    width: '25px'
 };
 
 const busynessColors = {
@@ -27,10 +27,10 @@ export default function BusynessCalendarTable(props: {busynessItems: BusynessRow
 
     return (
         <TableContainer component={Paper}>
-            <Table sx={{ minWidth: 650 }}> 
+            <Table sx={{ minWidth: 650, tableLayout: 'fixed' }}> 
                 <TableHead>
                     <TableRow>
-                        <TableCell></TableCell>
+                        <TableCell sx={{width: '100px'}}></TableCell>
                         {Array(busynessItems[0].busyness.length)
                             .fill(null)
                             .map((_, index) => (
@@ -42,7 +42,7 @@ export default function BusynessCalendarTable(props: {busynessItems: BusynessRow
                 <TableBody>
                     {busynessItems.map((busynessItem, index) => (
                         <TableRow key={index}>
-                            <TableCell sx={{whiteSpace: 'nowrap'}} size="small">{busynessItem.roomName}</TableCell>
+                            <TableCell sx={{whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'white', borderBottom: '1px solid rgba(224, 224, 224, 1)'}} size="small">{busynessItem.roomName}</TableCell>
                             {busynessItem.busyness.map((item, index) => (
                                 <TableCell 
                                     size="small" 

@@ -3,10 +3,11 @@ import bodyParser from 'body-parser';
 import db from '../db/getDB';
 import { all } from 'axios';
 import { Collection } from 'mongodb';
+import pMap from 'p-map';
 
 const router = express.Router();
 router.use(bodyParser.json());
-
+let count = 0;
 
 function splitDateRange(
   startString: string,
@@ -50,31 +51,32 @@ function splitDateRange(
   return result;
 }
 
-async function checkRoomDisable(bookingCollection: any, object: any, room: any, period: any) {
-    const countEarlyBookings = await bookingCollection.countDocuments({
-        propertyId: object.id,
-        unitId: room ? room.id : { $exists: true },
-        status: { $nin: ['inquiry'] },
-        $and: [
-            {arrival: { $lt: period.lastNight }},
-        ]
-    });
+async function checkRoomDisable(object: any, room: any, period: any) {
 
-    const countLateBookings = await bookingCollection.countDocuments({
-        propertyId: object.id,
-        unitId: room ? room.id : { $exists: true },
-        status: { $nin: ['inquiry'] },
-        $and: [
-            {departure: { $gte: period.firstNight }},
-        ]
-    });
+    return false;
+    // const countEarlyBookings = await bookingCollection.countDocuments({
+    //     propertyId: object.id,
+    //     unitId: room ? room.id : { $exists: true },
+    //     status: { $nin: ['inquiry'] },
+    //     $and: [
+    //         {arrival: { $lt: period.lastNight }},
+    //     ]
+    // });
 
-    return !countEarlyBookings || !countLateBookings;
+    // const countLateBookings = await bookingCollection.countDocuments({
+    //     propertyId: object.id,
+    //     unitId: room ? room.id : { $exists: true },
+    //     status: { $nin: ['inquiry'] },
+    //     $and: [
+    //         {departure: { $gte: period.firstNight }},
+    //     ]
+    // });
+
+    // return !countEarlyBookings || !countLateBookings;
 }
 
-async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null) {
-    const bookingCollection = db.collection('bookings');
-
+async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null, bookings: any[]) {
+   
     let bookingPerPeriod = {
         firstNight: new Date(period.firstNight),
         lastNight: new Date(period.lastNight),
@@ -87,21 +89,7 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         disable: false
     };
 
-    let bookingDBRequestArgs = {
-        propertyId: object.id,
-        unitId: room ? room.id : { $exists: true },
-        status: { $nin: ['inquiry'] },
-        $and: [
-            {arrival: { $lte: period.lastNight }},
-            {departure: { $gt: period.firstNight}}
-        ]
-    }
-
-    let bookings = await bookingCollection.find(bookingDBRequestArgs)
-    .sort({ bookingTime: 1 })
-    .toArray();
-
-    bookingPerPeriod.disable = await checkRoomDisable(bookingCollection, object, room, period);
+    bookingPerPeriod.disable = await checkRoomDisable(object, room, period);
 
     let blackTime = 0;
 
@@ -152,7 +140,7 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     }
     else {
         let promises = object.roomTypes[0].units.map((room: any) => {
-            return checkRoomDisable(bookingCollection, object, room, period);
+            return checkRoomDisable(object, room, period);
         })
         const results = await Promise.all(promises);
         unitsCount = results.filter(value => !value).length;
@@ -211,14 +199,17 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
 
 }
 
-async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: any, room: any) {
-    const result = await Promise.all(periods.map((period: any) => {
-        return new Promise(async (resolve, reject) => {
-            resolve(await getAnalyticsForPeriod(options, object, period, room));
-        })
-    }))
+async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: any, room: any, bookings: any[]) {
+    const result = await pMap(periods, async (period: any) => {
+        const filterBookings = bookings.filter(booking => {
+            return  booking.arrival <= period.lastNight && 
+                    booking.departure > period.firstNight && 
+                    booking.unitId == room.id;
+        });
+        return await getAnalyticsForPeriod(options, object, period, room, filterBookings);
+    }, { concurrency: 5 });
 
-    const hasError = result.some(elem => elem.error === true);
+    const hasError = result.some(elem => elem?.error === true);
 
     return {
         roomID: room.id,
@@ -228,61 +219,60 @@ async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: an
     }
 }
 
-async function getAnalyticsForObject(options: any, objectID: number) {
+async function getAnalyticsForObject(options: any, object: any) {
     let periods = options.periods;
 
-    return new Promise(async (resolve, reject) => {
-        const objectCollection = db.collection('objects');
-        
-        let objects = await objectCollection.find({
-            id: objectID,
-        }).toArray();
-        let object = objects[0];
-
-        
-        // Расскидываем бронирования по соответствующим периодам
-        let bookingsPerPeriods = {
-            all: [] as any[],
-            rooms: {} as any,
-            id: objectID
-        };
-
-        
-
-
-        Promise.all(periods.map((period: any) => {
-            return new Promise(async (resolve, reject) => {
-                resolve(await getAnalyticsForPeriod(options, object, period));
-            })
-        })).then((objectResult) => {
-            const rooms: {id: number, name: string}[] = [];
-            if(object.roomTypes) {
-                object.roomTypes[0].units.forEach((room: {id: number, name: string}) => {
-                    rooms.push({
-                        id: room.id,
-                        name: room.name
-                    });
-                })
-            }
-
-            
-            
-            Promise.all(rooms.map((room: any) => {
-                return new Promise(async (resolve, reject) => {
-                    resolve(await getRoomsAnalyticsForPeriod(options, object, periods, room));
-                })
-            })).then((roomsResult) => {
-                const hasError = roomsResult.some((elem: any) => elem?.error === true);
-                resolve({
-                    objectAnalytics: objectResult,
-                    roomsAnalytics: roomsResult,
-                    objectID: object.id,
-                    error: hasError,
-                });
-            })
-            
+    const rooms: {id: number, name: string}[] = [];
+    if(object.roomTypes) {
+        object.roomTypes[0].units.forEach((room: {id: number, name: string}) => {
+            rooms.push({
+                id: room.id,
+                name: room.name
+            });
         })
+    }
+
+    const bookingCollection = db.collection('bookings');
+
+    const bookings = await bookingCollection.find({
+        propertyId: object.id,
     })
+    .sort({ bookingTime: 1 })
+    .toArray();
+
+    return Promise.all([
+        // Первый запрос: аналитика для объекта
+        pMap(periods, async (period: any) => {
+            const filterBookings = bookings.filter(booking => {
+                return booking.arrival <= period.lastNight && booking.departure > period.firstNight;
+            });
+            return await getAnalyticsForPeriod(options, object, period, null, filterBookings);
+        }, { concurrency: 5 }),
+        // Второй запрос: аналитика по комнатам
+        pMap(rooms, async (room) => {
+            return await getRoomsAnalyticsForPeriod(options, object, periods, room, bookings);
+        }, { concurrency: 5 }),
+
+    ]).then(([objectResult, roomsResult]) => {
+        const hasError = roomsResult.some((elem: any) => elem?.error === true);
+        return {
+            objectAnalytics: objectResult,
+            roomsAnalytics: roomsResult,
+            objectID: object.id,
+            error: hasError,
+        };
+    })
+
+
+    // return Promise.all(periods.map((period: any) => {
+    //     return getAnalyticsForPeriod(options, object, period);
+    // })).then((objectResult) => {
+    //     Promise.all(rooms.map((room: any) => {
+    //         return getRoomsAnalyticsForPeriod(options, object, periods, room);
+    //     })).then((roomsResult) => {
+            
+    //     })
+    // })
 }
 
 function getHeaderValues(periods: any, data: any) {
@@ -389,35 +379,9 @@ function fillWarnings(data: any) {
     return data;
 }
 
-router.get('/', async function(req: Request, res: Response, next: NextFunction) {
-    if(!req?.query['objects[]']) {
-        throw new Error('Не переданы объекты');
-    }
-    if(!req?.query['startMedian']) {
-        throw new Error('Нет параметра "медиана от"');
-    }
-    if(!req?.query['endMedian']) {
-        throw new Error('Нет параметра "медиана до"');
-    }
-    if(!req?.query['startDate']) {
-        throw new Error('Нет параметра "Дата с"');
-    }
-    if(!req?.query['endDate']) {
-        throw new Error('Нет параметра "Дата по"');
-    }
-    if(!req?.query['step']) {
-        throw new Error('Нет параметра step');
-    }
-    
-    let objectFilterData = req?.query['objects[]'] as string[];
-    if(typeof objectFilterData === "string") {
-        objectFilterData = [objectFilterData];
-    }
-
-    let objectIDs = objectFilterData.map((e) => {return +e});
-
-    let periods: any[] = [];
-    if(req.query['periodMode'] == 'beds24') {
+function getPeriods(periodMode: string, startDateStr: string, endDateStr: string, step: number) {
+    let periods = [] as any[];
+    if(periodMode == 'beds24') {
         const periodsTemplate = [
             {firstNight: '12-25', lastNight: '01-15'},
             {firstNight: '01-16', lastNight: '01-31'},
@@ -435,8 +399,8 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
             {firstNight: '12-10', lastNight: '12-24'},
         ];
 
-        const startDate = new Date(req?.query['startDate'] as string);
-        const endDate = new Date(req?.query['endDate'] as string);
+        const startDate = new Date(startDateStr);
+        const endDate = new Date(endDateStr);
         const startYear = startDate.getFullYear();
         const endYear = endDate.getFullYear() + 1;
 
@@ -471,8 +435,8 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
             });
         }
     }
-    else if(req.query['periodMode'] == 'custom') {
-        periods = splitDateRange(req.query['startDate'] as string, req.query['endDate'] as string, +req.query['step']);
+    else if(periodMode == 'custom') {
+        periods = splitDateRange(startDateStr, endDateStr, step);
         periods = periods.map((period) => {
             return {
                 firstNight: period.firstNight.toISOString().split('T')[0],
@@ -483,25 +447,95 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     else {
         throw new Error('PeriodMode передан некорректно');
     }
+
+    return periods;
+}
+
+router.get('/', async function(req: Request, res: Response, next: NextFunction) {
+    if(!req?.query['objects[]']) {
+        throw new Error('Не переданы объекты');
+    }
+    if(!req?.query['startMedian']) {
+        throw new Error('Нет параметра "медиана от"');
+    }
+    if(!req?.query['endMedian']) {
+        throw new Error('Нет параметра "медиана до"');
+    }
+    if(!req?.query['startDate']) {
+        throw new Error('Нет параметра "Дата с"');
+    }
+    if(!req?.query['endDate']) {
+        throw new Error('Нет параметра "Дата по"');
+    }
+    if(!req?.query['step']) {
+        throw new Error('Нет параметра step');
+    }
+    
+    let objectFilterData = req?.query['objects[]'] as string[];
+    if(typeof objectFilterData === "string") {
+        objectFilterData = [objectFilterData];
+    }
+
+    let objectIDs = objectFilterData.map((e) => {return +e});
+
+    let periods = getPeriods(
+        req.query['periodMode'] as string, 
+        req?.query['startDate']as string, 
+        req?.query['endDate']as string,
+        +req.query['step']
+    );
+
+    const objectCollection = db.collection('objects');
+    let objects = await objectCollection.find({
+        id: {$in: objectIDs}
+    }).toArray();
     
 
-    Promise.all(objectIDs.map(getAnalyticsForObject.bind(null, {
-        startMedian: req.query['startMedian'],
-        endMedian: req.query['endMedian'],
-        startDate: req.query['startDate'],
-        endDate: req.query['endDate'],
-        periods: periods,
-        periodMode: req.query['periodMode'],
-        step: req.query['step']
-    }))).then((value: any) => {
-        let result = {
-            header: getHeaderValues(periods, value),
-            data: value
-        } as any;
-        result = fillAverageCompareResult(result);
-        result = fillWarnings(result);
-        res.send(result);
-    });
+    const objectsResult = await pMap(objects, async (object) => {
+        const start = performance.now();
+        const result = await getAnalyticsForObject({
+            startMedian: req.query['startMedian'],
+            endMedian: req.query['endMedian'],
+            startDate: req.query['startDate'],
+            endDate: req.query['endDate'],
+            periods: periods,
+            periodMode: req.query['periodMode'],
+            step: req.query['step']
+        }, object);
+        const end = performance.now();
+        console.log(end - start, `mc, for object: ${object.name}`);
+        return result;
+    }, { concurrency: 5 });
+
+    let result = {
+        header: getHeaderValues(periods, objectsResult),
+        data: objectsResult
+    } as any;
+    result = fillAverageCompareResult(result);
+    result = fillWarnings(result);
+
+    res.send(result);
+
+    // Promise.all(objectIDs.map(getAnalyticsForObject.bind(null, {
+    //     startMedian: req.query['startMedian'],
+    //     endMedian: req.query['endMedian'],
+    //     startDate: req.query['startDate'],
+    //     endDate: req.query['endDate'],
+    //     periods: periods,
+    //     periodMode: req.query['periodMode'],
+    //     step: req.query['step']
+    // }))).then((value: any) => {
+    //     let result = {
+    //         header: getHeaderValues(periods, value),
+    //         data: value
+    //     } as any;
+    //     result = fillAverageCompareResult(result);
+    //     result = fillWarnings(result);
+    //     console.log(count, ' Total count');
+    //     res.send(result);
+    // });
+
+    
 });
 
 export default router;

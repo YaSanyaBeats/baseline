@@ -24,7 +24,8 @@
   "dependencies": {
     "bcrypt": "^6.0.0",
     "jsonwebtoken": "^9.0.2",
-    "mongodb": "^6.15.0"
+    "mongodb": "^6.15.0",
+    "p-map": "^7.0.4"
   },
   "devDependencies": {
     "@types/bcrypt": "^6.0.0",
