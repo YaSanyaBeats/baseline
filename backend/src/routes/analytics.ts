@@ -54,25 +54,26 @@ function splitDateRange(
 async function checkRoomDisable(object: any, room: any, period: any) {
 
     const bookingCollection = db.collection('bookings');
-    const countEarlyBookings = await bookingCollection.countDocuments({
-        propertyId: object.id,
-        unitId: room ? room.id : { $exists: true },
-        status: { $nin: ['inquiry'] },
-        $and: [
-            {arrival: { $lt: period.lastNight }},
-        ]
-    });
-
-    const countLateBookings = await bookingCollection.countDocuments({
-        propertyId: object.id,
-        unitId: room ? room.id : { $exists: true },
-        status: { $nin: ['inquiry'] },
-        $and: [
-            {departure: { $gte: period.firstNight }},
-        ]
-    });
-
-    return !countEarlyBookings || !countLateBookings;
+    const result: any = await Promise.all([
+        bookingCollection.findOne({
+            propertyId: object.id,
+            unitId: room ? room.id : { $exists: true },
+            status: { $nin: ['inquiry'] },
+            $and: [
+                {arrival: { $lt: period.lastNight }},
+            ]
+        }),
+        bookingCollection.findOne({
+            propertyId: object.id,
+            unitId: room ? room.id : { $exists: true },
+            status: { $nin: ['inquiry'] },
+            $and: [
+                {departure: { $gte: period.firstNight }},
+            ]
+        })
+    ])
+    
+    return !result[0] || !result[1];
 }
 
 async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null, bookings: any[]) {
@@ -200,14 +201,14 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
 }
 
 async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: any, room: any, bookings: any[]) {
-    const result = await pMap(periods, async (period: any) => {
+    const result = await Promise.all(periods.map(async (period: any) => {
         const filterBookings = bookings.filter(booking => {
             return  booking.arrival <= period.lastNight && 
                     booking.departure > period.firstNight && 
                     booking.unitId == room.id;
         });
         return await getAnalyticsForPeriod(options, object, period, room, filterBookings);
-    }, { concurrency: 5 });
+    }));
 
     const hasError = result.some(elem => elem?.error === true);
 
@@ -242,17 +243,16 @@ async function getAnalyticsForObject(options: any, object: any) {
 
     return Promise.all([
         // Первый запрос: аналитика для объекта
-        pMap(periods, async (period: any) => {
+        Promise.all(periods.map(async (period: any) => {
             const filterBookings = bookings.filter(booking => {
                 return booking.arrival <= period.lastNight && booking.departure > period.firstNight;
             });
             return await getAnalyticsForPeriod(options, object, period, null, filterBookings);
-        }, { concurrency: 5 }),
+        })),
         // Второй запрос: аналитика по комнатам
-        pMap(rooms, async (room) => {
+        Promise.all(rooms.map(async (room: any) => {
             return await getRoomsAnalyticsForPeriod(options, object, periods, room, bookings);
-        }, { concurrency: 5 }),
-
+        }))
     ]).then(([objectResult, roomsResult]) => {
         const hasError = roomsResult.some((elem: any) => elem?.error === true);
         return {
@@ -298,7 +298,7 @@ function getHeaderValues(periods: any, data: any) {
                 if(room.disable) {
                     return;
                 }
-
+                
                 resultPerPeriod.middleBusyness += room.busyness;
                 if(room.middlePrice) {
                     resultPerPeriod.middlePrice += room.middlePrice;
@@ -307,8 +307,9 @@ function getHeaderValues(periods: any, data: any) {
             })
             
             
+            
         })
-
+        
         resultPerPeriod.middleBusyness /= notDisableRoomsCount;
         resultPerPeriod.middlePrice /= notDisableRoomsCount;
 
@@ -489,9 +490,8 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     let objects = await objectCollection.find({
         id: {$in: objectIDs}
     }).toArray();
-    
 
-    const objectsResult = await pMap(objects, async (object) => {
+    const objectsResult = await Promise.all(objects.map(async (object) => {
         const start = performance.now();
         const result = await getAnalyticsForObject({
             startMedian: req.query['startMedian'],
@@ -505,7 +505,7 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
         const end = performance.now();
         console.log(end - start, `mc, for object: ${object.name}`);
         return result;
-    }, { concurrency: 5 });
+    }))
 
     let result = {
         header: getHeaderValues(periods, objectsResult),
