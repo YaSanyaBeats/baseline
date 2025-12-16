@@ -51,29 +51,17 @@ function splitDateRange(
   return result;
 }
 
-async function checkRoomDisable(object: any, room: any, period: any) {
-
-    const bookingCollection = db.collection('bookings');
-    const result: any = await Promise.all([
-        bookingCollection.findOne({
-            propertyId: object.id,
-            unitId: room ? room.id : { $exists: true },
-            status: { $nin: ['inquiry'] },
-            $and: [
-                {arrival: { $lt: period.lastNight }},
-            ]
-        }),
-        bookingCollection.findOne({
-            propertyId: object.id,
-            unitId: room ? room.id : { $exists: true },
-            status: { $nin: ['inquiry'] },
-            $and: [
-                {departure: { $gte: period.firstNight }},
-            ]
-        })
-    ])
+function checkRoomDisable(options: any, object: any, room: any, period: any) {
     
-    return !result[0] || !result[1];
+    if(room) {
+        return period.lastNight < options.firstNights[room.id];
+    }
+
+    const minDate: any = Object.values(options.firstNights).reduce((min: any, v: any) => {
+        return min === null || v < min ? v : min;
+    }, null);
+
+    return period.lastNight < minDate;
 }
 
 async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null, bookings: any[]) {
@@ -90,15 +78,11 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         disable: false
     };
 
-    bookingPerPeriod.disable = await checkRoomDisable(object, room, period);
+    bookingPerPeriod.disable = checkRoomDisable(options, object, room, period);
 
     let blackTime = 0;
 
     bookings.forEach((booking) => {
-        booking.arrival = new Date(booking.arrival);
-        booking.departure = new Date(booking.departure);
-        booking.bookingTime = new Date(booking.bookingTime);
-
         let price = 0;
         if(booking?.invoiceItems?.length) {
             booking.invoiceItems.forEach((invoiceElem: any) => {
@@ -141,7 +125,7 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     }
     else {
         let promises = object.roomTypes[0].units.map((room: any) => {
-            return checkRoomDisable(object, room, period);
+            return checkRoomDisable(options, object, room, period);
         })
         const results = await Promise.all(promises);
         unitsCount = results.filter(value => !value).length;
@@ -185,8 +169,8 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         }
     })
     
-    bookingPerPeriod.busyness = sumTime / totalTime;
-    bookingPerPeriod.middlePrice = sumPrice / sumBookingDays;
+    bookingPerPeriod.busyness = totalTime ? sumTime / totalTime : 0;
+    bookingPerPeriod.middlePrice = sumBookingDays ? sumPrice / sumBookingDays : 0;
 
     if(bookingPerPeriod.busyness && !bookingPerPeriod.middlePrice) {
         bookingPerPeriod.error = true;
@@ -207,6 +191,8 @@ async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: an
                     booking.departure > period.firstNight && 
                     booking.unitId == room.id;
         });
+        
+
         return await getAnalyticsForPeriod(options, object, period, room, filterBookings);
     }));
 
@@ -218,6 +204,23 @@ async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: an
         roomAnalytics: result,
         error: hasError
     }
+}
+
+function getFirstNigts(bookings: any) {
+    return bookings.reduce((acc: any, booking: any) => {
+        const unitId = booking.unitId;
+
+        if (unitId == null) {
+            return acc;
+        }
+
+        const currentMin = acc[unitId];
+        if (!currentMin || booking.arrival < currentMin) {
+            acc[unitId] = booking.arrival;
+        }
+
+        return acc;
+    }, {} as any);
 }
 
 async function getAnalyticsForObject(options: any, object: any) {
@@ -235,18 +238,31 @@ async function getAnalyticsForObject(options: any, object: any) {
 
     const bookingCollection = db.collection('bookings');
 
-    const bookings = await bookingCollection.find({
+    const rawBookings = await bookingCollection.find({
         propertyId: object.id,
     })
     .sort({ bookingTime: 1 })
     .toArray();
 
+    const bookings = (rawBookings.map(booking => ({
+        ...booking,
+        arrival: new Date(booking.arrival),
+        departure: new Date(booking.departure),
+        bookingTime: new Date(booking.bookingTime),
+    })));
+
+    // Находим минимальный booking.arrival, группируя по booking.unitId (по комнатам)
+    options.firstNights = getFirstNigts(bookings);
+
     return Promise.all([
         // Первый запрос: аналитика для объекта
         Promise.all(periods.map(async (period: any) => {
-            const filterBookings = bookings.filter(booking => {
-                return booking.arrival <= period.lastNight && booking.departure > period.firstNight;
+            const filterBookings = bookings.filter((booking: any) => {
+                return  booking.arrival <= period.lastNight && 
+                        booking.departure > period.firstNight &&
+                        rooms.some((room: any) => room.id === booking.unitId)
             });
+            
             return await getAnalyticsForPeriod(options, object, period, null, filterBookings);
         })),
         // Второй запрос: аналитика по комнатам
@@ -262,23 +278,13 @@ async function getAnalyticsForObject(options: any, object: any) {
             error: hasError,
         };
     })
-
-
-    // return Promise.all(periods.map((period: any) => {
-    //     return getAnalyticsForPeriod(options, object, period);
-    // })).then((objectResult) => {
-    //     Promise.all(rooms.map((room: any) => {
-    //         return getRoomsAnalyticsForPeriod(options, object, periods, room);
-    //     })).then((roomsResult) => {
-            
-    //     })
-    // })
 }
 
 function getHeaderValues(periods: any, data: any) {
     let result = [] as any[];
     periods.map((period: any, index: number) => {
         let notDisableRoomsCount = 0;
+        let notZeroPriceRoomsCount = 0;
 
         let resultPerPeriod = {
             firstNight: period.firstNight,
@@ -298,10 +304,10 @@ function getHeaderValues(periods: any, data: any) {
                 if(room.disable) {
                     return;
                 }
-                
                 resultPerPeriod.middleBusyness += room.busyness;
                 if(room.middlePrice) {
                     resultPerPeriod.middlePrice += room.middlePrice;
+                    notZeroPriceRoomsCount++;
                 }
                 notDisableRoomsCount++;
             })
@@ -311,7 +317,7 @@ function getHeaderValues(periods: any, data: any) {
         })
         
         resultPerPeriod.middleBusyness /= notDisableRoomsCount;
-        resultPerPeriod.middlePrice /= notDisableRoomsCount;
+        resultPerPeriod.middlePrice /= notZeroPriceRoomsCount;
 
         result.push(resultPerPeriod);
     })
@@ -429,8 +435,8 @@ function getPeriods(periodMode: string, startDateStr: string, endDateStr: string
                 // Если период пересекается с диапазоном — добавляем
                 if (adjustedFirst <= endDate && adjustedLast >= startDate) {
                     periods.push({
-                        firstNight: adjustedFirst.toISOString().split('T')[0], // YYYY-MM-DD
-                        lastNight: adjustedLast.toISOString().split('T')[0]
+                        firstNight: adjustedFirst,
+                        lastNight: adjustedLast
                     });
                 }
             });
@@ -440,8 +446,8 @@ function getPeriods(periodMode: string, startDateStr: string, endDateStr: string
         periods = splitDateRange(startDateStr, endDateStr, step);
         periods = periods.map((period) => {
             return {
-                firstNight: period.firstNight.toISOString().split('T')[0],
-                lastNight: period.lastNight.toISOString().split('T')[0],
+                firstNight: period.firstNight,
+                lastNight: period.lastNight,
             }
         })
     }
@@ -515,27 +521,6 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     result = fillWarnings(result);
 
     res.send(result);
-
-    // Promise.all(objectIDs.map(getAnalyticsForObject.bind(null, {
-    //     startMedian: req.query['startMedian'],
-    //     endMedian: req.query['endMedian'],
-    //     startDate: req.query['startDate'],
-    //     endDate: req.query['endDate'],
-    //     periods: periods,
-    //     periodMode: req.query['periodMode'],
-    //     step: req.query['step']
-    // }))).then((value: any) => {
-    //     let result = {
-    //         header: getHeaderValues(periods, value),
-    //         data: value
-    //     } as any;
-    //     result = fillAverageCompareResult(result);
-    //     result = fillWarnings(result);
-    //     console.log(count, ' Total count');
-    //     res.send(result);
-    // });
-
-    
 });
 
 export default router;
