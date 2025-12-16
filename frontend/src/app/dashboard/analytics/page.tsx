@@ -136,7 +136,6 @@ export default function Page() {
             isValid = false;
         }
 
-        console.log(filterData.startDate, isValidDateString(filterData.startDate));
         if(!filterData.startDate || !isValidDateString(filterData.startDate)) {
             newErrors = {
                 ...newErrors,

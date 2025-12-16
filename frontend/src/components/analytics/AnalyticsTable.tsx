@@ -325,7 +325,7 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResponse
             return;
         }
 
-        const neededDate = firstNight.split('-').slice(1, 3).join('-');
+        const neededDate = firstNight.split(/[-T]/).slice(1, 3).join('-');
         const newData: AnalyticsResponse = {
             ...analyticsData,
             data: analyticsData.data.map(object => {
