@@ -237,8 +237,12 @@ export default function Page() {
 
     const handleChangeStartDate = (event: React.ChangeEvent<HTMLInputElement>) => {
         let value = event?.target?.value;
+        
         if(!value) {
             value = defaultFilterData.startDate;
+        }
+        else {
+            value = value.split('-').reverse().join('-');
         }
 
         setErrors({
@@ -248,8 +252,7 @@ export default function Page() {
                 message: ''
             }
         });
-
-        value = value.split('-').reverse().join('-');
+        
         setFilterData({
             ...filterData,
             startDate: value
@@ -261,6 +264,9 @@ export default function Page() {
         if(!value) {
             value = defaultFilterData.endDate;
         }
+        else {
+            value = value.split('-').reverse().join('-');
+        }
 
         setErrors({
             ...errors,
@@ -270,7 +276,7 @@ export default function Page() {
             }
         });
 
-        value = value.split('-').reverse().join('-');
+        
         setFilterData({
             ...filterData,
             endDate: value
