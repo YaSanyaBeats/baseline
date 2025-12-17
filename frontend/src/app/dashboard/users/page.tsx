@@ -2,7 +2,7 @@
 
 import { User, UserObject } from "@/lib/types";
 import { getUsers, sendDeleteUser } from "@/lib/users";
-import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid } from "@mui/material";
+import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, TextField } from "@mui/material";
 import { useEffect, useState } from "react";
 import StarIcon from '@mui/icons-material/Star';
 import EditIcon from '@mui/icons-material/Edit';
@@ -21,6 +21,7 @@ const roleDictionary = {
 export default function Page() {
     const { objects } = useObjects();
     const [users, setUsers] = useState<User[]>([]);
+    const [search, setSearch] = useState('');
     const [openConfirm, setOpenConfirm] = useState(false);
     const [selectedDeleteUser, setSelectedDeleteUser] = useState('');
     const { setSnackbar } = useSnackbar();
@@ -80,6 +81,13 @@ export default function Page() {
         updateUsers();
     }, [])
 
+    const filteredUsers = users
+        .slice()
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        .filter((user) =>
+            user.name?.toLowerCase().includes(search.toLowerCase())
+        );
+
     if (!users) return (
         <Stack spacing={1}>
             <Skeleton variant="rounded" width={'100%'} height={50} />
@@ -95,6 +103,15 @@ export default function Page() {
 
     return (
         <>
+            <Box mb={2} sx={{maxWidth: '300px'}}>
+                <TextField
+                    fullWidth
+                    label="Поиск пользователя"
+                    variant="outlined"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                />
+            </Box>
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>
@@ -107,7 +124,7 @@ export default function Page() {
                     </TableRow>
                     </TableHead>
                     <TableBody>
-                        {users.map((user, index) => (
+                        {filteredUsers.map((user, index) => (
                             <TableRow key={index}>
                                 <TableCell component="th">
                                     <Stack direction={"row"} alignItems={"center"} spacing={1}>
