@@ -495,6 +495,8 @@ router.get('/', async function(req: Request, res: Response, next: NextFunction) 
     const objectCollection = db.collection('objects');
     let objects = await objectCollection.find({
         id: {$in: objectIDs}
+    }).sort({
+        name: 1
     }).toArray();
 
     const objectsResult = await Promise.all(objects.map(async (object) => {
