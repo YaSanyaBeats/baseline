@@ -106,6 +106,7 @@ function Row(
 export default function Page() {
     const { objects, loading } = useObjects();
     const { data: session } = useSession();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const isAdmin = session?.user && (session.user as any).role === 'admin';
     const [ openBookingModal, setOpenBookingModal ] = useState(false);
     const [ openBusynessCalendarModal, setOpenBusynessCalendarModal ] = useState(false);

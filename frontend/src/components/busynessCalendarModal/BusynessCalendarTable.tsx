@@ -65,15 +65,6 @@ const formatDate = (dateString: string) => {
     return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
 };
 
-const formatPrice = (price: number) => {
-    return new Intl.NumberFormat('ru-RU', { 
-        style: 'currency', 
-        currency: 'RUB',
-        minimumFractionDigits: 0,
-        maximumFractionDigits: 0
-    }).format(price);
-};
-
 const getBookingFullName = (booking: BusynessBookingInfo | null): string => {
     if (!booking) {
         return '';
