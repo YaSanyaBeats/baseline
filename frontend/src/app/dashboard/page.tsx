@@ -6,6 +6,7 @@ import LaunchIcon from '@mui/icons-material/Launch';
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
 
 import { useState } from 'react'
+import { useSession } from 'next-auth/react';
 import { Object, Room } from '@/lib/types';
 import { useObjects } from '@/providers/ObjectsProvider';
 import BookingsModal from '@/components/bookingsModal/BookingsModal';
@@ -18,9 +19,10 @@ function Row(
         setOpenBookingModal: (arg0: boolean) => void, 
         setSelectedObject: (arg0: Object | null) => void, 
         setOpenBusynessCalendarModal: (arg0: boolean) => void, 
+        isAdmin: boolean,
     }
 ) {
-  const { object, setSelectedRoom, setOpenBookingModal, setSelectedObject, setOpenBusynessCalendarModal } = props;
+  const { object, setSelectedRoom, setOpenBookingModal, setSelectedObject, setOpenBusynessCalendarModal, isAdmin } = props;
   const [open, setOpen] = useState(false);
 
   const handleOpenBook = (roomInfo: { object: Object; room: Room }) => {
@@ -47,6 +49,13 @@ function Row(
             <TableCell component="th" scope="row" onClick={() => setOpen(!open)}>
                 {object.name}
             </TableCell>
+            {isAdmin && (
+                <TableCell>
+                    {object.accessUsers && object.accessUsers.length
+                        ? object.accessUsers.join(', ')
+                        : '—'}
+                </TableCell>
+            )}
             <TableCell sx={{width: '30px'}}>
                 <IconButton onClick={handleBusynessModal.bind(null, object)}>
                     <CalendarMonthIcon/>
@@ -54,7 +63,7 @@ function Row(
             </TableCell>
         </TableRow>
         <TableRow>
-            <TableCell colSpan={6} sx={{borderBottom: 'none', paddingBottom: 0, paddingTop: 0}}>
+            <TableCell colSpan={isAdmin ? 4 : 3} sx={{borderBottom: 'none', paddingBottom: 0, paddingTop: 0}}>
                 <Collapse in={open} unmountOnExit component={Paper} sx={{marginBlock: 2}}>
                     <Box sx={{ margin: 1 }}>
                     <Typography variant="h6" gutterBottom component="div">
@@ -96,6 +105,8 @@ function Row(
 
 export default function Page() {
     const { objects, loading } = useObjects();
+    const { data: session } = useSession();
+    const isAdmin = session?.user && (session.user as any).role === 'admin';
     const [ openBookingModal, setOpenBookingModal ] = useState(false);
     const [ openBusynessCalendarModal, setOpenBusynessCalendarModal ] = useState(false);
     const [ selectedObject, setSelectedObject ] = useState<Object | null>(null);
@@ -123,6 +134,14 @@ export default function Page() {
             <Typography variant='h5' sx={{fontWeight: 600, mb: 2}}>Мои объекты</Typography>
             <TableContainer component={Paper}>
                 <Table>
+                    <TableHead>
+                        <TableRow>
+                            <TableCell />
+                            <TableCell>Объект</TableCell>
+                            {isAdmin && <TableCell>Кто имеет доступ</TableCell>}
+                            <TableCell />
+                        </TableRow>
+                    </TableHead>
                     <TableBody>
                         {objects.map((object: Object) => (
                             <Row 
@@ -131,7 +150,8 @@ export default function Page() {
                                 setSelectedRoom={setSelectedRoom} 
                                 setOpenBookingModal={setOpenBookingModal} 
                                 setSelectedObject={setSelectedObject} 
-                                setOpenBusynessCalendarModal={setOpenBusynessCalendarModal}  
+                                setOpenBusynessCalendarModal={setOpenBusynessCalendarModal}
+                                isAdmin={!!isAdmin}
                             />
                         ))}
                     </TableBody>

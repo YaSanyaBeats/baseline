@@ -20,20 +20,8 @@ async function getBusynessPerRoom(objectID: number, room: any) {
     const endDate = new Date(now);
     endDate.setMonth(now.getMonth() + 4);
     endDate.setDate(endDate.getDate() - 1);
-    
-
 
     return new Promise(async (resolve, reject) => {
-        let result = [] as any[];
-        let currentDate = new Date(startDate);
-        while (currentDate <= endDate) {
-            result.push({
-                date: currentDate.toISOString().split('T')[0],
-                busyness: 'free'
-            });
-            currentDate.setDate(currentDate.getDate() + 1);
-        }
-
         const neededBookings = await bookings.find({
             propertyId: +objectID,
             unitId: +room.id,
@@ -44,30 +32,43 @@ async function getBusynessPerRoom(objectID: number, room: any) {
             ]
         }).toArray();
 
-        neededBookings.forEach((booking: any) => {
-            let arrival = booking.arrival;
-            let departure = booking.departure;
-
-            result = result.map((dateObject: any) => {
-                let newBusyness = dateObject.busyness;
-                if(dateObject.date >= arrival && dateObject.date < departure) {
-                    newBusyness = 'busyness';
-                    if(booking.status == 'black') {
-                        newBusyness = 'black';
+        const bookingsList = neededBookings.map((booking: any) => {
+            // Вычисляем стоимость из invoiceItems
+            let price = 0;
+            if(booking?.invoiceItems?.length) {
+                booking.invoiceItems.forEach((invoiceElem: any) => {
+                    if(invoiceElem.type == 'charge' && invoiceElem.lineTotal > price) {
+                        price = invoiceElem.lineTotal;
                     }
-                }
-                return {
-                    date: dateObject.date,
-                    busyness: newBusyness,
-                }
-            })
-        })        
+                })
+            }
 
+            // Вычисляем количество гостей
+            let guestsCount = 0;
+            if(booking?.numAdult) {
+                guestsCount += booking?.numAdult;
+            }
+            if(booking?.numChild) {
+                guestsCount += booking?.numChild;
+            }
+
+            return {
+                id: booking.id,
+                title: booking.title || '',
+                firstName: booking.firstName || '',
+                lastName: booking.lastName || '',
+                status: booking.status || '',
+                arrival: booking.arrival,
+                departure: booking.departure,
+                price: price,
+                guestsCount: guestsCount
+            };
+        });
 
         resolve({
             roomID: room.id,
             roomName: room.name ? room.name : room.id,
-            busyness: result
+            bookings: bookingsList
         });
     })
 }

@@ -1,8 +1,9 @@
 import { Dialog, DialogTitle, DialogContent, CircularProgress, Stack, Box, IconButton, Typography, AppBar, Toolbar, useMediaQuery } from "@mui/material";
-import { BusynessRow, Object } from '@/lib/types';
+import { RoomBookings, BusynessRow, BusynessItem, BusynessBookingInfo, Object } from '@/lib/types';
 import { useEffect, useState } from "react";
 import { getBusynessPerDays } from "@/lib/bysuness";
 import BusynessCalendarTable from "./BusynessCalendarTable";
+import BusynessCalendarMobile from "./BusynessCalendarMobile";
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { useSession } from "next-auth/react";
@@ -10,28 +11,73 @@ import CloseIcon from '@mui/icons-material/Close';
 
 const months = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
 
-const getBusynessItemsPage = (busynessRooms: BusynessRow[], page: number) => {
-    if(!busynessRooms.length || !busynessRooms[0].busyness.length) {
+const getDaysInMonth = (year: number, month: number): Date[] => {
+    const days: Date[] = [];
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    
+    
+    for (let d = new Date(firstDay); d <= lastDay; d.setDate(d.getDate() + 1)) {
+        
+        days.push(new Date(d));
+    }
+    
+    return days;
+};
+
+const getBookingForDate = (date: string, bookings: BusynessBookingInfo[]): BusynessBookingInfo | null => {
+    return bookings.find(booking => {
+        return date >= booking.arrival && date < booking.departure;
+    }) || null;
+};
+
+const getBusynessItemsPage = (roomBookings: RoomBookings[], page: number): BusynessRow[] => {
+    if(!roomBookings.length) {
         return [];
     }
 
-    const firstDate = new Date(busynessRooms[0].busyness[0].date);
-    firstDate.setMonth(firstDate.getMonth() + page);
+    const now = new Date();
+    now.setDate(1);
+    const targetDate = new Date(now);
+    targetDate.setMonth(now.getMonth() - 12 + page);
+    
+    const year = targetDate.getFullYear();
+    const month = targetDate.getMonth();
+    const days = getDaysInMonth(year, month);
 
-    const firstDateString = firstDate.toISOString().split('T')[0];
-    const datePath = firstDateString.split('-').slice(0, 2).join('-');
+    const result: BusynessRow[] = [];
+    
+    roomBookings.forEach((roomBooking) => {
+        const busynessItems: BusynessItem[] = days.map(day => {
 
-    const result = [] as BusynessRow[];
-    busynessRooms.forEach((busynessRoom) => {
-        const filteredItems = busynessRoom.busyness.filter((item) => {
-            return item.date.includes(datePath);
+            const year = day.getFullYear();
+            const month = String(day.getMonth() + 1).padStart(2, '0');
+            const dayOfMonth = String(day.getDate()).padStart(2, '0');
+            const dateString = `${year}-${month}-${dayOfMonth}`;
+            const booking = getBookingForDate(dateString, roomBooking.bookings);
+            
+            
+            if (booking) {
+                return {
+                    date: dateString,
+                    busyness: booking.status === 'black' ? 'black' : 'busyness',
+                    booking: booking
+                };
+            } else {
+                return {
+                    date: dateString,
+                    busyness: 'free',
+                    booking: null
+                };
+            }
         });
 
         result.push({
-            ...busynessRoom,
-            busyness: filteredItems
-        })
-    })
+            roomID: roomBooking.roomID,
+            roomName: roomBooking.roomName,
+            busyness: busynessItems
+        });
+    });
 
     return result;
 }
@@ -53,8 +99,9 @@ export default function BusynessCalendarModal(props: {
     const isMobile = !useMediaQuery('(min-width:768px)');
     const { object, open, setOpen } = props;
     const [loading, setLoading] = useState(true);
-    const [busynessItems, setBusynessItems] = useState<BusynessRow[]>([]);
-    const [page, setPage] = useState(0);
+    const [roomBookings, setRoomBookings] = useState<RoomBookings[]>([]);
+    // 12-й "шаг" соответствует текущему месяцу (смещение -12 + page)
+    const [page, setPage] = useState(12);
     const {data: session} = useSession();
 
     const handleClose = () => {
@@ -75,10 +122,11 @@ export default function BusynessCalendarModal(props: {
         }
 
         setLoading(true);
-        getBusynessPerDays(object, session).then((bysuness: BusynessRow[]) => {
-            setBusynessItems(bysuness);
+        getBusynessPerDays(object, session).then((bookings: RoomBookings[]) => {
+            setRoomBookings(bookings);
             setLoading(false);
-            setPage(0);
+            // по умолчанию показываем текущий месяц
+            setPage(12);
         })
     }, [object, session])
 
@@ -86,7 +134,7 @@ export default function BusynessCalendarModal(props: {
         return;
     }
 
-    if(!busynessItems.length || !busynessItems[0].busyness.length) {
+    if(!roomBookings.length) {
         return;
     }
 
@@ -128,7 +176,11 @@ export default function BusynessCalendarModal(props: {
                     <CircularProgress />
                 ) : (
                     <>
-                        <BusynessCalendarTable busynessItems={getBusynessItemsPage(busynessItems, page)}></BusynessCalendarTable>
+                        {isMobile ? (
+                            <BusynessCalendarMobile busynessItems={getBusynessItemsPage(roomBookings, page)} />
+                        ) : (
+                            <BusynessCalendarTable busynessItems={getBusynessItemsPage(roomBookings, page)} />
+                        )}
                         <Stack direction={{xs: 'column', sm: 'row'}} mt={3} spacing={{xs: 2, sm: 3}}>
                             <Stack direction={'row'} alignItems={'center'} spacing={1}>
                                 <Box sx={{width: '20px', height: '20px', background: 'white', border: '1px solid rgba(12, 12, 12, 0.5)'}}></Box>

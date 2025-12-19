@@ -28,17 +28,18 @@ export default function Page() {
 
     useEffect(() => {
         getUser(params.id as string).then((currentUser) => {
-            setUser({
+            setUser((prevUser) => ({
                 _id: currentUser._id,
                 login: currentUser.login,
                 role: currentUser.role,
                 name: currentUser.name,
-                password: user.password,
+                // сохраняем введённый пользователем пароль, не затираем его данными с сервера
+                password: prevUser.password,
                 objects: currentUser.objects
-            });
+            }));
             console.log(currentUser);
         })
-    }, [user.password, params.id])
+    }, [params.id])
 
     const handleClickShowPassword = () => setShowPassword((show) => !show);
 
@@ -123,6 +124,7 @@ export default function Page() {
                             label="Имя"
                             variant="outlined"
                             sx={{width: '100%'}}
+                            autoComplete="off"
                             value={user.name}
                             onChange={handleChangeName} 
                         />
@@ -133,6 +135,7 @@ export default function Page() {
                             label="Логин"
                             variant="outlined"
                             sx={{width: '100%'}}
+                            autoComplete="off"
                             value={user.login}
                             onChange={handleChangeLogin} 
                         />
@@ -157,6 +160,7 @@ export default function Page() {
                             <OutlinedInput
                                 id="new-password"
                                 type={showPassword ? 'text' : 'password'}
+                                autoComplete="new-password"
                                 onChange={handleChangePassword}
                                 endAdornment={
                                 <InputAdornment position="end">

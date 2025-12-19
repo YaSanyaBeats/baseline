@@ -108,6 +108,7 @@ export default function Page() {
                             label="Имя"
                             variant="outlined"
                             sx={{width: '100%'}}
+                            autoComplete="off"
                             onChange={handleChangeName} 
                         />
                     </Box>
@@ -117,6 +118,7 @@ export default function Page() {
                             label="Логин"
                             variant="outlined"
                             sx={{width: '100%'}}
+                            autoComplete="off"
                             onChange={handleChangeLogin} 
                         />
                     </Box>
@@ -140,6 +142,7 @@ export default function Page() {
                             <OutlinedInput
                                 id="new-password"
                                 type={showPassword ? 'text' : 'password'}
+                                autoComplete="new-password"
                                 onChange={handleChangePassword}
                                 endAdornment={
                                 <InputAdornment position="end">

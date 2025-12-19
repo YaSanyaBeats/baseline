@@ -1,19 +1,5 @@
-import { BusynessRow } from "@/lib/types";
-import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody } from "@mui/material";
-import { CSSProperties } from "@mui/material/styles";
-
-const leftStickyCellStyle: CSSProperties = {
-    borderLeft: '2px solid rgba(224, 224, 224, 0.5)',
-    padding: '2px',
-    textAlign: 'center',
-    width: '25px'
-};
-
-const busynessColors = {
-    'free' : 'white',
-    'busyness' : '#1976D2',
-    'black' : 'black'
-}
+import { BusynessRow, BusynessBookingInfo } from "@/lib/types";
+import { Box, Paper, Typography, Tooltip } from "@mui/material";
 
 function getDoubleNumber(value: number) {
     if(value <= 9) {
@@ -22,41 +8,269 @@ function getDoubleNumber(value: number) {
     return value;
 }
 
-export default function BusynessCalendarTable(props: {busynessItems: BusynessRow[]}) {
+type SegmentType = "busyness" | "black";
+
+interface Segment {
+    startIndex: number;
+    endIndex: number;
+    type: SegmentType;
+    booking: BusynessBookingInfo | null;
+}
+
+const getSegments = (row: BusynessRow): Segment[] => {
+    console.log(row);
+    const segments: Segment[] = [];
+    let current: Segment | null = null;
+    row.busyness.forEach((item, index) => {
+        
+        if (item.busyness === "free") {
+            if (current) {
+                segments.push({ ...current, endIndex: index - 1 });
+                current = null;
+            }
+            return;
+        }
+
+        if (!current) {
+            current = {
+                startIndex: index,
+                endIndex: index,
+                type: item.busyness as SegmentType,
+                booking: item.booking || null,
+            };
+        } else if (current.type === item.busyness && 
+                   ((!current.booking && !item.booking) || 
+                    (current.booking && item.booking && current.booking.id === item.booking.id))) {
+            current.endIndex = index;
+        } else {
+            segments.push({ ...current });
+            current = {
+                startIndex: index,
+                endIndex: index,
+                type: item.busyness as SegmentType,
+                booking: item.booking || null,
+            };
+        }
+    });
+
+    if (current) {
+        segments.push(current);
+    }
+
+    return segments;
+};
+
+const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('ru-RU', { 
+        style: 'currency', 
+        currency: 'RUB',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 0
+    }).format(price);
+};
+
+const getBookingFullName = (booking: BusynessBookingInfo | null): string => {
+    if (!booking) {
+        return '';
+    }
+    
+    const parts: string[] = [];
+    
+    if (booking.title) {
+        parts.push(booking.title);
+    }
+    
+    if (booking.firstName) {
+        parts.push(booking.firstName);
+    }
+
+    if (booking.lastName) {
+        parts.push(booking.lastName);
+    }
+    
+    return parts.join(' ');
+};
+
+const getWeekdayShort = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = date.getDay(); // 0 - Sunday
+    const map = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    return map[day];
+};
+
+export default function BusynessCalendarTable(props: { busynessItems: BusynessRow[] }) {
     const { busynessItems } = props;
 
+    if (!busynessItems.length || !busynessItems[0].busyness.length) {
+        return null;
+    }
+
+    const days = busynessItems[0].busyness;
+    const daysCount = days.length;
+    const firstColumnWidth = 180;
+
     return (
-        <TableContainer component={Paper}>
-            <Table sx={{ minWidth: 650, tableLayout: 'fixed' }}> 
-                <TableHead>
-                    <TableRow>
-                        <TableCell sx={{width: '100px'}}></TableCell>
-                        {Array(busynessItems[0].busyness.length)
-                            .fill(null)
-                            .map((_, index) => (
-                                <TableCell size="small" key={index} sx={{...leftStickyCellStyle}}>{getDoubleNumber(index + 1)}</TableCell>
-                            ))
-                        }
-                    </TableRow>
-                </TableHead>
-                <TableBody>
-                    {busynessItems.map((busynessItem, index) => (
-                        <TableRow key={index}>
-                            <TableCell sx={{whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'white', borderBottom: '1px solid rgba(224, 224, 224, 1)'}} size="small">{busynessItem.roomName}</TableCell>
-                            {busynessItem.busyness.map((item, index) => (
-                                <TableCell 
-                                    size="small" 
-                                    key={index} 
+        <Paper sx={{ p: 2, overflowX: "auto" }}>
+            <Box sx={{ minWidth: 650 }}>
+                {/* Заголовок с днями недели и числами */}
+                <Box
+                    sx={{
+                        display: "grid",
+                        gridTemplateColumns: `${firstColumnWidth}px repeat(${daysCount}, minmax(0, 1fr))`,
+                        alignItems: "stretch",
+                        columnGap: 0.5,
+                    }}
+                >
+                    <Box />
+                    {days.map((item, index) => (
+                        <Box
+                            key={index}
+                            sx={{
+                                textAlign: "center",
+                                fontSize: 12,
+                                color: "text.secondary",
+                                borderLeft: "1px solid rgba(224, 224, 224, 0.6)",
+                                pt: 0.5,
+                            }}
+                        >
+                            <Typography variant="caption" sx={{ display: "block", lineHeight: 1 }}>
+                                {getWeekdayShort(item.date)}
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontWeight: 500, lineHeight: 1.2 }}>
+                                {getDoubleNumber(new Date(item.date).getDate())}
+                            </Typography>
+                        </Box>
+                    ))}
+                </Box>
+
+                {/* Строки по комнатам */}
+                {busynessItems.map((row, rowIndex) => {
+                    const segments = getSegments(row);
+
+                    return (
+                        <Box
+                            key={rowIndex}
+                            sx={{
+                                display: "grid",
+                                gridTemplateColumns: `${firstColumnWidth}px repeat(${daysCount}, minmax(0, 1fr))`,
+                                gridTemplateRows: "40px",
+                                alignItems: "stretch",
+                                columnGap: 0.5,
+                                position: "relative",
+                            }}
+                        >
+                            {/* Название комнаты */}
+                            <Box
+                                sx={{
+                                    gridColumn: "1 / 2",
+                                    gridRow: "1 / 2",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    whiteSpace: "nowrap",
+                                    pr: 1,
+                                    fontSize: 14,
+                                    fontWeight: 500,
+                                    borderBottom: "1px solid rgba(224, 224, 224, 1)",
+                                }}
+                            >
+                                {row.roomName}
+                            </Box>
+
+                            {/* Фоновая сетка дней */}
+                            {days.map((_, dayIndex) => (
+                                <Box
+                                    key={dayIndex}
                                     sx={{
-                                        ...leftStickyCellStyle,
-                                        background: busynessColors[item.busyness]
+                                        gridColumn: `${dayIndex + 2} / ${dayIndex + 3}`,
+                                        gridRow: "1 / 2",
+                                        borderLeft: "1px solid rgba(224, 224, 224, 0.6)",
+                                        borderBottom: "1px solid rgba(224, 224, 224, 0.3)",
+                                        bgcolor: "white",
+                                        zIndex: 1,
                                     }}
                                 />
                             ))}
-                        </TableRow>
-                    ))}
-                </TableBody>
-            </Table>
-        </TableContainer>
+
+                            {/* Блоки бронирований */}
+                            {segments.map((segment, segIndex) => {
+                                const booking = segment.booking;
+                                const tooltipContent = booking ? (
+                                    <Box>
+                                        <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
+                                            {getBookingFullName(booking)}
+                                        </Typography>
+                                        <Typography variant="caption" display="block">
+                                            Заселение: {formatDate(booking.arrival)}
+                                        </Typography>
+                                        <Typography variant="caption" display="block">
+                                            Выселение: {formatDate(booking.departure)}
+                                        </Typography>
+                                        <Typography variant="caption" display="block">
+                                            Статус: {booking.status}
+                                        </Typography>
+                                        <Typography variant="caption" display="block">
+                                            Гостей: {booking.guestsCount}
+                                        </Typography>
+                                        {/* <Typography variant="caption" display="block">
+                                            Стоимость: {formatPrice(booking.price)}
+                                        </Typography> */}
+                                    </Box>
+                                ) : null;
+
+                                return (
+                                    <Tooltip
+                                        key={segIndex}
+                                        title={tooltipContent || ''}
+                                        arrow
+                                        placement="top"
+                                    >
+                                        <Box
+                                            sx={{
+                                                gridColumn: `${segment.startIndex + 2} / ${segment.endIndex + 3}`,
+                                                gridRow: "1 / 2",
+                                                alignSelf: "stretch",
+                                                m: "4px 2px",
+                                                borderRadius: 2,
+                                                bgcolor: segment.type === "black" ? "#000000" : "#1976D2",
+                                                opacity: 0.9,
+                                                zIndex: 2,
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "center",
+                                                px: 1,
+                                                cursor: booking ? "pointer" : "default",
+                                            }}
+                                        >
+                                            {booking && (
+                                                <Typography
+                                                    variant="caption"
+                                                    sx={{
+                                                        color: "white",
+                                                        fontWeight: 500,
+                                                        fontSize: "11px",
+                                                        whiteSpace: "nowrap",
+                                                        overflow: "hidden",
+                                                        textOverflow: "ellipsis",
+                                                        width: "100%",
+                                                        textAlign: "center",
+                                                    }}
+                                                >
+                                                    {getBookingFullName(booking)}
+                                                </Typography>
+                                            )}
+                                        </Box>
+                                    </Tooltip>
+                                );
+                            })}
+                        </Box>
+                    );
+                })}
+            </Box>
+        </Paper>
     );
 }

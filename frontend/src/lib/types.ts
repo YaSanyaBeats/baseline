@@ -7,6 +7,8 @@ export interface Object {
     id: number;
     name: string;
     roomTypes: Room[];
+    // Для админа: список пользователей, у которых есть доступ к объекту
+    accessUsers?: string[];
 }
 
 export interface Booking {
@@ -123,7 +125,27 @@ export interface BusynessRow {
     roomName: string
 }
 
+export interface RoomBookings {
+    roomID: number,
+    roomName: string,
+    bookings: BusynessBookingInfo[]
+}
+
+export interface BusynessBookingInfo {
+    id: number,
+    title: string,
+    firstName: string,
+    lastName: string,
+    status: string,
+    arrival: string,
+    departure: string,
+    price: number,
+    guestsCount: number
+}
+
 export interface BusynessItem {
     date: string,
-    busyness: 'free' | 'busyness' | 'black'
+    busyness: 'free' | 'busyness' | 'black',
+    booking?: BusynessBookingInfo | null
 }
+

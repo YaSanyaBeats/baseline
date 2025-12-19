@@ -3,6 +3,7 @@ import db from "../db/getDB";
 export async function getObjects() {
     const collection = db.collection('objects');
     const optionsDB = db.collection('options');
+    const usersCollection = db.collection('users');
 
     const optionsData = await optionsDB.find({}).toArray();
     let options: any = {};
@@ -10,12 +11,22 @@ export async function getObjects() {
         options[prop['optionName']] = prop['value'];
     });
     
-    let objects = await collection.find({}).sort({name: 1}).toArray();
+    const objects = await collection.find({}).sort({ name: 1 }).toArray();
+
+    // Получаем всех пользователей с их объектами один раз,
+    // чтобы потом собрать список пользователей, у которых есть доступ к каждому объекту
+    const users = await usersCollection.find({}, {
+        projection: {
+            name: 1,
+            login: 1,
+            objects: 1,
+        },
+    }).toArray();
     
     const neededObjects = objects.map((object: any) => {
         let rooms = [];
         
-        if(object?.roomTypes?.length) {
+        if (object?.roomTypes?.length) {
             rooms = object?.roomTypes[0]?.units.map((room: any) => {
                 return {
                     id: room?.id,
@@ -24,19 +35,27 @@ export async function getObjects() {
             })
         }
 
+        // Список пользователей, у которых в объекте users.objects есть данный объект
+        const accessUsers = users
+            .filter((user: any) => Array.isArray(user.objects) && user.objects.some(
+                (userObject: any) => +userObject.id === object.id
+            ))
+            .map((user: any) => user.name || user.login);
+
         return {
             id: object.id,
             name: object.name,
-            roomTypes: rooms
+            roomTypes: rooms,
+            accessUsers,
         }
     })
 
     const result = neededObjects.filter((object) => {
-        if(object.name.includes(options.excludeSubstr)) {
+        if (object.name.includes(options.excludeSubstr)) {
             return false;
         }
 
-        if(options.excludeObjects?.includes(object.id)) {
+        if (options.excludeObjects?.includes(object.id)) {
             return false;
         }
 
@@ -48,9 +67,25 @@ export async function getObjects() {
 
 export async function getAllObjects() {
     const collection = db.collection('objects');
-    
-    let objects = await collection.find({}).sort({name: 1}).toArray();
+    const usersCollection = db.collection('users');
+
+    const objects = await collection.find({}).sort({ name: 1 }).toArray();
+
+    const users = await usersCollection.find({}, {
+        projection: {
+            name: 1,
+            login: 1,
+            objects: 1,
+        },
+    }).toArray();
+
     const neededObjects = objects.map((object: any) => {
+        const accessUsers = users
+            .filter((user: any) => Array.isArray(user.objects) && user.objects.some(
+                (userObject: any) => +userObject.id === object.id
+            ))
+            .map((user: any) => user.name || user.login);
+
         return {
             id: object.id,
             name: object.name,
@@ -59,7 +94,8 @@ export async function getAllObjects() {
                     id: room.id,
                     name: room.name,
                 }
-            })
+            }),
+            accessUsers,
         }
     })
 
