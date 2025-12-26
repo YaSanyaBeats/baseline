@@ -7,15 +7,19 @@ import { getObjects } from '@/lib/beds24/objects'
 import MiniDrawer from '@/components/leftMenu/MiniDrawer'
 import { SnackbarProvider } from '@/providers/SnackbarContext'
 import GlobalSnackbar from '@/components/globalSnackbar/GlobalSnackbar'
+import UserProvider from '@/providers/UserProvider'
+import { User } from '@/lib/types'
 
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
     const session = await getServerSession(authOptions);
-    const objects = await getObjects(session);
     
     if (!session) {
         redirect('/login')
     }
+    
+    const objects = await getObjects(session);
+    const user = session?.user as User | null;
     
     let defaultSnackbarState = {
         open: false,
@@ -32,12 +36,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 
     return (
         <SnackbarProvider defaultState={defaultSnackbarState}>
-            <ObjectsProvider serverObjects={objects} session={session}>
-                <MiniDrawer>
-                    {children}
-                </MiniDrawer>
-                <GlobalSnackbar/>
-            </ObjectsProvider>
+            <UserProvider user={user}>
+                <ObjectsProvider serverObjects={objects} session={session}>
+                    <MiniDrawer>
+                        {children}
+                    </MiniDrawer>
+                    <GlobalSnackbar/>
+                </ObjectsProvider>
+            </UserProvider>
         </SnackbarProvider>
     )
 }

@@ -28,25 +28,29 @@ export async function getObjects() {
         
         if (object?.roomTypes?.length) {
             rooms = object?.roomTypes[0]?.units.map((room: any) => {
+                // Список пользователей, у которых есть доступ именно к этой комнате
+                const roomAccessUsers = users
+                    .filter((user: any) => {
+                        if (!Array.isArray(user.objects)) return false;
+                        const userObject = user.objects.find((uo: any) => +uo.id === object.id);
+                        if (!userObject) return false;
+                        // Проверяем, есть ли доступ к этой конкретной комнате
+                        return Array.isArray(userObject.rooms) && userObject.rooms.includes(room?.id);
+                    })
+                    .map((user: any) => user.name || user.login);
+
                 return {
                     id: room?.id,
                     name: room?.name,
+                    accessUsers: roomAccessUsers,
                 }
             })
         }
-
-        // Список пользователей, у которых в объекте users.objects есть данный объект
-        const accessUsers = users
-            .filter((user: any) => Array.isArray(user.objects) && user.objects.some(
-                (userObject: any) => +userObject.id === object.id
-            ))
-            .map((user: any) => user.name || user.login);
 
         return {
             id: object.id,
             name: object.name,
             roomTypes: rooms,
-            accessUsers,
         }
     })
 
@@ -80,22 +84,27 @@ export async function getAllObjects() {
     }).toArray();
 
     const neededObjects = objects.map((object: any) => {
-        const accessUsers = users
-            .filter((user: any) => Array.isArray(user.objects) && user.objects.some(
-                (userObject: any) => +userObject.id === object.id
-            ))
-            .map((user: any) => user.name || user.login);
-
         return {
             id: object.id,
             name: object.name,
             roomTypes: object.roomTypes[0].units.map((room: any) => {
+                // Список пользователей, у которых есть доступ именно к этой комнате
+                const roomAccessUsers = users
+                    .filter((user: any) => {
+                        if (!Array.isArray(user.objects)) return false;
+                        const userObject = user.objects.find((uo: any) => +uo.id === object.id);
+                        if (!userObject) return false;
+                        // Проверяем, есть ли доступ к этой конкретной комнате
+                        return Array.isArray(userObject.rooms) && userObject.rooms.includes(room.id);
+                    })
+                    .map((user: any) => user.name || user.login);
+
                 return {
                     id: room.id,
                     name: room.name,
+                    accessUsers: roomAccessUsers,
                 }
             }),
-            accessUsers,
         }
     })
 

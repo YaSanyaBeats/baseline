@@ -16,13 +16,20 @@ const defaultUser: User = {
     password: '',
     name: '',
     role: "owner",
-    objects: []
+    objects: [],
+    email: '',
+    phone: '',
+    bankName: '',
+    accountNumber: '',
+    accountType: 'basic',
+    reportLink: ''
 }
 
 export default function Page() {
     const [user, setUser] = useState<User>(defaultUser);
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
     const params = useParams();
 
@@ -35,7 +42,13 @@ export default function Page() {
                 name: currentUser.name,
                 // сохраняем введённый пользователем пароль, не затираем его данными с сервера
                 password: prevUser.password,
-                objects: currentUser.objects
+                objects: currentUser.objects,
+                email: currentUser.email || '',
+                phone: currentUser.phone || '',
+                bankName: currentUser.bankName || '',
+                accountNumber: currentUser.accountNumber || '',
+                accountType: currentUser.accountType || 'basic',
+                reportLink: currentUser.reportLink || ''
             }));
             console.log(currentUser);
         })
@@ -96,7 +109,115 @@ export default function Page() {
         });
     }
 
+    const validateEmail = (email: string): boolean => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    }
+
+    const validatePhone = (phone: string): boolean => {
+        const phoneRegex = /^[\d\s\-\+\(\)]+$/;
+        return phoneRegex.test(phone) && phone.replace(/\D/g, '').length >= 10;
+    }
+
+    const validateAccountNumber = (accountNumber: string): boolean => {
+        return /^\d*$/.test(accountNumber);
+    }
+
+    const validateUrl = (url: string): boolean => {
+        if (!url) return true; // Пустая ссылка допустима
+        try {
+            new URL(url);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    const handleChangeEmail = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value || '';
+        setUser({ ...user, email: value });
+        if (value && !validateEmail(value)) {
+            setErrors({ ...errors, email: 'Введите корректный email адрес' });
+        } else {
+            const newErrors = { ...errors };
+            delete newErrors.email;
+            setErrors(newErrors);
+        }
+    }
+
+    const handleChangePhone = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value || '';
+        setUser({ ...user, phone: value });
+        if (value && !validatePhone(value)) {
+            setErrors({ ...errors, phone: 'Введите корректный номер телефона' });
+        } else {
+            const newErrors = { ...errors };
+            delete newErrors.phone;
+            setErrors(newErrors);
+        }
+    }
+
+    const handleChangeBankName = (event: React.ChangeEvent<HTMLInputElement>) => {
+        setUser({ ...user, bankName: event.target.value || '' });
+    }
+
+    const handleChangeAccountNumber = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value || '';
+        if (validateAccountNumber(value)) {
+            setUser({ ...user, accountNumber: value });
+            const newErrors = { ...errors };
+            delete newErrors.accountNumber;
+            setErrors(newErrors);
+        } else {
+            setErrors({ ...errors, accountNumber: 'Номер счёта должен содержать только цифры' });
+        }
+    }
+
+    const handleChangeAccountType = (event: ChangeEvent<Omit<HTMLInputElement, "value"> & { value: string; }> | (Event & { target: { value: string; name: string; }; })) => {
+        if (event.target.value === 'basic' || event.target.value === 'premium') {
+            setUser({ ...user, accountType: event.target.value });
+        }
+    }
+
+    const handleChangeReportLink = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value || '';
+        setUser({ ...user, reportLink: value });
+        if (value && !validateUrl(value)) {
+            setErrors({ ...errors, reportLink: 'Введите корректную ссылку (например: https://example.com)' });
+        } else {
+            const newErrors = { ...errors };
+            delete newErrors.reportLink;
+            setErrors(newErrors);
+        }
+    }
+
     const handleSubmit = () => {
+        // Проверка валидации перед отправкой
+        const validationErrors: Record<string, string> = {};
+        
+        if (user.email && !validateEmail(user.email)) {
+            validationErrors.email = 'Введите корректный email адрес';
+        }
+        if (user.phone && !validatePhone(user.phone)) {
+            validationErrors.phone = 'Введите корректный номер телефона';
+        }
+        if (user.accountNumber && !validateAccountNumber(user.accountNumber)) {
+            validationErrors.accountNumber = 'Номер счёта должен содержать только цифры';
+        }
+        if (user.reportLink && !validateUrl(user.reportLink)) {
+            validationErrors.reportLink = 'Введите корректную ссылку';
+        }
+
+        if (Object.keys(validationErrors).length > 0) {
+            setErrors(validationErrors);
+            setSnackbar({
+                open: true,
+                message: 'Пожалуйста, исправьте ошибки в форме',
+                severity: 'error',
+            });
+            return;
+        }
+
         setLoading(true);
 
         sendEditUser(user).then((res: CommonResponse) => {
@@ -175,6 +296,86 @@ export default function Page() {
                                 label="Password"
                             />
                         </FormControl>
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="email"
+                            label="Email"
+                            variant="outlined"
+                            sx={{width: '100%'}}
+                            autoComplete="off"
+                            value={user.email || ''}
+                            onChange={handleChangeEmail}
+                            error={!!errors.email}
+                            helperText={errors.email}
+                            type="email"
+                        />
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="phone"
+                            label="Телефон"
+                            variant="outlined"
+                            sx={{width: '100%'}}
+                            autoComplete="off"
+                            value={user.phone || ''}
+                            onChange={handleChangePhone}
+                            error={!!errors.phone}
+                            helperText={errors.phone}
+                            placeholder="+7 (999) 123-45-67"
+                        />
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="bankName"
+                            label="Наименование банка"
+                            variant="outlined"
+                            sx={{width: '100%'}}
+                            autoComplete="off"
+                            value={user.bankName || ''}
+                            onChange={handleChangeBankName}
+                        />
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="accountNumber"
+                            label="Номер счёта"
+                            variant="outlined"
+                            sx={{width: '100%'}}
+                            autoComplete="off"
+                            value={user.accountNumber || ''}
+                            onChange={handleChangeAccountNumber}
+                            error={!!errors.accountNumber}
+                            helperText={errors.accountNumber}
+                            inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
+                        />
+                    </Box>
+                    <Box>
+                        <FormControl sx={{width: '100%'}}>
+                            <InputLabel>Тип аккаунта</InputLabel>
+                            <Select
+                                value={user.accountType || 'basic'}
+                                onChange={handleChangeAccountType}
+                                label="Тип аккаунта"
+                            >
+                                <MenuItem value={'basic'}>Базовый</MenuItem>
+                                <MenuItem value={'premium'}>Премиум</MenuItem>
+                            </Select>
+                        </FormControl>
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="reportLink"
+                            label="Ссылка на отчёт"
+                            variant="outlined"
+                            sx={{width: '100%'}}
+                            autoComplete="off"
+                            value={user.reportLink || ''}
+                            onChange={handleChangeReportLink}
+                            error={!!errors.reportLink}
+                            helperText={errors.reportLink}
+                            placeholder="https://example.com/report"
+                        />
                     </Box>
                 </Stack>
                 <Stack direction={"row"} spacing={2} mt={2}>

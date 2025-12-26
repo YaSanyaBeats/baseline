@@ -66,6 +66,26 @@ router.post('/editUser', async function(req: Request, res: Response, next: NextF
             updateData.password = await bcrypt.hash(user.password, 10);
         }
 
+        // Добавляем новые поля, если они присутствуют
+        if(user.email !== undefined) {
+            updateData.email = user.email;
+        }
+        if(user.phone !== undefined) {
+            updateData.phone = user.phone;
+        }
+        if(user.bankName !== undefined) {
+            updateData.bankName = user.bankName;
+        }
+        if(user.accountNumber !== undefined) {
+            updateData.accountNumber = user.accountNumber;
+        }
+        if(user.accountType !== undefined) {
+            updateData.accountType = user.accountType;
+        }
+        if(user.reportLink !== undefined) {
+            updateData.reportLink = user.reportLink;
+        }
+
         
         await usersCollection.updateOne(
             { _id: new ObjectId(user._id as string)},

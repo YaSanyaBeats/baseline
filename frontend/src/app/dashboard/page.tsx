@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { useSession } from 'next-auth/react';
 import { Object, Room } from '@/lib/types';
 import { useObjects } from '@/providers/ObjectsProvider';
+import { useUser } from '@/providers/UserProvider';
 import BookingsModal from '@/components/bookingsModal/BookingsModal';
 import BusynessCalendarModal from '@/components/busynessCalendarModal/BusynessCalendarModal';
 
@@ -23,6 +24,8 @@ function Row(
     }
 ) {
   const { object, setSelectedRoom, setOpenBookingModal, setSelectedObject, setOpenBusynessCalendarModal, isAdmin } = props;
+  const { accountType } = useUser();
+  const isPremium = accountType === 'premium';
   const [open, setOpen] = useState(false);
 
   const handleOpenBook = (roomInfo: { object: Object; room: Room }) => {
@@ -49,13 +52,6 @@ function Row(
             <TableCell component="th" scope="row" onClick={() => setOpen(!open)}>
                 {object.name}
             </TableCell>
-            {isAdmin && (
-                <TableCell>
-                    {object.accessUsers && object.accessUsers.length
-                        ? object.accessUsers.join(', ')
-                        : '—'}
-                </TableCell>
-            )}
             <TableCell sx={{width: '30px'}}>
                 <IconButton onClick={handleBusynessModal.bind(null, object)}>
                     <CalendarMonthIcon/>
@@ -63,7 +59,7 @@ function Row(
             </TableCell>
         </TableRow>
         <TableRow>
-            <TableCell colSpan={isAdmin ? 4 : 3} sx={{borderBottom: 'none', paddingBottom: 0, paddingTop: 0}}>
+            <TableCell colSpan={3} sx={{borderBottom: 'none', paddingBottom: 0, paddingTop: 0}}>
                 <Collapse in={open} unmountOnExit component={Paper} sx={{marginBlock: 2}}>
                     <Box sx={{ margin: 1 }}>
                     <Typography variant="h6" gutterBottom component="div">
@@ -73,7 +69,10 @@ function Row(
                         <TableHead>
                         <TableRow>
                             <TableCell>Название</TableCell>
-                            <TableCell/>
+                            {isAdmin && <TableCell>Кто имеет доступ</TableCell>}
+                            {isPremium && (
+                                <TableCell/>
+                            )}
                         </TableRow>
                         </TableHead>
                         <TableBody>
@@ -82,14 +81,23 @@ function Row(
                                     <TableCell component="th">
                                         {room.name ? room.name : 'Unnamed'}
                                     </TableCell>
-                                    <TableCell align="right">
-                                        <IconButton onClick={handleOpenBook.bind(null, {
-                                            object: object,
-                                            room: room
-                                        })}>
-                                            <LaunchIcon/>
-                                        </IconButton>
-                                    </TableCell>
+                                    {isAdmin && (
+                                        <TableCell>
+                                            {room.accessUsers && room.accessUsers.length
+                                                ? room.accessUsers.join(', ')
+                                                : '—'}
+                                        </TableCell>
+                                    )}
+                                    {isPremium && (
+                                        <TableCell align="right">
+                                            <IconButton onClick={handleOpenBook.bind(null, {
+                                                object: object,
+                                                room: room
+                                            })}>
+                                                <LaunchIcon/>
+                                            </IconButton>
+                                        </TableCell>
+                                    )}
                                 </TableRow>
                             ))}
                         </TableBody>
@@ -139,7 +147,6 @@ export default function Page() {
                         <TableRow>
                             <TableCell />
                             <TableCell>Объект</TableCell>
-                            {isAdmin && <TableCell>Кто имеет доступ</TableCell>}
                             <TableCell />
                         </TableRow>
                     </TableHead>

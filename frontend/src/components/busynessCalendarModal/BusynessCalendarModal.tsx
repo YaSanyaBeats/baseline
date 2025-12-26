@@ -128,7 +128,7 @@ export default function BusynessCalendarModal(props: {
             // по умолчанию показываем текущий месяц
             setPage(12);
         })
-    }, [object, session])
+    }, [object])
 
     if(!object) {
         return;

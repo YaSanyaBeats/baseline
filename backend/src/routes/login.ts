@@ -49,7 +49,8 @@ router.post('/', async function(req: Request, res: Response, next: NextFunction)
                 login: user.login,
                 name: user.name,
                 role: user.role,
-                objects: user.objects
+                objects: user.objects,
+                accountType: user.accountType
             }, token 
         });
     } catch (error) {

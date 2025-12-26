@@ -1,14 +1,14 @@
 export interface Room {
     id: number;
     name: string;
+    // Для админа: список пользователей, у которых есть доступ к этой комнате
+    accessUsers?: string[];
 }
 
 export interface Object {
     id: number;
     name: string;
     roomTypes: Room[];
-    // Для админа: список пользователей, у которых есть доступ к объекту
-    accessUsers?: string[];
 }
 
 export interface Booking {
@@ -106,7 +106,13 @@ export interface User {
     role: 'admin' | 'owner',
     name: string,
     password: string,
-    objects: UserObject[]
+    objects: UserObject[],
+    email?: string,
+    phone?: string,
+    bankName?: string,
+    accountNumber?: string,
+    accountType?: 'basic' | 'premium',
+    reportLink?: string
 }
 
 export interface UserObject {
