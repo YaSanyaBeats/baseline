@@ -91,7 +91,6 @@ export default function RoomsMultiSelect(props: {value: UserObject[], onChange: 
             getOptionLabel={(option) => option.title}
             groupBy={(option) => option.objectName}
             value={selectedOptions}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             onChange={(event: any, newValue: Option[] | null) => {
                 if(!newValue) {
                     return;

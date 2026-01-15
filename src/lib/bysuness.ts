@@ -2,7 +2,6 @@ import axios from 'axios';
 import { Object } from './types';
 import { getApiUrl } from './api-client';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getBusynessPerDays(object: Object, session: any){
     if(!session) {
         return;

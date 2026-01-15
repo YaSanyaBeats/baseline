@@ -107,6 +107,7 @@ const segmentColors: Record<SegmentType, string> = {
 
 export default function BusynessCalendarMobile(props: { busynessItems: BusynessRow[] }) {
     const { busynessItems } = props;
+    const { t } = useTranslation();
     const [selectedBooking, setSelectedBooking] = useState<BusynessBookingInfo | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
 

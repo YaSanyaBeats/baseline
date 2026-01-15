@@ -20,7 +20,6 @@ const ObjectsContext = createContext<ObjectsContextType | undefined>(undefined);
 interface ObjectsProviderProps {
     children: ReactNode;
     serverObjects: Object[];
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     session: any
 }
 

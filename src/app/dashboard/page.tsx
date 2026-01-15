@@ -116,7 +116,7 @@ function Row(
 export default function Page() {
     const { objects, loading } = useObjects();
     const { data: session } = useSession();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { t } = useTranslation();
     const isAdmin = session?.user && (session.user as any).role === 'admin';
     const [ openBookingModal, setOpenBookingModal ] = useState(false);
     const [ openBusynessCalendarModal, setOpenBusynessCalendarModal ] = useState(false);
@@ -139,8 +139,6 @@ export default function Page() {
             <Skeleton variant="rounded" width={'100%'} height={50} />
         </Stack>
     )
-
-    const { t } = useTranslation();
 
     return (
         <>

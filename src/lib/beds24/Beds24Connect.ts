@@ -41,7 +41,7 @@ export class Beds24Connect {
         if(response?.data?.token) {
             const db = await getDB();
             const collection = db.collection('beds24');
-            const user = await collection.updateOne({},
+            await collection.updateOne({},
 				{ $set: { token: response.data.token } }
             );
         }
@@ -54,7 +54,7 @@ export class Beds24Connect {
         const token = tokenObj?.token;
 
 		params = buildQueryString(params);
-        let url = `${this.path}${endpoint}?${params}`;
+        const url = `${this.path}${endpoint}?${params}`;
 		
 		try {
 			const response = await axios.get(url, {
@@ -77,7 +77,7 @@ export class Beds24Connect {
     }
 
 	async get(endpoint: string, params: any): Promise<any> {
-		let result = await this.sendGetRequest(endpoint, params);
+		const result = await this.sendGetRequest(endpoint, params);
 		if(result?.data && result?.data?.success) {
 			return result.data;
 		}
@@ -85,7 +85,7 @@ export class Beds24Connect {
 	}
 
 	async getTokens() {
-		let result = await this.sendGetRequest('properties', { page: 1 });
+		const result = await this.sendGetRequest('properties', { page: 1 });
 		if(result?.data && result?.data?.success) {
 			return {
 				remaining: result?.headers['x-five-min-limit-remaining'],

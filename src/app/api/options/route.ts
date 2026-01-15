@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
     try {
         const db = await getDB();
         const options = db.collection('options');
         const objectsCollection = db.collection('objects');
         const optionsData = await options.find({}).toArray();
 
-        let result: any = {};
+        const result: any = {};
 
         optionsData.forEach((prop) => {
             if (prop['optionName'] === 'excludeObjects') {
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
             result[prop['optionName']] = prop['value'];
         });
 
-        let objects = await objectsCollection.find({
+        const objects = await objectsCollection.find({
             id: { $in: result['excludeObjects'] },
         }).toArray();
 
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const params = body.params || body;
 
-        for (let param in params) {
+        for (const param in params) {
             await options.updateOne(
                 { optionName: param },
                 { $set: { 'value': params[param] } },

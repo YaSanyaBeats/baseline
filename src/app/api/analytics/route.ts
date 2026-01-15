@@ -10,15 +10,15 @@ function splitDateRange(
         throw new Error('Step must be a positive number');
     }
 
-    let startDate = new Date(startString);
-    let endDate = new Date(endString);
+    const startDate = new Date(startString);
+    const endDate = new Date(endString);
 
     if (startDate > endDate) {
         throw new Error('startDate must be less than or equal to endDate');
     }
 
     const result: { firstNight: Date; lastNight: Date }[] = [];
-    let currentStart = new Date(startDate);
+    const currentStart = new Date(startDate);
 
     while (currentStart <= endDate) {
         const currentEnd = new Date(currentStart);
@@ -52,7 +52,7 @@ function checkRoomDisable(options: any, object: any, room: any, period: any) {
 }
 
 async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null, bookings: any[]) {
-    let bookingPerPeriod = {
+    const bookingPerPeriod = {
         firstNight: new Date(period.firstNight),
         lastNight: new Date(period.lastNight),
         bookings: [] as any[],
@@ -93,8 +93,8 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
 
         bookingPerPeriod.bookings.push(newBooking);
 
-        let arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
-        let departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
+        const arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
+        const departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
         if (booking.status == 'black') {
             blackTime += departure - arrival;
         }
@@ -108,18 +108,18 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
     if (room) {
         unitsCount = 1;
     } else {
-        let promises = object.roomTypes[0].units.map((room: any) => {
+        const promises = object.roomTypes[0].units.map((room: any) => {
             return checkRoomDisable(options, object, room, period);
         });
         const results = await Promise.all(promises);
         unitsCount = results.filter(value => !value).length;
     }
-    let totalTime = (bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()) * unitsCount - blackTime;
+    const totalTime = (bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()) * unitsCount - blackTime;
 
-    let startMedian = options.startMedian * 0.01;
-    let endMedian = options.endMedian * 0.01;
-    let needDaysForStartMedian = totalTime * startMedian;
-    let needDaysForEndMedian = totalTime * endMedian;
+    const startMedian = options.startMedian * 0.01;
+    const endMedian = options.endMedian * 0.01;
+    const needDaysForStartMedian = totalTime * startMedian;
+    const needDaysForEndMedian = totalTime * endMedian;
 
     let sumTime = 0;
     let sumPrice = 0;
@@ -129,13 +129,13 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
             return;
         }
 
-        let arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
-        let departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
+        const arrival = Math.max(booking.arrival.getTime(), bookingPerPeriod.firstNight.getTime());
+        const departure = Math.min(booking.departure.getTime(), bookingPerPeriod.lastNight.getTime());
 
         sumTime += departure - arrival;
 
-        let daysInPeriod = (departure - arrival) / (1000 * 60 * 60 * 24);
-        let daysInBooking = (booking.departure.getTime() - booking.arrival.getTime()) / (1000 * 60 * 60 * 24);
+        const daysInPeriod = (departure - arrival) / (1000 * 60 * 60 * 24);
+        const daysInBooking = (booking.departure.getTime() - booking.arrival.getTime()) / (1000 * 60 * 60 * 24);
 
         sumPrice += (booking.price / daysInBooking) * daysInPeriod;
         sumBookingDays += daysInPeriod;
@@ -202,7 +202,7 @@ function getFirstNigts(bookings: any) {
 }
 
 async function getAnalyticsForObject(options: any, object: any) {
-    let periods = options.periods;
+    const periods = options.periods;
 
     const rooms: { id: number, name: string }[] = [];
     if (object.roomTypes) {
@@ -257,12 +257,12 @@ async function getAnalyticsForObject(options: any, object: any) {
 }
 
 function getHeaderValues(periods: any, data: any) {
-    let result = [] as any[];
+    const result = [] as any[];
     periods.map((period: any, index: number) => {
         let notDisableRoomsCount = 0;
         let notZeroPriceRoomsCount = 0;
 
-        let resultPerPeriod = {
+        const resultPerPeriod = {
             firstNight: period.firstNight,
             lastNight: period.lastNight,
             middleBusyness: 0,
@@ -323,7 +323,7 @@ function checkDeviations(median: number, value: number) {
 function fillWarnings(data: any) {
     data.header.forEach((period: any, index: number) => {
         data.data.forEach((object: any) => {
-            let prices = [] as number[];
+            const prices = [] as number[];
             object.roomsAnalytics.forEach((room: any) => {
                 if (room.roomAnalytics[index].middlePrice) {
                     prices.push(room.roomAnalytics[index].middlePrice);
@@ -386,8 +386,8 @@ function getPeriods(periodMode: string, startDateStr: string, endDateStr: string
 
         for (let year = startYear; year <= endYear; year++) {
             periodsTemplate.forEach((period, index) => {
-                let firstNight = period.firstNight;
-                let lastNight = period.lastNight;
+                const firstNight = period.firstNight;
+                const lastNight = period.lastNight;
 
                 let firstDate: Date;
                 let lastDate: Date;
@@ -454,9 +454,9 @@ export async function GET(request: NextRequest) {
             objectFilterData = [objectFilterData];
         }
 
-        let objectIDs = objectFilterData.map((e) => { return +e });
+        const objectIDs = objectFilterData.map((e) => { return +e });
 
-        let periods = getPeriods(
+        const periods = getPeriods(
             searchParams.get('periodMode') as string,
             searchParams.get('startDate') as string,
             searchParams.get('endDate') as string,
@@ -465,7 +465,7 @@ export async function GET(request: NextRequest) {
 
         const db = await getDB();
         const objectCollection = db.collection('objects');
-        let objects = await objectCollection.find({
+        const objects = await objectCollection.find({
             id: { $in: objectIDs }
         }).sort({
             name: 1

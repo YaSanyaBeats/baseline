@@ -7,7 +7,7 @@ export async function getObjects() {
     const usersCollection = db.collection('users');
 
     const optionsData = await optionsDB.find({}).toArray();
-    let options: any = {};
+    const options: any = {};
     optionsData.forEach((prop) => {
         options[prop['optionName']] = prop['value'];
     });

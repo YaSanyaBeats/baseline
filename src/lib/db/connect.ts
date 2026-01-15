@@ -5,7 +5,6 @@ const uri = `mongodb://${process.env.DATABASE_LOGIN}:${process.env.DATABASE_PASS
 
 // Create a new MongoClient
 let client: MongoClient;
-let clientPromise: Promise<MongoClient>;
 
 if (!global._mongoClientPromise) {
     client = new MongoClient(uri, {
@@ -21,7 +20,7 @@ if (!global._mongoClientPromise) {
     });
 }
 
-clientPromise = global._mongoClientPromise;
+const clientPromise = global._mongoClientPromise;
 
 // Connect to the MongoDB server
 async function connectDB() {

@@ -2,7 +2,6 @@ import axios, { AxiosError } from 'axios';
 import { UserObject } from '../types';
 import { getApiUrl } from '../api-client';
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function getObjects(session: any){
     try {
         if(session?.user?.role == 'owner') {
@@ -88,5 +87,10 @@ export async function syncBookings() {
             type: 'bookings'
         }
     });
+    return response.data;
+}
+
+export async function getLastSyncTimes() {
+    const response = await axios.get(getApiUrl('beds24'));
     return response.data;
 }

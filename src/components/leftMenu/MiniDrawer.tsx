@@ -154,7 +154,6 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
         },
     ];
     const getMenu = () => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const user: User = session?.user as any; 
         if(!user) {
             return [];

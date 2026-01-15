@@ -16,7 +16,7 @@ async function fillCollection(collectionName: string, data: any[]) {
 
 async function checkTokens(collectionName: string) {
     const beds24 = new Beds24Connect();
-    let headers = await beds24.getTokens();
+    const headers = await beds24.getTokens();
     if (!headers?.remaining || !headers?.resetsIn) {
         return {
             success: false,
@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Missing type parameter' }, { status: 400 });
         }
 
-        let checkTokensResult = await checkTokens(type);
+        const checkTokensResult = await checkTokens(type);
 
         if (!checkTokensResult.success) {
             return NextResponse.json(checkTokensResult);
@@ -93,7 +93,7 @@ async function syncData(type: string) {
         console.log('start sync');
         
         if (type == 'objects') {
-            let objects = await beds24.get('properties', {
+            const objects = await beds24.get('properties', {
                 includeAllRooms: true,
                 includeUnitDetails: true,
                 page: page
@@ -102,13 +102,13 @@ async function syncData(type: string) {
             beds24data = objects.data;
             nextPageIsExist = objects.pages.nextPageExists;
         } else if (type == 'prices') {
-            let prices = await beds24.get('inventory/fixedPrices', {
+            const prices = await beds24.get('inventory/fixedPrices', {
                 page: page
             });
             beds24data = prices.data;
             nextPageIsExist = prices.pages.nextPageExists;
         } else if (type == 'bookings') {
-            let prices = await beds24.get('bookings', {
+            const prices = await beds24.get('bookings', {
                 includeInvoiceItems: true,
                 includeInfoItems: true,
                 includeGuests: true,
@@ -125,4 +125,19 @@ async function syncData(type: string) {
 
         page++;
     }
+
+    // Сохраняем время последней синхронизации
+    const db = await getDB();
+    const beds24Collection = db.collection('beds24');
+    const now = new Date();
+    
+    await beds24Collection.updateOne(
+        {},
+        { 
+            $set: { 
+                [type]: now 
+            } 
+        },
+        { upsert: true }
+    );
 }

@@ -12,10 +12,8 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>('ru')
-  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
-    setMounted(true)
     // Загружаем язык из localStorage при инициализации
     const savedLanguage = localStorage.getItem('language') as Language | null
     if (savedLanguage && (savedLanguage === 'ru' || savedLanguage === 'en')) {

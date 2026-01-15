@@ -177,7 +177,7 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
     return cells;
 }
 
-const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: AnalyticsBooking[]) => void, t: (key: string) => string) => {
+const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: AnalyticsBooking[]) => void) => {
     const cells: ReactElement[] = [];
 
     rooms.roomAnalytics.map((elem, index) => {
@@ -282,7 +282,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                                                 
                                             </TableCell>
                                             
-                                            {renderResultSubRow(room, handleClick, t)}
+                                            {renderResultSubRow(room, handleClick)}
                                         </TableRow>
                                     )
                                 })}
