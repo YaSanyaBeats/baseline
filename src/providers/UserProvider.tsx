@@ -8,6 +8,7 @@ interface UserContextType {
     user: User | null;
     isAdmin: boolean;
     isOwner: boolean;
+    isAccountant: boolean;
     isPremium: boolean;
     accountType: 'basic' | 'premium' | undefined; 
 }
@@ -25,6 +26,7 @@ interface UserProviderProps {
 export function UserProvider({ children, user }: UserProviderProps) {
     const isAdmin = user?.role === 'admin';
     const isOwner = user?.role === 'owner';
+    const isAccountant = user?.role === 'accountant';
     const isPremium = user?.accountType === 'premium';
     const accountType = user?.accountType;
 
@@ -33,6 +35,7 @@ export function UserProvider({ children, user }: UserProviderProps) {
         user,
         isAdmin,
         isOwner,
+        isAccountant,
         isPremium,
         accountType,
     };

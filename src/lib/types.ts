@@ -103,7 +103,7 @@ export interface OptionsFormData {
 export interface User {
     _id?: string,
     login: string,
-    role: 'admin' | 'owner',
+    role: 'admin' | 'owner' | 'accountant',
     name: string,
     password: string,
     objects: UserObject[],
@@ -153,5 +153,17 @@ export interface BusynessItem {
     date: string,
     busyness: 'free' | 'busyness' | 'black',
     booking?: BusynessBookingInfo | null
+}
+
+export interface Report {
+    _id?: string,
+    reportLink: string,
+    reportMonth: number, // 1-12
+    reportYear: number,
+    ownerId: string, // ID пользователя-владельца отчёта
+    ownerName?: string, // Имя пользователя-владельца (для удобства)
+    accountantId: string, // ID пользователя-бухгалтера, который добавил отчёт
+    accountantName?: string, // Имя бухгалтера (для удобства)
+    createdAt?: Date
 }
 
