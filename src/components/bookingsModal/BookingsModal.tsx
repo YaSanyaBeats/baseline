@@ -2,12 +2,15 @@
 
 import { getBookingsPerRoom } from "@/lib/bookings";
 import { Booking, InvoiceItem, Object, Room } from "@/lib/types";
-import { Dialog, DialogTitle, DialogContent, CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, useMediaQuery, AppBar, IconButton, Toolbar, Accordion, AccordionDetails, AccordionSummary, Typography, Stack, Box } from "@mui/material"
+import { Dialog, DialogTitle, DialogContent, CircularProgress, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, useMediaQuery, AppBar, IconButton, Toolbar, Accordion, AccordionDetails, AccordionSummary, Typography, Stack, Box, Button, Link as MuiLink } from "@mui/material"
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { formatDate, formatTitle } from "@/lib/format";
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import DescriptionIcon from '@mui/icons-material/Description';
 import { useTranslation } from "@/i18n/useTranslation";
+import { useUser } from "@/providers/UserProvider";
+import { getReportByCriteria } from "@/lib/reports";
 const getMaxInvoice = (invoiceItems: InvoiceItem[]) => {
     let maxInvoice: InvoiceItem | undefined;
     invoiceItems.forEach((invoiceItem) => {
@@ -32,15 +35,19 @@ export default function BookingsModal(props: {
     const isMobile = !useMediaQuery('(min-width:768px)');
     const { roomInfo, open, setOpen } = props;
     const { t } = useTranslation();
+    const { user } = useUser();
     const [loading, setLoading] = useState(true);
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [reportsMap, setReportsMap] = useState<Map<string, string>>(new Map()); // key: "year-month", value: reportLink
 
     const groupedBookings = useMemo(() => {
-        const monthMap = new Map<string, { label: string, bookings: Booking[], sortValue: number }>();
+        const monthMap = new Map<string, { label: string, bookings: Booking[], sortValue: number, year: number, month: number }>();
 
         bookings.forEach((booking) => {
             const arrivalDate = new Date(booking.arrival);
-            const key = `${arrivalDate.getFullYear()}-${arrivalDate.getMonth()}`;
+            const year = arrivalDate.getFullYear();
+            const month = arrivalDate.getMonth() + 1; // getMonth() returns 0-11, we need 1-12
+            const key = `${year}-${month}`;
 
             if(!monthMap.has(key)) {
                 const monthString = arrivalDate.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
@@ -48,7 +55,9 @@ export default function BookingsModal(props: {
                 monthMap.set(key, {
                     label,
                     bookings: [],
-                    sortValue: arrivalDate.getFullYear() * 12 + arrivalDate.getMonth()
+                    sortValue: year * 12 + month,
+                    year,
+                    month
                 });
             }
 
@@ -57,6 +66,40 @@ export default function BookingsModal(props: {
 
         return Array.from(monthMap.values()).sort((a, b) => a.sortValue - b.sortValue);
     }, [bookings]);
+
+    // Загрузка отчётов для каждой группы
+    useEffect(() => {
+        const ownerId = user?._id;
+        if (!roomInfo || !ownerId || groupedBookings.length === 0) {
+            return;
+        }
+
+        const loadReports = async () => {
+            const reports = new Map<string, string>();
+            
+            for (const group of groupedBookings) {
+                try {
+                    const report = await getReportByCriteria(
+                        roomInfo.object.id,
+                        ownerId,
+                        group.month,
+                        group.year
+                    );
+                    
+                    if (report && report.reportLink) {
+                        const key = `${group.year}-${group.month}`;
+                        reports.set(key, report.reportLink);
+                    }
+                } catch (error) {
+                    console.error('Error loading report:', error);
+                }
+            }
+            
+            setReportsMap(reports);
+        };
+
+        loadReports();
+    }, [roomInfo, user?._id, groupedBookings]);
 
     useEffect(() => {
         if(!roomInfo) {
@@ -122,13 +165,33 @@ export default function BookingsModal(props: {
                             {groupedBookings.map((group) => {
                                 const totalPrice = group.bookings.reduce((sum, booking) => sum + getBookingPrice(booking), 0);
                                 const totalNights = group.bookings.reduce((sum, booking) => sum + getNightsCount(booking.arrival, booking.departure), 0);
+                                const reportKey = `${group.year}-${group.month}`;
+                                const reportLink = reportsMap.get(reportKey);
 
                                 return (
                                     <TableContainer component={Paper} key={group.label} sx={{mb: 2}}>
                                         <Table sx={{ minWidth: 650 }}>
                                             <TableHead>
                                                 <TableRow>
-                                                    <TableCell colSpan={4} sx={{fontWeight: 700, background: '#f5f5f5'}}>{group.label}</TableCell>
+                                                    <TableCell colSpan={4} sx={{fontWeight: 700, background: '#f5f5f5'}}>
+                                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                                            <span>{group.label}</span>
+                                                            {reportLink && (
+                                                                <Button
+                                                                    component={MuiLink}
+                                                                    href={reportLink}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    variant="outlined"
+                                                                    size="small"
+                                                                    startIcon={<DescriptionIcon />}
+                                                                    sx={{ ml: 2 }}
+                                                                >
+                                                                    {t('accountancy.viewReport')}
+                                                                </Button>
+                                                            )}
+                                                        </Box>
+                                                    </TableCell>
                                                 </TableRow>
                                                 <TableRow>
                                                     <TableCell sx={{fontWeight: 'bold', width: '40%'}}>{t('common.name')}</TableCell>
@@ -167,10 +230,27 @@ export default function BookingsModal(props: {
                             {groupedBookings.map((group, index) => {
                                 const totalPrice = group.bookings.reduce((sum, booking) => sum + getBookingPrice(booking), 0);
                                 const totalNights = group.bookings.reduce((sum, booking) => sum + getNightsCount(booking.arrival, booking.departure), 0);
+                                const reportKey = `${group.year}-${group.month}`;
+                                const reportLink = reportsMap.get(reportKey);
 
                                 return (
                                     <Paper key={group.label} elevation={5} sx={{ mb: index < groupedBookings.length - 1 ? 3 : 0, p: 2 }}>
-                                        <Typography variant="h6" sx={{fontWeight: 700, mb: 2}}>{group.label}</Typography>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                            <Typography variant="h6" sx={{fontWeight: 700}}>{group.label}</Typography>
+                                            {reportLink && (
+                                                <Button
+                                                    component={MuiLink}
+                                                    href={reportLink}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    variant="outlined"
+                                                    size="small"
+                                                    startIcon={<DescriptionIcon />}
+                                                >
+                                                    {t('accountancy.viewReport')}
+                                                </Button>
+                                            )}
+                                        </Box>
                                         {group.bookings.map((booking) => (
                                             <Accordion key={booking.id}>
                                                 <AccordionSummary

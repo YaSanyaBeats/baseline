@@ -275,7 +275,11 @@ export default function Page() {
                         </FormControl>
                     </Box>
                     <Box>
-                        <RoomsMultiSelect value={user.objects} onChange={handleChangeRooms}></RoomsMultiSelect>
+                        <RoomsMultiSelect 
+                            value={user.objects} 
+                            onChange={handleChangeRooms}
+                            label={t('dashboard.hasAccessTo')}
+                        />
                     </Box>
                     <Box>
                         <FormControl variant="outlined" sx={{width: '100%'}}>

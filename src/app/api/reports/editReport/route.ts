@@ -5,54 +5,6 @@ import { getDB } from '@/lib/db/getDB';
 import { Report } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 
-export async function GET(request: NextRequest) {
-    try {
-        // Проверка аутентификации
-        const session = await getServerSession(authOptions);
-        if (!session || !session.user) {
-            return NextResponse.json(
-                { success: false, message: 'Необходима авторизация' },
-                { status: 401 }
-            );
-        }
-
-        const db = await getDB();
-        const reportsCollection = db.collection('reports');
-        const searchParams = request.nextUrl.searchParams;
-        
-        // Если есть параметры поиска, ищем конкретный отчёт
-        const objectId = searchParams.get('objectId');
-        const ownerId = searchParams.get('ownerId');
-        const month = searchParams.get('month');
-        const year = searchParams.get('year');
-        
-        if (objectId && ownerId && month && year) {
-            const report = await reportsCollection.findOne({
-                objectId: Number(objectId),
-                ownerId: ownerId,
-                reportMonth: Number(month),
-                reportYear: Number(year)
-            });
-            
-            return NextResponse.json(report || null);
-        }
-        
-        // Получаем все отчёты, отсортированные по дате создания (новые сначала)
-        const reports = await reportsCollection
-            .find({})
-            .sort({ createdAt: -1 })
-            .toArray();
-
-        return NextResponse.json(reports);
-    } catch (error) {
-        console.error('Error in GET /api/reports:', error);
-        return NextResponse.json(
-            { success: false, message: 'Внутренняя ошибка сервера' },
-            { status: 500 }
-        );
-    }
-}
-
 export async function POST(request: NextRequest) {
     try {
         // Проверка аутентификации
@@ -68,7 +20,7 @@ export async function POST(request: NextRequest) {
         const userRole = (session.user as any).role;
         if (userRole !== 'accountant' && userRole !== 'admin') {
             return NextResponse.json(
-                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут добавлять отчёты.' },
+                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут редактировать отчёты.' },
                 { status: 403 }
             );
         }
@@ -78,7 +30,7 @@ export async function POST(request: NextRequest) {
         const reportData: Report = body.params?.report || body.report;
 
         // Валидация данных
-        if (!reportData.reportLink || !reportData.reportMonth || !reportData.reportYear || !reportData.ownerId || !reportData.objectId) {
+        if (!reportData._id || !reportData.reportLink || !reportData.reportMonth || !reportData.reportYear || !reportData.ownerId || !reportData.objectId) {
             return NextResponse.json(
                 { success: false, message: 'Не все обязательные поля заполнены' },
                 { status: 400 }
@@ -130,47 +82,46 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Получаем информацию о бухгалтере (текущий пользователь)
-        const accountantId = (session.user as any)._id;
-        let accountant;
+        // Проверяем существование отчёта
+        const reportsCollection = db.collection('reports');
+        let existingReport;
         try {
-            accountant = await usersCollection.findOne({ _id: new ObjectId(accountantId) });
+            existingReport = await reportsCollection.findOne({ _id: new ObjectId(reportData._id) });
         } catch {
             return NextResponse.json(
-                { success: false, message: 'Некорректный ID бухгалтера' },
+                { success: false, message: 'Некорректный ID отчёта' },
                 { status: 400 }
             );
         }
-        if (!accountant) {
+        if (!existingReport) {
             return NextResponse.json(
-                { success: false, message: 'Пользователь-бухгалтер не найден' },
+                { success: false, message: 'Отчёт не найден' },
                 { status: 404 }
             );
         }
 
-        // Создаём запись отчёта
-        const reportsCollection = db.collection('reports');
-        const newReport: Report = {
+        // Обновляем отчёт
+        const updateData: any = {
             reportLink: reportData.reportLink,
             reportMonth: reportData.reportMonth,
             reportYear: reportData.reportYear,
             objectId: reportData.objectId,
             roomIds: reportData.roomIds || [],
             ownerId: reportData.ownerId,
-            ownerName: owner.name,
-            accountantId: accountantId,
-            accountantName: accountant.name,
-            createdAt: new Date()
+            ownerName: owner.name
         };
 
-        await reportsCollection.insertOne(newReport);
+        await reportsCollection.updateOne(
+            { _id: new ObjectId(reportData._id) },
+            { $set: updateData }
+        );
 
         return NextResponse.json({
             success: true,
-            message: 'Отчёт успешно добавлен'
+            message: 'Отчёт успешно обновлён'
         });
     } catch (error) {
-        console.error('Error in POST /api/reports:', error);
+        console.error('Error in POST /api/reports/editReport:', error);
         return NextResponse.json(
             { success: false, message: 'Внутренняя ошибка сервера' },
             { status: 500 }

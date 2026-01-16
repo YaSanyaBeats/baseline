@@ -160,6 +160,8 @@ export interface Report {
     reportLink: string,
     reportMonth: number, // 1-12
     reportYear: number,
+    objectId: number, // ID объекта
+    roomIds?: number[], // ID комнат
     ownerId: string, // ID пользователя-владельца отчёта
     ownerName?: string, // Имя пользователя-владельца (для удобства)
     accountantId: string, // ID пользователя-бухгалтера, который добавил отчёт

@@ -1,24 +1,32 @@
 'use client'
 
-import { Box, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Alert, Link as MuiLink, FormControl, InputLabel, Select, MenuItem, IconButton, Stack, Accordion, AccordionSummary, AccordionDetails } from "@mui/material"
+import { Box, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Alert, Link as MuiLink, FormControl, InputLabel, Select, MenuItem, IconButton, Stack, Accordion, AccordionSummary, AccordionDetails, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from "@mui/material"
 import AddIcon from '@mui/icons-material/Add';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import EditIcon from '@mui/icons-material/Edit';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useEffect, useState, useMemo } from "react";
 import { Report } from "@/lib/types";
-import { getReports } from "@/lib/reports";
+import { getReports, deleteReport } from "@/lib/reports";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
+import { useObjects } from "@/providers/ObjectsProvider";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 
 export default function Page() {
     const { t } = useTranslation();
+    const router = useRouter();
     const { isAdmin, isAccountant } = useUser();
+    const { objects } = useObjects();
     const [reports, setReports] = useState<Report[]>([]);
     const [loading, setLoading] = useState(true);
     const { setSnackbar } = useSnackbar();
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
 
     // Фильтры
     const [filterMonth, setFilterMonth] = useState<string>('');
@@ -49,7 +57,8 @@ export default function Page() {
             });
             setLoading(false);
         });
-    }, [setSnackbar, t]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Загружаем только при монтировании компонента
 
     // Получаем уникальные значения для фильтров
     const uniqueValues = useMemo(() => {
@@ -117,6 +126,56 @@ export default function Page() {
 
     const getMonthName = (month: number): string => {
         return t(`accountancy.months.${month}`);
+    }
+
+    const getObjectName = (objectId: number | undefined): string => {
+        if (!objectId) return t('accountancy.notSpecified');
+        const object = objects.find(obj => obj.id === objectId);
+        return object?.name || t('accountancy.notSpecified');
+    }
+
+    const handleDeleteClick = (report: Report) => {
+        setReportToDelete(report);
+        setDeleteDialogOpen(true);
+    }
+
+    const handleDeleteConfirm = async () => {
+        if (!reportToDelete || !reportToDelete._id) return;
+
+        try {
+            const res = await deleteReport(reportToDelete._id);
+            setSnackbar({
+                open: true,
+                message: res.message,
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                // Обновляем список отчётов
+                const updatedReports = await getReports();
+                setReports(updatedReports);
+            }
+        } catch (error) {
+            console.error('Error deleting report:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setDeleteDialogOpen(false);
+            setReportToDelete(null);
+        }
+    }
+
+    const handleDeleteCancel = () => {
+        setDeleteDialogOpen(false);
+        setReportToDelete(null);
+    }
+
+    const handleEditClick = (report: Report) => {
+        if (report._id) {
+            router.push(`/dashboard/accountancy/edit/${report._id}`);
+        }
     }
 
     if (!hasAccess) {
@@ -251,6 +310,7 @@ export default function Page() {
                             <TableRow>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.reportLinkColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.periodColumn')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.objectColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.ownerColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.accountantColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>
@@ -265,12 +325,13 @@ export default function Page() {
                                         </IconButton>
                                     </Box>
                                 </TableCell>
+                                <TableCell sx={{ fontWeight: 'bold', width: '120px' }}>{t('accountancy.actions')}</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {filteredAndSortedReports.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={5} align="center">
+                                    <TableCell colSpan={7} align="center">
                                         <Typography sx={{ py: 2 }}>{t('accountancy.noFilteredReports')}</Typography>
                                     </TableCell>
                                 </TableRow>
@@ -291,6 +352,9 @@ export default function Page() {
                                             {getMonthName(report.reportMonth)} {report.reportYear}
                                         </TableCell>
                                         <TableCell>
+                                            {getObjectName(report.objectId)}
+                                        </TableCell>
+                                        <TableCell>
                                             {report.ownerName || t('accountancy.notSpecified')}
                                         </TableCell>
                                         <TableCell>
@@ -299,6 +363,24 @@ export default function Page() {
                                         <TableCell>
                                             {formatDate(report.createdAt)}
                                         </TableCell>
+                                        <TableCell>
+                                            <Stack direction="row" spacing={1}>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => handleEditClick(report)}
+                                                    color="primary"
+                                                >
+                                                    <EditIcon fontSize="small" />
+                                                </IconButton>
+                                                <IconButton
+                                                    size="small"
+                                                    onClick={() => handleDeleteClick(report)}
+                                                    color="error"
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </Stack>
+                                        </TableCell>
                                     </TableRow>
                                 ))
                             )}
@@ -306,6 +388,27 @@ export default function Page() {
                     </Table>
                 </TableContainer>
             )}
+
+            {/* Диалог подтверждения удаления */}
+            <Dialog
+                open={deleteDialogOpen}
+                onClose={handleDeleteCancel}
+            >
+                <DialogTitle>{t('accountancy.deleteReportTitle')}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t('accountancy.deleteReportMessage')}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleDeleteCancel}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button onClick={handleDeleteConfirm} color="error" variant="contained">
+                        {t('common.delete')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </>
     )
 }

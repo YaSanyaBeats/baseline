@@ -41,8 +41,8 @@ const groupByObjectValue = (data: Option[]): UserObject[] => {
 };
 
 
-export default function RoomsMultiSelect(props: {value: UserObject[], onChange: (value: UserObject[]) => void}) {
-    const { value, onChange } = props;
+export default function RoomsMultiSelect(props: {value: UserObject[], onChange: (value: UserObject[]) => void, label?: string, multiple?: boolean}) {
+    const { value, onChange, label, multiple = true } = props;
     const {objects} = useObjects();
     const { t } = useTranslation();
     const [options, setOptions] = useState<Option[]>();
@@ -83,27 +83,29 @@ export default function RoomsMultiSelect(props: {value: UserObject[], onChange: 
     }
     
     return (
-        <Autocomplete
-            multiple
+        <Autocomplete<Option, boolean>
+            multiple={multiple}
             id="checkboxes-tags-demo"
             options={options}
-            disableCloseOnSelect
-            getOptionLabel={(option) => option.title}
-            groupBy={(option) => option.objectName}
-            value={selectedOptions}
-            onChange={(event: any, newValue: Option[] | null) => {
-                if(!newValue) {
+            disableCloseOnSelect={multiple}
+            getOptionLabel={(option: Option) => option.title}
+            groupBy={(option: Option) => option.objectName}
+            value={multiple ? selectedOptions : (selectedOptions.length > 0 ? selectedOptions[0] : null) as any}
+            onChange={(event: any, newValue: any) => {
+                if (!newValue) {
+                    setSelectedOptions([]);
+                    onChange([]);
                     return;
                 }
 
-                setSelectedOptions(newValue);
-                const grouped = groupByObjectValue(newValue);
+                const optionsArray = Array.isArray(newValue) ? newValue : [newValue];
+                setSelectedOptions(optionsArray);
+                const grouped = groupByObjectValue(optionsArray);
                 onChange(grouped);
             }}
-            renderOption={(props, option, { selected }) => {
+            renderOption={(props, option: Option, { selected }) => {
                 const { key, ...optionProps } = props;
                 return (
-
                     <li key={key} {...optionProps} style={{padding: 0, marginLeft: 16}}>
                         <Checkbox
                             icon={icon}
@@ -114,12 +116,11 @@ export default function RoomsMultiSelect(props: {value: UserObject[], onChange: 
                         <Typography variant='body2'>
                             {option.title}
                         </Typography>
-                        
                     </li>
                 );
             }}
             renderInput={(params) => (
-                <TextField {...params} label={t('dashboard.hasAccessTo')} placeholder={`${t('common.objects')} ${t('common.and')} ${t('common.rooms')}`} />
+                <TextField {...params} label={label || t('dashboard.hasAccessTo')} placeholder={`${t('common.objects')} ${t('common.and')} ${t('common.rooms')}`} />
             )}
         />
     );
