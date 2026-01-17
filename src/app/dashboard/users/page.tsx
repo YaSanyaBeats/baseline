@@ -25,7 +25,8 @@ export default function Page() {
     
     const roleDictionary = {
         'admin': t('users.admin'),
-        'owner': t('users.owner')
+        'owner': t('users.owner'),
+        'accountant': t('users.accountant')
     }
     
     const handleClose = () => {
