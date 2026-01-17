@@ -2,7 +2,7 @@ import { MongoClient } from 'mongodb';
 
 // Connection URI
 const uri = `mongodb://${process.env.DATABASE_LOGIN}:${process.env.DATABASE_PASS}@${process.env.DATABASE_URL}:${process.env.DATABASE_PORT}/`;
-
+console.log(uri);
 // Create a new MongoClient
 let client: MongoClient;
 
