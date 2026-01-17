@@ -4,11 +4,9 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Select, Stack, TextFiel
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Link from 'next/link';
-import { ChangeEvent, useEffect, useState } from "react";
-import type { Object } from "@/lib/types";
-import { Report, User } from "@/lib/types";
+import { useEffect, useState } from "react";
+import { Report } from "@/lib/types";
 import { updateReport, getReports } from "@/lib/reports";
-import { getUsers } from "@/lib/users";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -23,7 +21,6 @@ export default function Page() {
     const reportId = params?.id as string;
     const { isAdmin, isAccountant } = useUser();
     const [report, setReport] = useState<Partial<Report>>({});
-    const [users, setUsers] = useState<User[]>([]);
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [loading, setLoading] = useState(false);
     const [loadingData, setLoadingData] = useState(true);
@@ -33,34 +30,29 @@ export default function Page() {
     // Проверка доступа
     const hasAccess = isAdmin || isAccountant;
 
-    // Загрузка данных отчёта и пользователей
+    // Загрузка данных отчёта
     useEffect(() => {
         if (hasAccess && reportId) {
-            Promise.all([
-                getReports().then((reports) => {
-                    const foundReport = reports.find(r => r._id === reportId);
-                    if (foundReport) {
-                        setReport(foundReport);
-                        // Восстанавливаем выбранные объекты и комнаты
-                        if (foundReport.objectId && foundReport.roomIds) {
-                            setSelectedObjects([{
-                                id: foundReport.objectId,
-                                rooms: foundReport.roomIds
-                            }]);
-                        }
-                    } else {
-                        setSnackbar({
-                            open: true,
-                            message: t('accountancy.reportNotFound'),
-                            severity: 'error',
-                        });
-                        router.push('/dashboard/accountancy');
+            getReports().then((reports) => {
+                const foundReport = reports.find(r => r._id === reportId);
+                if (foundReport) {
+                    setReport(foundReport);
+                    // Восстанавливаем выбранные объекты и комнаты
+                    if (foundReport.objectId && foundReport.roomIds) {
+                        setSelectedObjects([{
+                            id: foundReport.objectId,
+                            rooms: foundReport.roomIds
+                        }]);
                     }
-                }),
-                getUsers().then((usersList) => {
-                    setUsers(usersList);
-                })
-            ]).catch((error) => {
+                } else {
+                    setSnackbar({
+                        open: true,
+                        message: t('accountancy.reportNotFound'),
+                        severity: 'error',
+                    });
+                    router.push('/dashboard/accountancy');
+                }
+            }).catch((error) => {
                 console.error('Error loading data:', error);
                 setSnackbar({
                     open: true,
@@ -124,13 +116,6 @@ export default function Page() {
         }
     }
 
-    const handleChangeOwner = (event: ChangeEvent<Omit<HTMLInputElement, "value"> & { value: string; }> | (Event & { target: { value: string; name: string; }; })) => {
-        setReport({ ...report, ownerId: event.target.value });
-        const newErrors = { ...errors };
-        delete newErrors.ownerId;
-        setErrors(newErrors);
-    }
-
     const handleChangeObjects = (value: UserObject[]) => {
         setSelectedObjects(value);
         // Извлекаем objectId и roomIds из первого выбранного объекта
@@ -161,9 +146,6 @@ export default function Page() {
         }
         if (!report.reportYear) {
             validationErrors.reportYear = t('accountancy.yearError');
-        }
-        if (!report.ownerId) {
-            validationErrors.ownerId = t('accountancy.ownerError');
         }
         if (!report.objectId) {
             validationErrors.objectId = t('accountancy.objectError');
@@ -278,28 +260,6 @@ export default function Page() {
                             helperText={errors.reportYear}
                             inputProps={{ min: 2000, max: new Date().getFullYear() + 1 }}
                         />
-                    </Box>
-                    <Box>
-                        <FormControl sx={{width: '100%'}}>
-                            <InputLabel>{t('accountancy.owner')}</InputLabel>
-                            <Select
-                                value={report.ownerId || ''}
-                                onChange={handleChangeOwner}
-                                label={t('accountancy.owner')}
-                                error={!!errors.ownerId}
-                            >
-                                {users.map((user) => (
-                                    <MenuItem key={user._id} value={user._id}>
-                                        {user.name} ({user.login})
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                            {errors.ownerId && (
-                                <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
-                                    {errors.ownerId}
-                                </Typography>
-                            )}
-                        </FormControl>
                     </Box>
                     <Box>
                         <RoomsMultiSelect 

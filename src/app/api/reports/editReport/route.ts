@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
         const reportData: Report = body.params?.report || body.report;
 
         // Валидация данных
-        if (!reportData._id || !reportData.reportLink || !reportData.reportMonth || !reportData.reportYear || !reportData.ownerId || !reportData.objectId) {
+        if (!reportData._id || !reportData.reportLink || !reportData.reportMonth || !reportData.reportYear || !reportData.objectId) {
             return NextResponse.json(
                 { success: false, message: 'Не все обязательные поля заполнены' },
                 { status: 400 }
@@ -64,24 +64,6 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Получаем информацию о владельце отчёта
-        const usersCollection = db.collection('users');
-        let owner;
-        try {
-            owner = await usersCollection.findOne({ _id: new ObjectId(reportData.ownerId) });
-        } catch {
-            return NextResponse.json(
-                { success: false, message: 'Некорректный ID владельца отчёта' },
-                { status: 400 }
-            );
-        }
-        if (!owner) {
-            return NextResponse.json(
-                { success: false, message: 'Пользователь-владелец не найден' },
-                { status: 404 }
-            );
-        }
-
         // Проверяем существование отчёта
         const reportsCollection = db.collection('reports');
         let existingReport;
@@ -106,9 +88,7 @@ export async function POST(request: NextRequest) {
             reportMonth: reportData.reportMonth,
             reportYear: reportData.reportYear,
             objectId: reportData.objectId,
-            roomIds: reportData.roomIds || [],
-            ownerId: reportData.ownerId,
-            ownerName: owner.name
+            roomIds: reportData.roomIds || []
         };
 
         await reportsCollection.updateOne(

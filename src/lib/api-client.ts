@@ -1,3 +1,5 @@
+import axios from 'axios';
+
 // Вспомогательная функция для получения базового URL API
 export function getApiUrl(endpoint: string): string {
     // Удаляем начальный слэш из endpoint, если он есть
@@ -16,3 +18,20 @@ export function getApiUrl(endpoint: string): string {
     return `/api/${cleanEndpoint}`;
 }
 
+// Создаём инстанс axios с настройками для отключения кеширования GET запросов
+export const apiClient = axios.create({
+    headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+    },
+});
+
+// Добавляем timestamp к GET запросам для предотвращения кеширования
+apiClient.interceptors.request.use((config) => {
+    if (config.method?.toLowerCase() === 'get' && config.url) {
+        // Добавляем timestamp к URL для предотвращения кеширования
+        const separator = config.url.includes('?') ? '&' : '?';
+        config.url = `${config.url}${separator}_t=${Date.now()}`;
+    }
+    return config;
+});

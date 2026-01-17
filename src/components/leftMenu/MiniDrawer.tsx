@@ -120,37 +120,37 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
             text: t('menu.home'), 
             icon: <Dashboard fontSize="small" />, 
             link: '/dashboard',
-            isAdmin: false
+            roles: ['admin', 'accountant', 'owner']
         },
         { 
             text: t('menu.analytics'), 
             icon: <Analytics fontSize="small" />, 
             link: '/dashboard/analytics',
-            isAdmin: true
+            roles: ['admin']
         },
         { 
             text: t('menu.users'), 
             icon: <PeopleAlt fontSize="small" />, 
             link: '/dashboard/users',
-            isAdmin: true
+            roles: ['admin']
         },
         { 
             text: t('menu.accountancy'), 
             icon: <MonetizationOn fontSize="small" />, 
             link: '/dashboard/accountancy',
-            isAdmin: true
+            roles: ['admin', 'accountant']
         },
         { 
             text: t('menu.options'), 
             icon: <Settings fontSize="small" />, 
             link: '/dashboard/options',
-            isAdmin: true
+            roles: ['admin']
         },
         { 
             text: t('menu.beds24'), 
             icon: <House fontSize="small" />, 
             link: '/dashboard/beds24',
-            isAdmin: true
+            roles: ['admin']
         },
     ];
     const getMenu = () => {
@@ -158,13 +158,10 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
         if(!user) {
             return [];
         }
-        
-        if(user.role == 'owner') {
-            return menu.filter((menuElem) => {
-                return !menuElem.isAdmin;
-            })
-        }
-        return menu;
+
+        return menu.filter((menuElem) => {
+            return menuElem.roles.includes(user.role);
+        })
     }
 
     return (

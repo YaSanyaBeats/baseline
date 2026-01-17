@@ -4,11 +4,9 @@ import { Box, Button, FormControl, InputLabel, MenuItem, Select, Stack, TextFiel
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Link from 'next/link';
-import { ChangeEvent, useEffect, useState } from "react";
-import type { Object } from "@/lib/types";
-import { Report, User } from "@/lib/types";
+import { useState } from "react";
+import { Report } from "@/lib/types";
 import { addReport } from "@/lib/reports";
-import { getUsers } from "@/lib/users";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -20,7 +18,6 @@ const defaultReport: Partial<Report> = {
     reportLink: '',
     reportMonth: undefined,
     reportYear: new Date().getFullYear(),
-    ownerId: '',
     objectId: undefined,
     roomIds: undefined
 }
@@ -30,7 +27,6 @@ export default function Page() {
     const router = useRouter();
     const { isAdmin, isAccountant } = useUser();
     const [report, setReport] = useState<Partial<Report>>(defaultReport);
-    const [users, setUsers] = useState<User[]>([]);
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -38,17 +34,6 @@ export default function Page() {
 
     // Проверка доступа
     const hasAccess = isAdmin || isAccountant;
-
-    // Загрузка списка пользователей
-    useEffect(() => {
-        if (hasAccess) {
-            getUsers().then((usersList) => {
-                setUsers(usersList);
-            }).catch((error) => {
-                console.error('Error loading users:', error);
-            });
-        }
-    }, [hasAccess]);
 
     const validateUrl = (url: string): boolean => {
         if (!url) return false;
@@ -99,13 +84,6 @@ export default function Page() {
         }
     }
 
-    const handleChangeOwner = (event: ChangeEvent<Omit<HTMLInputElement, "value"> & { value: string; }> | (Event & { target: { value: string; name: string; }; })) => {
-        setReport({ ...report, ownerId: event.target.value });
-        const newErrors = { ...errors };
-        delete newErrors.ownerId;
-        setErrors(newErrors);
-    }
-
     const handleChangeObjects = (value: UserObject[]) => {
         setSelectedObjects(value);
         // Извлекаем objectId и roomIds из первого выбранного объекта
@@ -136,9 +114,6 @@ export default function Page() {
         }
         if (!report.reportYear) {
             validationErrors.reportYear = t('accountancy.yearError');
-        }
-        if (!report.ownerId) {
-            validationErrors.ownerId = t('accountancy.ownerError');
         }
         if (!report.objectId) {
             validationErrors.objectId = t('accountancy.objectError');
@@ -245,28 +220,6 @@ export default function Page() {
                             helperText={errors.reportYear}
                             inputProps={{ min: 2000, max: new Date().getFullYear() + 1 }}
                         />
-                    </Box>
-                    <Box>
-                        <FormControl sx={{width: '100%'}}>
-                            <InputLabel>{t('accountancy.owner')}</InputLabel>
-                            <Select
-                                value={report.ownerId || ''}
-                                onChange={handleChangeOwner}
-                                label={t('accountancy.owner')}
-                                error={!!errors.ownerId}
-                            >
-                                {users.map((user) => (
-                                    <MenuItem key={user._id} value={user._id}>
-                                        {user.name} ({user.login})
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                            {errors.ownerId && (
-                                <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
-                                    {errors.ownerId}
-                                </Typography>
-                            )}
-                        </FormControl>
                     </Box>
                     <Box>
                         <RoomsMultiSelect 

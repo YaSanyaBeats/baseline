@@ -9,8 +9,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DescriptionIcon from '@mui/icons-material/Description';
 import { useTranslation } from "@/i18n/useTranslation";
-import { useUser } from "@/providers/UserProvider";
-import { getReportByCriteria } from "@/lib/reports";
+import { getReports } from "@/lib/reports";
 const getMaxInvoice = (invoiceItems: InvoiceItem[]) => {
     let maxInvoice: InvoiceItem | undefined;
     invoiceItems.forEach((invoiceItem) => {
@@ -35,7 +34,6 @@ export default function BookingsModal(props: {
     const isMobile = !useMediaQuery('(min-width:768px)');
     const { roomInfo, open, setOpen } = props;
     const { t } = useTranslation();
-    const { user } = useUser();
     const [loading, setLoading] = useState(true);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [reportsMap, setReportsMap] = useState<Map<string, string>>(new Map()); // key: "year-month", value: reportLink
@@ -67,39 +65,35 @@ export default function BookingsModal(props: {
         return Array.from(monthMap.values()).sort((a, b) => a.sortValue - b.sortValue);
     }, [bookings]);
 
-    // Загрузка отчётов для каждой группы
+    // Загрузка отчётов для объекта
     useEffect(() => {
-        const ownerId = user?._id;
-        if (!roomInfo || !ownerId || groupedBookings.length === 0) {
+        if (!roomInfo) {
             return;
         }
 
         const loadReports = async () => {
-            const reports = new Map<string, string>();
-            
-            for (const group of groupedBookings) {
-                try {
-                    const report = await getReportByCriteria(
-                        roomInfo.object.id,
-                        ownerId,
-                        group.month,
-                        group.year
-                    );
-                    
-                    if (report && report.reportLink) {
-                        const key = `${group.year}-${group.month}`;
+            try {
+                // Получаем все отчёты одним запросом
+                const allReports = await getReports();
+                
+                // Фильтруем отчёты по objectId и распределяем по группам
+                const reports = new Map<string, string>();
+                
+                allReports
+                    .filter(report => report.objectId === roomInfo.object.id && report.reportLink)
+                    .forEach(report => {
+                        const key = `${report.reportYear}-${report.reportMonth}`;
                         reports.set(key, report.reportLink);
-                    }
-                } catch (error) {
-                    console.error('Error loading report:', error);
-                }
+                    });
+                
+                setReportsMap(reports);
+            } catch (error) {
+                console.error('Error loading reports:', error);
             }
-            
-            setReportsMap(reports);
         };
 
         loadReports();
-    }, [roomInfo, user?._id, groupedBookings]);
+    }, [roomInfo]);
 
     useEffect(() => {
         if(!roomInfo) {

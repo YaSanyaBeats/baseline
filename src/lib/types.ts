@@ -162,8 +162,8 @@ export interface Report {
     reportYear: number,
     objectId: number, // ID объекта
     roomIds?: number[], // ID комнат
-    ownerId: string, // ID пользователя-владельца отчёта
-    ownerName?: string, // Имя пользователя-владельца (для удобства)
+    ownerId?: string, // ID пользователя-владельца отчёта (устаревшее поле, не используется)
+    ownerName?: string, // Имя пользователя-владельца (устаревшее поле, не используется)
     accountantId: string, // ID пользователя-бухгалтера, который добавил отчёт
     accountantName?: string, // Имя бухгалтера (для удобства)
     createdAt?: Date

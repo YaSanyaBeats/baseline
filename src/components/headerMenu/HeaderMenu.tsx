@@ -21,7 +21,6 @@ export default function HeaderMenu() {
     const handleClose = () => {
         setAnchorEl(null);
     };
-
     const isPremium = accountType === 'premium';
     const label = isPremium ? t('header.premium') : t('header.basic');
 

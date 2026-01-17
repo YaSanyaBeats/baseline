@@ -22,14 +22,12 @@ export async function GET(request: NextRequest) {
         
         // Если есть параметры поиска, ищем конкретный отчёт
         const objectId = searchParams.get('objectId');
-        const ownerId = searchParams.get('ownerId');
         const month = searchParams.get('month');
         const year = searchParams.get('year');
         
-        if (objectId && ownerId && month && year) {
+        if (objectId && month && year) {
             const report = await reportsCollection.findOne({
                 objectId: Number(objectId),
-                ownerId: ownerId,
                 reportMonth: Number(month),
                 reportYear: Number(year)
             });
@@ -78,7 +76,7 @@ export async function POST(request: NextRequest) {
         const reportData: Report = body.params?.report || body.report;
 
         // Валидация данных
-        if (!reportData.reportLink || !reportData.reportMonth || !reportData.reportYear || !reportData.ownerId || !reportData.objectId) {
+        if (!reportData.reportLink || !reportData.reportMonth || !reportData.reportYear || !reportData.objectId) {
             return NextResponse.json(
                 { success: false, message: 'Не все обязательные поля заполнены' },
                 { status: 400 }
@@ -112,25 +110,8 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // Получаем информацию о владельце отчёта
-        const usersCollection = db.collection('users');
-        let owner;
-        try {
-            owner = await usersCollection.findOne({ _id: new ObjectId(reportData.ownerId) });
-        } catch {
-            return NextResponse.json(
-                { success: false, message: 'Некорректный ID владельца отчёта' },
-                { status: 400 }
-            );
-        }
-        if (!owner) {
-            return NextResponse.json(
-                { success: false, message: 'Пользователь-владелец не найден' },
-                { status: 404 }
-            );
-        }
-
         // Получаем информацию о бухгалтере (текущий пользователь)
+        const usersCollection = db.collection('users');
         const accountantId = (session.user as any)._id;
         let accountant;
         try {
@@ -150,20 +131,18 @@ export async function POST(request: NextRequest) {
 
         // Создаём запись отчёта
         const reportsCollection = db.collection('reports');
-        const newReport: Report = {
+        const newReport = {
             reportLink: reportData.reportLink,
             reportMonth: reportData.reportMonth,
             reportYear: reportData.reportYear,
             objectId: reportData.objectId,
             roomIds: reportData.roomIds || [],
-            ownerId: reportData.ownerId,
-            ownerName: owner.name,
             accountantId: accountantId,
             accountantName: accountant.name,
             createdAt: new Date()
         };
 
-        await reportsCollection.insertOne(newReport);
+        await reportsCollection.insertOne(newReport as any);
 
         return NextResponse.json({
             success: true,

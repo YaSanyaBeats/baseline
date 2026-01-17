@@ -7,11 +7,10 @@ export async function getReports(): Promise<Report[]> {
     return response.data;
 }
 
-export async function getReportByCriteria(objectId: number, ownerId: string, month: number, year: number): Promise<Report | null> {
+export async function getReportByCriteria(objectId: number, month: number, year: number): Promise<Report | null> {
     const response = await axios.get(getApiUrl('reports'), {
         params: {
             objectId,
-            ownerId,
             month,
             year
         }

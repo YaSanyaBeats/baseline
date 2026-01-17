@@ -95,7 +95,7 @@ export default function Page() {
     }
 
     const handleChangeRole = (event: ChangeEvent<Omit<HTMLInputElement, "value"> & { value: string; }> | (Event & { target: { value: string; name: string; }; })) => {
-        if(event.target.value !== 'admin' && event.target.value != 'owner') {
+        if(event.target.value !== 'admin' && event.target.value !== 'owner' && event.target.value !== 'accountant') {
             return;
         }
         setUser({
@@ -271,6 +271,7 @@ export default function Page() {
                             >
                                 <MenuItem value={'admin'}>{t('users.admin')}</MenuItem>
                                 <MenuItem value={'owner'}>{t('users.owner')}</MenuItem>
+                                <MenuItem value={'accountant'}>{t('users.accountant')}</MenuItem>
                             </Select>
                         </FormControl>
                     </Box>

@@ -31,7 +31,6 @@ export default function Page() {
     // Фильтры
     const [filterMonth, setFilterMonth] = useState<string>('');
     const [filterYear, setFilterYear] = useState<string>('');
-    const [filterOwner, setFilterOwner] = useState<string>('');
     const [filterAccountant, setFilterAccountant] = useState<string>('');
     
     // Сортировка (true = по возрастанию, false = по убыванию)
@@ -62,18 +61,15 @@ export default function Page() {
 
     // Получаем уникальные значения для фильтров
     const uniqueValues = useMemo(() => {
-        const owners = new Set<string>();
         const accountants = new Set<string>();
         const years = new Set<number>();
 
         reports.forEach(report => {
-            if (report.ownerName) owners.add(report.ownerName);
             if (report.accountantName) accountants.add(report.accountantName);
             if (report.reportYear) years.add(report.reportYear);
         });
 
         return {
-            owners: Array.from(owners).sort(),
             accountants: Array.from(accountants).sort(),
             years: Array.from(years).sort((a, b) => b - a) // От новых к старым
         };
@@ -91,11 +87,6 @@ export default function Page() {
         // Фильтр по году
         if (filterYear !== '') {
             filtered = filtered.filter(r => r.reportYear === Number(filterYear));
-        }
-
-        // Фильтр по владельцу
-        if (filterOwner) {
-            filtered = filtered.filter(r => r.ownerName === filterOwner);
         }
 
         // Фильтр по бухгалтеру
@@ -116,7 +107,7 @@ export default function Page() {
         });
 
         return filtered;
-    }, [reports, filterMonth, filterYear, filterOwner, filterAccountant, sortAscending]);
+    }, [reports, filterMonth, filterYear, filterAccountant, sortAscending]);
 
     const formatDate = (date: Date | string | undefined): string => {
         if (!date) return '';
@@ -128,10 +119,35 @@ export default function Page() {
         return t(`accountancy.months.${month}`);
     }
 
-    const getObjectName = (objectId: number | undefined): string => {
-        if (!objectId) return t('accountancy.notSpecified');
-        const object = objects.find(obj => obj.id === objectId);
-        return object?.name || t('accountancy.notSpecified');
+    const getObjectName = (report: Report): string => {
+        if (!report.objectId) return t('accountancy.notSpecified');
+        const object = objects.find(obj => obj.id === report.objectId);
+        if (!object) return t('accountancy.notSpecified');
+        
+        // Если нет комнат, возвращаем только название объекта
+        if (!report.roomIds || report.roomIds.length === 0) {
+            return object.name;
+        }
+        
+        // Формируем список "Объект-Комната" для каждой комнаты
+        const roomNames = report.roomIds
+            .map(roomId => {
+                const room = object.roomTypes.find(r => r.id === roomId);
+                if (!room) return null;
+                
+                // Если у комнаты нет названия, используем "Room: <ID>"
+                const roomDisplayName = room.name ? room.name : `Room ${room.id}`;
+                return `${object.name}: ${roomDisplayName}`;
+            })
+            .filter((name): name is string => name !== null);
+        
+        // Если не нашли ни одной комнаты, возвращаем название объекта
+        if (roomNames.length === 0) {
+            return object.name;
+        }
+        
+        // Возвращаем список через запятую
+        return roomNames.join(', ');
     }
 
     const handleDeleteClick = (report: Report) => {
@@ -250,21 +266,6 @@ export default function Page() {
                                 </Select>
                             </FormControl>
                             <FormControl sx={{ minWidth: 200 }}>
-                                <InputLabel>{t('accountancy.ownerColumn')}</InputLabel>
-                                <Select
-                                    value={filterOwner}
-                                    onChange={(e) => setFilterOwner(e.target.value)}
-                                    label={t('accountancy.ownerColumn')}
-                                >
-                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {uniqueValues.owners.map((owner) => (
-                                        <MenuItem key={owner} value={owner}>
-                                            {owner}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <FormControl sx={{ minWidth: 200 }}>
                                 <InputLabel>{t('accountancy.accountantColumn')}</InputLabel>
                                 <Select
                                     value={filterAccountant}
@@ -285,7 +286,6 @@ export default function Page() {
                                     onClick={() => {
                                         setFilterMonth('');
                                         setFilterYear('');
-                                        setFilterOwner('');
                                         setFilterAccountant('');
                                     }}
                                 >
@@ -311,7 +311,6 @@ export default function Page() {
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.reportLinkColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.periodColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.objectColumn')}</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.ownerColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.accountantColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -331,7 +330,7 @@ export default function Page() {
                         <TableBody>
                             {filteredAndSortedReports.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center">
+                                    <TableCell colSpan={6} align="center">
                                         <Typography sx={{ py: 2 }}>{t('accountancy.noFilteredReports')}</Typography>
                                     </TableCell>
                                 </TableRow>
@@ -352,10 +351,7 @@ export default function Page() {
                                             {getMonthName(report.reportMonth)} {report.reportYear}
                                         </TableCell>
                                         <TableCell>
-                                            {getObjectName(report.objectId)}
-                                        </TableCell>
-                                        <TableCell>
-                                            {report.ownerName || t('accountancy.notSpecified')}
+                                            {getObjectName(report)}
                                         </TableCell>
                                         <TableCell>
                                             {report.accountantName || t('accountancy.notSpecified')}
