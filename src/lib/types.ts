@@ -20,7 +20,9 @@ export interface Booking {
     arrival: string,
     departure: string,
     bookingTime: string,
-    invoiceItems: InvoiceItem[]
+    invoiceItems: InvoiceItem[],
+    propertyId?: number,
+    unitId?: number
 }
 
 export interface InvoiceItem {
@@ -168,4 +170,42 @@ export interface Report {
     accountantName?: string, // Имя бухгалтера (для удобства)
     createdAt?: Date
 }
+
+export type ExpenseStatus = 'draft' | 'confirmed';
+
+export interface Expense {
+    _id?: string;
+    objectId: number;              // ID объекта
+    bookingId?: number;            // ID бронирования (опционально)
+    category: string;              // Категория расхода
+    amount: number;                // Сумма расхода
+    date: Date;                    // Дата расхода
+    comment?: string;              // Комментарий
+    status: ExpenseStatus;         // Черновик / Подтверждён
+    accountantId: string;          // ID бухгалтера/админа, создавшего запись
+    accountantName?: string;       // Имя бухгалтера
+    createdAt?: Date;              // Дата создания записи
+}
+
+export interface Income {
+    _id?: string;
+    objectId: number;              // ID объекта
+    bookingId?: number;            // ID бронирования (опционально)
+    date: Date;                    // Дата дохода
+    amount: number;                // Сумма дохода
+    category: string;              // Категория дохода
+    accountantId: string;          // ID бухгалтера/админа, создавшего запись
+    accountantName?: string;       // Имя бухгалтера
+    createdAt?: Date;              // Дата создания записи
+}
+
+export type AccountancyCategoryType = 'expense' | 'income';
+
+export interface AccountancyCategory {
+    _id?: string;
+    name: string;
+    type: AccountancyCategoryType;
+    createdAt?: Date;
+}
+
 

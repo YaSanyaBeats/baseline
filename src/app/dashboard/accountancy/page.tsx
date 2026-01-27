@@ -1,198 +1,182 @@
 'use client'
 
-import { Box, Button, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography, Alert, Link as MuiLink, FormControl, InputLabel, Select, MenuItem, IconButton, Stack, Accordion, AccordionSummary, AccordionDetails, Dialog, DialogTitle, DialogContent, DialogContentText, DialogActions } from "@mui/material"
-import AddIcon from '@mui/icons-material/Add';
-import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
-import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import EditIcon from '@mui/icons-material/Edit';
-import DeleteIcon from '@mui/icons-material/Delete';
-import { useEffect, useState, useMemo } from "react";
-import { Report } from "@/lib/types";
-import { getReports, deleteReport } from "@/lib/reports";
-import { useSnackbar } from "@/providers/SnackbarContext";
+import { useEffect, useMemo, useState } from "react";
+import {
+    Box,
+    Button,
+    Typography,
+    Alert,
+    Stack,
+    Paper,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+    TextField,
+} from "@mui/material";
 import { useUser } from "@/providers/UserProvider";
-import { useObjects } from "@/providers/ObjectsProvider";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useObjects } from "@/providers/ObjectsProvider";
+import { Expense, Income } from "@/lib/types";
+import { getExpenses } from "@/lib/expenses";
+import { getIncomes } from "@/lib/incomes";
+import { getBookingsByIds } from "@/lib/bookings";
 
 export default function Page() {
     const { t } = useTranslation();
-    const router = useRouter();
     const { isAdmin, isAccountant } = useUser();
     const { objects } = useObjects();
-    const [reports, setReports] = useState<Report[]>([]);
+
+    const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [incomes, setIncomes] = useState<Income[]>([]);
     const [loading, setLoading] = useState(true);
-    const { setSnackbar } = useSnackbar();
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
 
-    // Фильтры
-    const [filterMonth, setFilterMonth] = useState<string>('');
-    const [filterYear, setFilterYear] = useState<string>('');
-    const [filterAccountant, setFilterAccountant] = useState<string>('');
-    
-    // Сортировка (true = по возрастанию, false = по убыванию)
-    const [sortAscending, setSortAscending] = useState<boolean>(false);
-    
-    // Состояние аккордеона фильтров
-    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
+    const [selectedObjectId, setSelectedObjectId] = useState<number | 'all'>('all');
+    const [selectedRoomId, setSelectedRoomId] = useState<number | 'all'>('all');
+    const [roomStats, setRoomStats] = useState<Record<string, { expenses: number; incomes: number }>>({});
+    const [dateFrom, setDateFrom] = useState<string>('');
+    const [dateTo, setDateTo] = useState<string>('');
 
-    // Проверка доступа
-    const hasAccess = isAdmin || isAccountant;
+    const { hasAccess } = useMemo(() => {
+        const hasAccess = isAdmin || isAccountant;
+        return { hasAccess };
+    }, [isAdmin, isAccountant]);
 
-    // Загрузка списка отчётов
     useEffect(() => {
-        getReports().then((reportsList) => {
-            setReports(reportsList);
-            setLoading(false);
-        }).catch((error) => {
-            console.error('Error loading reports:', error);
-            setSnackbar({
-                open: true,
-                message: t('common.serverError'),
-                severity: 'error',
-            });
-            setLoading(false);
-        });
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Загружаем только при монтировании компонента
+        if (!hasAccess) return;
 
-    // Получаем уникальные значения для фильтров
-    const uniqueValues = useMemo(() => {
-        const accountants = new Set<string>();
-        const years = new Set<number>();
+        const load = async () => {
+            try {
+                const [exp, inc] = await Promise.all([getExpenses(), getIncomes()]);
+                setExpenses(exp);
+                setIncomes(inc);
 
-        reports.forEach(report => {
-            if (report.accountantName) accountants.add(report.accountantName);
-            if (report.reportYear) years.add(report.reportYear);
-        });
+                const bookingIds = Array.from(
+                    new Set(
+                        [
+                            ...exp.map((e) => e.bookingId).filter((id): id is number => typeof id === 'number'),
+                            ...inc.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number'),
+                        ],
+                    ),
+                );
+
+                if (bookingIds.length) {
+                    const bookings = await getBookingsByIds(bookingIds);
+                    const stats: Record<string, { expenses: number; incomes: number }> = {};
+
+                    bookings.forEach((booking) => {
+                        const key = `${booking.propertyId ?? ''}-${booking.unitId ?? ''}`;
+                        if (!stats[key]) {
+                            stats[key] = { expenses: 0, incomes: 0 };
+                        }
+                    });
+
+                    exp.forEach((e) => {
+                        if (!e.bookingId) return;
+                        const booking = bookings.find((b) => b.id === e.bookingId);
+                        if (!booking) return;
+                        const key = `${booking.propertyId ?? ''}-${booking.unitId ?? ''}`;
+                        if (!stats[key]) {
+                            stats[key] = { expenses: 0, incomes: 0 };
+                        }
+                        stats[key].expenses += e.amount;
+                    });
+
+                    inc.forEach((i) => {
+                        if (!i.bookingId) return;
+                        const booking = bookings.find((b) => b.id === i.bookingId);
+                        if (!booking) return;
+                        const key = `${booking.propertyId ?? ''}-${booking.unitId ?? ''}`;
+                        if (!stats[key]) {
+                            stats[key] = { expenses: 0, incomes: 0 };
+                        }
+                        stats[key].incomes += i.amount;
+                    });
+
+                    setRoomStats(stats);
+                }
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        load();
+    }, [hasAccess]);
+
+    
+
+    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+    const totalIncomes = incomes.reduce((sum, i) => sum + i.amount, 0);
+    const balance = totalIncomes - totalExpenses;
+
+    const filteredByDate = useMemo(() => {
+        const isInRange = (d: Date | string | undefined) => {
+            if (!d) return true;
+            if (!dateFrom && !dateTo) return true;
+            const date = new Date(d as any);
+            if (dateFrom) {
+                const from = new Date(dateFrom);
+                if (date < from) return false;
+            }
+            if (dateTo) {
+                const to = new Date(dateTo);
+                to.setDate(to.getDate() + 1);
+                if (date >= to) return false;
+            }
+            return true;
+        };
 
         return {
-            accountants: Array.from(accountants).sort(),
-            years: Array.from(years).sort((a, b) => b - a) // От новых к старым
+            expenses: expenses.filter((e) => isInRange(e.date)),
+            incomes: incomes.filter((i) => isInRange(i.date)),
         };
-    }, [reports]);
+    }, [expenses, incomes, dateFrom, dateTo]);
 
-    // Фильтрация и сортировка отчётов
-    const filteredAndSortedReports = useMemo(() => {
-        let filtered = [...reports];
-
-        // Фильтр по месяцу
-        if (filterMonth !== '') {
-            filtered = filtered.filter(r => r.reportMonth === Number(filterMonth));
-        }
-
-        // Фильтр по году
-        if (filterYear !== '') {
-            filtered = filtered.filter(r => r.reportYear === Number(filterYear));
-        }
-
-        // Фильтр по бухгалтеру
-        if (filterAccountant) {
-            filtered = filtered.filter(r => r.accountantName === filterAccountant);
-        }
-
-        // Сортировка по дате создания
-        filtered.sort((a, b) => {
-            const dateA = a.createdAt ? (typeof a.createdAt === 'string' ? new Date(a.createdAt) : a.createdAt) : new Date(0);
-            const dateB = b.createdAt ? (typeof b.createdAt === 'string' ? new Date(b.createdAt) : b.createdAt) : new Date(0);
-            
-            if (sortAscending) {
-                return dateA.getTime() - dateB.getTime();
-            } else {
-                return dateB.getTime() - dateA.getTime();
-            }
+    const objectStats = useMemo(() => {
+        const map: Record<number, { expenses: number; incomes: number }> = {};
+        filteredByDate.expenses.forEach((e) => {
+            if (!map[e.objectId]) map[e.objectId] = { expenses: 0, incomes: 0 };
+            map[e.objectId].expenses += e.amount;
         });
+        filteredByDate.incomes.forEach((i) => {
+            if (!map[i.objectId]) map[i.objectId] = { expenses: 0, incomes: 0 };
+            map[i.objectId].incomes += i.amount;
+        });
+        return map;
+    }, [filteredByDate]);
 
-        return filtered;
-    }, [reports, filterMonth, filterYear, filterAccountant, sortAscending]);
+    const selectedObject = selectedObjectId === 'all'
+        ? null
+        : objects.find((o) => o.id === selectedObjectId);
 
-    const formatDate = (date: Date | string | undefined): string => {
-        if (!date) return '';
-        const d = typeof date === 'string' ? new Date(date) : date;
-        return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    }
+    const roomsForSelectedObject = useMemo(
+        () => (selectedObject ? selectedObject.roomTypes : []),
+        [selectedObject],
+    );
 
-    const getMonthName = (month: number): string => {
-        return t(`accountancy.months.${month}`);
-    }
+    const filteredRoomStats = useMemo(() => {
+        if (!selectedObject) return [];
 
-    const getObjectName = (report: Report): string => {
-        if (!report.objectId) return t('accountancy.notSpecified');
-        const object = objects.find(obj => obj.id === report.objectId);
-        if (!object) return t('accountancy.notSpecified');
-        
-        // Если нет комнат, возвращаем только название объекта
-        if (!report.roomIds || report.roomIds.length === 0) {
-            return object.name;
-        }
-        
-        // Формируем список "Объект-Комната" для каждой комнаты
-        const roomNames = report.roomIds
-            .map(roomId => {
-                const room = object.roomTypes.find(r => r.id === roomId);
-                if (!room) return null;
-                
-                // Если у комнаты нет названия, используем "Room: <ID>"
-                const roomDisplayName = room.name ? room.name : `Room ${room.id}`;
-                return `${object.name}: ${roomDisplayName}`;
+        return roomsForSelectedObject
+            .map((room) => {
+                const key = `${selectedObject.id}-${room.id}`;
+                const stat = roomStats[key] || { expenses: 0, incomes: 0 };
+                return {
+                    roomId: room.id,
+                    roomName: room.name || `Room ${room.id}`,
+                    ...stat,
+                };
             })
-            .filter((name): name is string => name !== null);
-        
-        // Если не нашли ни одной комнаты, возвращаем название объекта
-        if (roomNames.length === 0) {
-            return object.name;
-        }
-        
-        // Возвращаем список через запятую
-        return roomNames.join(', ');
-    }
-
-    const handleDeleteClick = (report: Report) => {
-        setReportToDelete(report);
-        setDeleteDialogOpen(true);
-    }
-
-    const handleDeleteConfirm = async () => {
-        if (!reportToDelete || !reportToDelete._id) return;
-
-        try {
-            const res = await deleteReport(reportToDelete._id);
-            setSnackbar({
-                open: true,
-                message: res.message,
-                severity: res.success ? 'success' : 'error',
-            });
-            if (res.success) {
-                // Обновляем список отчётов
-                const updatedReports = await getReports();
-                setReports(updatedReports);
-            }
-        } catch (error) {
-            console.error('Error deleting report:', error);
-            setSnackbar({
-                open: true,
-                message: t('common.serverError'),
-                severity: 'error',
-            });
-        } finally {
-            setDeleteDialogOpen(false);
-            setReportToDelete(null);
-        }
-    }
-
-    const handleDeleteCancel = () => {
-        setDeleteDialogOpen(false);
-        setReportToDelete(null);
-    }
-
-    const handleEditClick = (report: Report) => {
-        if (report._id) {
-            router.push(`/dashboard/accountancy/edit/${report._id}`);
-        }
-    }
+            .filter((row) =>
+                selectedRoomId === 'all' ? true : row.roomId === selectedRoomId,
+            );
+    }, [selectedObject, roomsForSelectedObject, roomStats, selectedRoomId]);
 
     if (!hasAccess) {
         return (
@@ -204,207 +188,201 @@ export default function Page() {
             </Box>
         );
     }
-    
+
     return (
-        <>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                <Typography variant="h4">{t('accountancy.title')}</Typography>
-                <Link href="/dashboard/accountancy/add">
-                    <Button 
-                        variant="contained" 
-                        startIcon={<AddIcon />}
+        <Box>
+            <Typography variant="h4" sx={{ mb: 3 }}>
+                {t('menu.accountancy')}
+            </Typography>
+
+            
+
+            <Stack spacing={2} direction={'row'} mb={3}>
+                <Link href="/dashboard/accountancy/expense">
+                    <Button
+                        fullWidth
+                        variant="contained"
                     >
-                        {t('accountancy.addReport')}
+                        Расходы
                     </Button>
                 </Link>
-            </Box>
 
-            {/* Фильтры */}
-            {!loading && reports.length > 0 && (
-                <Accordion 
-                    expanded={filtersExpanded} 
-                    onChange={(_, expanded) => setFiltersExpanded(expanded)}
-                    sx={{ mb: 2 }}
-                >
-                    <AccordionSummary
-                        expandIcon={<ExpandMoreIcon />}
-                        aria-controls="filters-content"
-                        id="filters-header"
+                <Link href="/dashboard/accountancy/income">
+                    <Button
+                        fullWidth
+                        variant="contained"
                     >
-                        <Typography variant="h6">{t('accountancy.filters')}</Typography>
-                    </AccordionSummary>
-                    <AccordionDetails>
-                        <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} flexWrap="wrap">
-                            <FormControl sx={{ minWidth: 150 }}>
-                                <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
-                                <Select
-                                    value={filterMonth}
-                                    onChange={(e) => setFilterMonth(e.target.value)}
-                                    label={t('accountancy.reportMonth')}
-                                >
-                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((month) => (
-                                        <MenuItem key={month} value={String(month)}>
-                                            {t(`accountancy.months.${month}`)}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <FormControl sx={{ minWidth: 120 }}>
-                                <InputLabel>{t('accountancy.reportYear')}</InputLabel>
-                                <Select
-                                    value={filterYear}
-                                    onChange={(e) => setFilterYear(e.target.value)}
-                                    label={t('accountancy.reportYear')}
-                                >
-                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {uniqueValues.years.map((year) => (
-                                        <MenuItem key={year} value={String(year)}>
-                                            {year}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <FormControl sx={{ minWidth: 200 }}>
-                                <InputLabel>{t('accountancy.accountantColumn')}</InputLabel>
-                                <Select
-                                    value={filterAccountant}
-                                    onChange={(e) => setFilterAccountant(e.target.value)}
-                                    label={t('accountancy.accountantColumn')}
-                                >
-                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {uniqueValues.accountants.map((accountant) => (
-                                        <MenuItem key={accountant} value={accountant}>
-                                            {accountant}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                <Button
-                                    variant="outlined"
-                                    onClick={() => {
-                                        setFilterMonth('');
-                                        setFilterYear('');
-                                        setFilterAccountant('');
-                                    }}
-                                >
-                                    {t('accountancy.clearFilters')}
-                                </Button>
-                            </Box>
-                        </Stack>
-                    </AccordionDetails>
-                </Accordion>
-            )}
-            
-            {loading ? (
-                <Typography>{t('accountancy.loading')}</Typography>
-            ) : reports.length === 0 ? (
-                <Alert severity="info" sx={{ mt: 2 }}>
-                    {t('accountancy.noReports')}
-                </Alert>
-            ) : (
-                <TableContainer component={Paper}>
-                    <Table>
+                        Приходы
+                    </Button>
+                </Link>
+
+                <Link href="/dashboard/accountancy/reports">
+                    <Button
+                        fullWidth
+                        variant="contained"
+                    >
+                        Отчёты
+                    </Button>
+                </Link>
+
+                <Link href="/dashboard/accountancy/categories">
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                    >
+                        {t('accountancy.categoriesTitle')}
+                    </Button>
+                </Link>
+            </Stack>
+
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 3 }}>
+                <Paper sx={{ p: 2, flex: 1 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                        {t('accountancy.totalExpenses')}
+                    </Typography>
+                    <Typography variant="h6" color="error">
+                        {-totalExpenses}
+                    </Typography>
+                </Paper>
+                <Paper sx={{ p: 2, flex: 1 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                        {t('accountancy.totalIncomes')}
+                    </Typography>
+                    <Typography variant="h6" color="success.main">
+                        {totalIncomes}
+                    </Typography>
+                </Paper>
+                <Paper sx={{ p: 2, flex: 1 }}>
+                    <Typography variant="subtitle2" color="text.secondary">
+                        {t('accountancy.balance')}
+                    </Typography>
+                    <Typography variant="h6" color={balance >= 0 ? 'success.main' : 'error'}>
+                        {balance}
+                    </Typography>
+                </Paper>
+            </Stack>
+
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
+                <Paper sx={{ p: 2, flex: 1 }}>
+                    <Typography variant="h6" sx={{ mb: 2 }}>
+                        {t('accountancy.statsByObject')}
+                    </Typography>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                        <TextField
+                            type="date"
+                            label={t('analytics.from')}
+                            InputLabelProps={{ shrink: true }}
+                            value={dateFrom}
+                            onChange={(e) => setDateFrom(e.target.value)}
+                            sx={{ maxWidth: 200 }}
+                        />
+                        <TextField
+                            type="date"
+                            label={t('analytics.to')}
+                            InputLabelProps={{ shrink: true }}
+                            value={dateTo}
+                            onChange={(e) => setDateTo(e.target.value)}
+                            sx={{ maxWidth: 200 }}
+                        />
+                    </Stack>
+                    <Table size="small">
                         <TableHead>
                             <TableRow>
-                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.reportLinkColumn')}</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.periodColumn')}</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.objectColumn')}</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.accountantColumn')}</TableCell>
-                                <TableCell sx={{ fontWeight: 'bold' }}>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                        {t('accountancy.createdAtColumn')}
-                                        <IconButton
-                                            size="small"
-                                            onClick={() => setSortAscending(!sortAscending)}
-                                            sx={{ padding: 0.5 }}
-                                        >
-                                            {sortAscending ? <ArrowUpwardIcon fontSize="small" /> : <ArrowDownwardIcon fontSize="small" />}
-                                        </IconButton>
-                                    </Box>
-                                </TableCell>
-                                <TableCell sx={{ fontWeight: 'bold', width: '120px' }}>{t('accountancy.actions')}</TableCell>
+                                <TableCell>{t('common.object')}</TableCell>
+                                <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.expensesTitle')})</TableCell>
+                                <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.incomesTitle')})</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
-                            {filteredAndSortedReports.length === 0 ? (
-                                <TableRow>
-                                    <TableCell colSpan={6} align="center">
-                                        <Typography sx={{ py: 2 }}>{t('accountancy.noFilteredReports')}</Typography>
-                                    </TableCell>
-                                </TableRow>
-                            ) : (
-                                filteredAndSortedReports.map((report) => (
-                                    <TableRow key={report._id}>
-                                        <TableCell>
-                                            <MuiLink 
-                                                href={report.reportLink} 
-                                                target="_blank" 
-                                                rel="noopener noreferrer"
-                                                sx={{ textDecoration: 'none' }}
-                                            >
-                                                {report.reportLink}
-                                            </MuiLink>
-                                        </TableCell>
-                                        <TableCell>
-                                            {getMonthName(report.reportMonth)} {report.reportYear}
-                                        </TableCell>
-                                        <TableCell>
-                                            {getObjectName(report)}
-                                        </TableCell>
-                                        <TableCell>
-                                            {report.accountantName || t('accountancy.notSpecified')}
-                                        </TableCell>
-                                        <TableCell>
-                                            {formatDate(report.createdAt)}
-                                        </TableCell>
-                                        <TableCell>
-                                            <Stack direction="row" spacing={1}>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => handleEditClick(report)}
-                                                    color="primary"
-                                                >
-                                                    <EditIcon fontSize="small" />
-                                                </IconButton>
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => handleDeleteClick(report)}
-                                                    color="error"
-                                                >
-                                                    <DeleteIcon fontSize="small" />
-                                                </IconButton>
-                                            </Stack>
-                                        </TableCell>
+                            {objects.map((obj) => {
+                                const stat = objectStats[obj.id] || { expenses: 0, incomes: 0 };
+                                return (
+                                    <TableRow key={obj.id}>
+                                        <TableCell>{obj.name}</TableCell>
+                                        <TableCell>{stat.expenses}</TableCell>
+                                        <TableCell>{stat.incomes}</TableCell>
                                     </TableRow>
-                                ))
-                            )}
+                                );
+                            })}
                         </TableBody>
                     </Table>
-                </TableContainer>
-            )}
+                </Paper>
 
-            {/* Диалог подтверждения удаления */}
-            <Dialog
-                open={deleteDialogOpen}
-                onClose={handleDeleteCancel}
-            >
-                <DialogTitle>{t('accountancy.deleteReportTitle')}</DialogTitle>
-                <DialogContent>
-                    <DialogContentText>
-                        {t('accountancy.deleteReportMessage')}
-                    </DialogContentText>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={handleDeleteCancel}>
-                        {t('common.cancel')}
-                    </Button>
-                    <Button onClick={handleDeleteConfirm} color="error" variant="contained">
-                        {t('common.delete')}
-                    </Button>
-                </DialogActions>
-            </Dialog>
-        </>
-    )
+                <Paper sx={{ p: 2, flex: 1 }}>
+                    <Typography variant="h6" sx={{ mb: 2 }}>
+                        {t('accountancy.statsByRoom')}
+                    </Typography>
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
+                        <FormControl sx={{ minWidth: 180 }}>
+                            <InputLabel>{t('common.object')}</InputLabel>
+                            <Select
+                                label={t('common.object')}
+                                value={selectedObjectId === 'all' ? '' : String(selectedObjectId)}
+                                onChange={(e) => {
+                                    const value = e.target.value;
+                                    setSelectedObjectId(value ? Number(value) : 'all');
+                                    setSelectedRoomId('all');
+                                }}
+                            >
+                                <MenuItem value="">{t('accountancy.all')}</MenuItem>
+                                {objects.map((obj) => (
+                                    <MenuItem key={obj.id} value={String(obj.id)}>
+                                        {obj.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        {selectedObject && (
+                            <FormControl sx={{ minWidth: 180 }}>
+                                <InputLabel>{t('common.room')}</InputLabel>
+                                <Select
+                                    label={t('common.room')}
+                                    value={selectedRoomId === 'all' ? '' : String(selectedRoomId)}
+                                    onChange={(e) => {
+                                        const value = e.target.value;
+                                        setSelectedRoomId(value ? Number(value) : 'all');
+                                    }}
+                                >
+                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
+                                    {roomsForSelectedObject.map((room) => (
+                                        <MenuItem key={room.id} value={String(room.id)}>
+                                            {room.name || `Room ${room.id}`}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        )}
+                    </Stack>
+
+                    {loading ? (
+                        <Typography>{t('accountancy.loading')}</Typography>
+                    ) : !selectedObject || filteredRoomStats.length === 0 ? (
+                        <Typography color="text.secondary">
+                            {t('accountancy.noStatsForSelection')}
+                        </Typography>
+                    ) : (
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>{t('common.room')}</TableCell>
+                                    <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.expensesTitle')})</TableCell>
+                                    <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.incomesTitle')})</TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {filteredRoomStats.map((row) => (
+                                    <TableRow key={row.roomId}>
+                                        <TableCell>{row.roomName}</TableCell>
+                                        <TableCell>{row.expenses}</TableCell>
+                                        <TableCell>{row.incomes}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    )}
+                </Paper>
+            </Stack>
+        </Box>
+    );
 }
+

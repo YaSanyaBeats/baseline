@@ -1,39 +1,71 @@
 'use client'
 
-import { Box, Button, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography, Alert } from "@mui/material"
+import { Box, Button, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography, Alert, CircularProgress } from "@mui/material"
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Link from 'next/link';
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Report } from "@/lib/types";
-import { addReport } from "@/lib/reports";
+import { updateReport, getReports } from "@/lib/reports";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
-import { useRouter } from 'next/navigation';
+import { useRouter, useParams } from 'next/navigation';
 import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import { UserObject } from "@/lib/types";
-
-const defaultReport: Partial<Report> = {
-    reportLink: '',
-    reportMonth: undefined,
-    reportYear: new Date().getFullYear(),
-    objectId: undefined,
-    roomIds: undefined
-}
 
 export default function Page() {
     const { t } = useTranslation();
     const router = useRouter();
+    const params = useParams();
+    const reportId = params?.id as string;
     const { isAdmin, isAccountant } = useUser();
-    const [report, setReport] = useState<Partial<Report>>(defaultReport);
+    const [report, setReport] = useState<Partial<Report>>({});
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [loading, setLoading] = useState(false);
+    const [loadingData, setLoadingData] = useState(true);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
 
     // Проверка доступа
     const hasAccess = isAdmin || isAccountant;
+
+    // Загрузка данных отчёта
+    useEffect(() => {
+        if (hasAccess && reportId) {
+            getReports().then((reports) => {
+                const foundReport = reports.find(r => r._id === reportId);
+                if (foundReport) {
+                    setReport(foundReport);
+                    // Восстанавливаем выбранные объекты и комнаты
+                    if (foundReport.objectId && foundReport.roomIds) {
+                        setSelectedObjects([{
+                            id: foundReport.objectId,
+                            rooms: foundReport.roomIds
+                        }]);
+                    }
+                } else {
+                    setSnackbar({
+                        open: true,
+                        message: t('accountancy.reportNotFound'),
+                        severity: 'error',
+                    });
+                    router.push('/dashboard/accountancy');
+                }
+            }).catch((error) => {
+                console.error('Error loading data:', error);
+                setSnackbar({
+                    open: true,
+                    message: t('common.serverError'),
+                    severity: 'error',
+                });
+                router.push('/dashboard/accountancy');
+            }).finally(() => {
+                setLoadingData(false);
+            });
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasAccess, reportId, router]);
 
     const validateUrl = (url: string): boolean => {
         if (!url) return false;
@@ -133,7 +165,7 @@ export default function Page() {
         }
 
         setLoading(true);
-        addReport(report as Report).then((res) => {
+        updateReport(report as Report).then((res) => {
             setSnackbar({
                 open: true,
                 message: res.message,
@@ -144,7 +176,7 @@ export default function Page() {
                 router.push('/dashboard/accountancy');
             }
         }).catch((error) => {
-            console.error('Error adding report:', error);
+            console.error('Error updating report:', error);
             setSnackbar({
                 open: true,
                 message: t('common.serverError'),
@@ -157,18 +189,33 @@ export default function Page() {
     if (!hasAccess) {
         return (
             <Box>
-                <Typography variant="h4">{t('accountancy.addReport')}</Typography>
+                <Typography variant="h4">{t('accountancy.editReport')}</Typography>
                 <Alert severity="warning" sx={{ mt: 2 }}>
                     {t('accountancy.noAccess')}
                 </Alert>
             </Box>
         );
     }
+
+    if (loadingData) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '400px' }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
     
     return (
         <>
+            <Box sx={{ mb: 2 }}>
+                <Link href="/dashboard/accountancy">
+                    <Button variant="text" startIcon={<ArrowBackIcon />}>
+                        {t('common.back')}
+                    </Button>
+                </Link>
+            </Box>
             <form noValidate autoComplete="off">
-                <Typography variant="h4">{t('accountancy.addReport')}</Typography>
+                <Typography variant="h4">{t('accountancy.editReport')}</Typography>
                 <Stack direction={'column'} spacing={2} mt={2} sx={{maxWidth: '500px'}}>
                     <Box>
                         <TextField
@@ -252,7 +299,7 @@ export default function Page() {
                         onClick={handleSubmit} 
                         disabled={loading}
                     >
-                        {t('common.send')}
+                        {t('common.save')}
                     </Button>
                 </Stack>
             </form>
