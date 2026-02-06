@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function POST(request: NextRequest) {
     try {
@@ -83,12 +84,34 @@ export async function POST(request: NextRequest) {
             date: new Date(expenseData.date),
             comment: expenseData.comment || '',
             status: expenseData.status,
+            attachments: expenseData.attachments ?? [],
         };
 
         await expensesCollection.updateOne(
             { _id: new ObjectId(expenseData._id) },
             { $set: updateData },
         );
+
+        // Логируем обновление расхода
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'expense',
+            entityId: expenseData._id,
+            action: 'update',
+            userId,
+            userName,
+            userRole,
+            description: `Обновлён расход: ${expenseData.category}, сумма ${expenseData.amount}`,
+            oldData: existingExpense,
+            newData: updateData,
+            metadata: {
+                objectId: expenseData.objectId,
+                bookingId: expenseData.bookingId,
+                category: expenseData.category,
+                amount: expenseData.amount,
+            },
+        });
 
         return NextResponse.json({
             success: true,

@@ -77,14 +77,23 @@ export async function GET(request: NextRequest) {
         const objectID = searchParams.get('objectID');
         const userID = searchParams.get('userID');
         const objects = db.collection('objects');
+        const internalObjectsCollection = db.collection('internalObjects');
 
         if (!objectID) {
             return NextResponse.json({ error: 'Missing objectID parameter' }, { status: 400 });
         }
 
-        const neededObject = await objects.find({
+        // Ищем объект в обеих коллекциях
+        let neededObject = await objects.find({
             id: +objectID
         }).toArray();
+
+        if (!neededObject || neededObject.length === 0) {
+            // Если не нашли в objects, ищем в internalObjects
+            neededObject = await internalObjectsCollection.find({
+                id: +objectID
+            }).toArray();
+        }
 
         if (!neededObject || neededObject.length === 0) {
             return NextResponse.json({ error: 'Object not found' }, { status: 404 });

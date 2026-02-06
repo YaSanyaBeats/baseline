@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { AccountancyCategory, AccountancyCategoryType } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 type AccountancyCategoryDb = Omit<AccountancyCategory, '_id'> & { _id?: ObjectId };
 
@@ -86,10 +87,25 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        await collection.insertOne({
+        const result = await collection.insertOne({
             name: name.trim(),
             type,
             createdAt: new Date(),
+        });
+
+        // Логируем создание категории
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'category',
+            entityId: result.insertedId.toString(),
+            action: 'create',
+            userId,
+            userName,
+            userRole,
+            description: `Создана категория: ${name.trim()} (тип: ${type})`,
+            newData: { name: name.trim(), type },
+            metadata: { category: name.trim() },
         });
 
         return NextResponse.json({
@@ -179,6 +195,22 @@ export async function PUT(request: NextRequest) {
             { $set: { name: name.trim() } },
         );
 
+        // Логируем обновление категории
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'category',
+            entityId: id,
+            action: 'update',
+            userId,
+            userName,
+            userRole,
+            description: `Обновлена категория: ${existing.name} → ${name.trim()}`,
+            oldData: existing,
+            newData: { name: name.trim() },
+            metadata: { category: name.trim() },
+        });
+
         return NextResponse.json({
             success: true,
             message: 'Категория успешно обновлена',
@@ -241,6 +273,21 @@ export async function DELETE(request: NextRequest) {
         }
 
         await collection.deleteOne({ _id: existing._id });
+
+        // Логируем удаление категории
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'category',
+            entityId: id,
+            action: 'delete',
+            userId,
+            userName,
+            userRole,
+            description: `Удалена категория: ${existing.name} (тип: ${existing.type})`,
+            oldData: existing,
+            metadata: { category: existing.name },
+        });
 
         return NextResponse.json({
             success: true,

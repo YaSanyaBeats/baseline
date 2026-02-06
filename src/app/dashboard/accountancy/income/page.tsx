@@ -35,14 +35,17 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useEffect, useMemo, useState } from "react";
-import { Income } from "@/lib/types";
+import { Income, Booking } from "@/lib/types";
 import { getIncomes, deleteIncome } from "@/lib/incomes";
+import { getBookingsByIds } from "@/lib/bookings";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useObjects } from "@/providers/ObjectsProvider";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+
+const NO_ROOM_ID = -1;
 
 export default function Page() {
     const { t } = useTranslation();
@@ -59,16 +62,27 @@ export default function Page() {
 
     const [filterObjectId, setFilterObjectId] = useState<string>('');
     const [filterCategory, setFilterCategory] = useState<string>('');
+    const [filterRoomId, setFilterRoomId] = useState<string>('');
+    const [bookings, setBookings] = useState<Booking[]>([]);
 
     const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(null);
     const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(true);
 
-    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
+    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(true);
 
     useEffect(() => {
         getIncomes()
-            .then((list) => {
+            .then(async (list) => {
                 setIncomes(list);
+                const bookingIds = Array.from(
+                    new Set(list.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number')),
+                );
+                if (bookingIds.length) {
+                    const bookingsList = await getBookingsByIds(bookingIds);
+                    setBookings(bookingsList);
+                } else {
+                    setBookings([]);
+                }
                 setLoading(false);
             })
             .catch((error) => {
@@ -95,6 +109,11 @@ export default function Page() {
         };
     }, [incomes]);
 
+    const roomsForSelectedObject = useMemo(
+        () => (filterObjectId ? (objects.find((o) => o.id === Number(filterObjectId))?.roomTypes ?? []) : []),
+        [filterObjectId, objects],
+    );
+
     const formatDate = (date: Date | string | undefined): string => {
         if (!date) return '';
         const d = typeof date === 'string' ? new Date(date) : date;
@@ -111,6 +130,14 @@ export default function Page() {
         return object.name;
     };
 
+    const formatAmount = (value: number | undefined): string => {
+        if (value == null || Number.isNaN(Number(value))) return '';
+        const fixed = Number(value).toFixed(2);
+        const [intPart, decPart] = fixed.split('.');
+        const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+        return `${withSpaces}.${decPart ?? '00'}`;
+    };
+
     const filteredAndSortedIncomes = useMemo(() => {
         let filtered = [...incomes];
 
@@ -121,6 +148,19 @@ export default function Page() {
 
         if (filterCategory) {
             filtered = filtered.filter((e) => e.category === filterCategory);
+        }
+
+        if (filterRoomId) {
+            const roomIdNum = Number(filterRoomId);
+            if (roomIdNum === NO_ROOM_ID) {
+                filtered = filtered.filter((e) => !e.bookingId);
+            } else {
+                filtered = filtered.filter((e) => {
+                    if (!e.bookingId) return false;
+                    const booking = bookings.find((b) => b.id === e.bookingId);
+                    return booking && (booking.unitId ?? null) === roomIdNum;
+                });
+            }
         }
 
         filtered.sort((a, b) => {
@@ -145,7 +185,7 @@ export default function Page() {
         });
 
         return filtered;
-    }, [incomes, filterObjectId, filterCategory, sortByAmountAsc, sortByDateAsc]);
+    }, [incomes, filterObjectId, filterCategory, filterRoomId, bookings, sortByAmountAsc, sortByDateAsc]);
 
     const handleDeleteClick = (income: Income) => {
         setIncomeToDelete(income);
@@ -241,7 +281,11 @@ export default function Page() {
                                 <InputLabel>{t('accountancy.object')}</InputLabel>
                                 <Select
                                     value={filterObjectId}
-                                    onChange={(e) => setFilterObjectId(e.target.value)}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setFilterObjectId(v);
+                                        if (!v) setFilterRoomId('');
+                                    }}
                                     label={t('accountancy.object')}
                                 >
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
@@ -250,6 +294,24 @@ export default function Page() {
                                             {obj.name}
                                         </MenuItem>
                                     ))}
+                                </Select>
+                            </FormControl>
+                            <FormControl sx={{ minWidth: 180 }} disabled={!filterObjectId}>
+                                <InputLabel>{t('common.room')}</InputLabel>
+                                <Select
+                                    value={filterRoomId}
+                                    onChange={(e) => setFilterRoomId(e.target.value)}
+                                    label={t('common.room')}
+                                >
+                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
+                                    {filterObjectId && [
+                                        <MenuItem key="no-room" value={String(NO_ROOM_ID)}>{t('accountancy.noRoom')}</MenuItem>,
+                                        ...roomsForSelectedObject.map((room) => (
+                                            <MenuItem key={room.id} value={String(room.id)}>
+                                                {room.name || `Room ${room.id}`}
+                                            </MenuItem>
+                                        )),
+                                    ]}
                                 </Select>
                             </FormControl>
                             <FormControl sx={{ minWidth: 150 }}>
@@ -273,6 +335,7 @@ export default function Page() {
                                     onClick={() => {
                                         setFilterObjectId('');
                                         setFilterCategory('');
+                                        setFilterRoomId('');
                                     }}
                                 >
                                     {t('accountancy.clearFilters')}
@@ -359,7 +422,7 @@ export default function Page() {
                                         <TableCell>{getObjectName(income)}</TableCell>
                                         <TableCell>{income.bookingId ?? '-'}</TableCell>
                                         <TableCell>{income.category}</TableCell>
-                                        <TableCell>{income.amount}</TableCell>
+                                        <TableCell>{formatAmount(income.amount)}</TableCell>
                                         <TableCell>{formatDate(income.date)}</TableCell>
                                         <TableCell>
                                             <Stack direction="row" spacing={1}>

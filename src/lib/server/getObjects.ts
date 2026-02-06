@@ -1,4 +1,5 @@
 import { getDB } from "../db/getDB";
+import { getInternalObjects } from "./internalObjects";
 
 export async function getObjects() {
     const db = await getDB();
@@ -12,7 +13,14 @@ export async function getObjects() {
         options[prop['optionName']] = prop['value'];
     });
     
-    const objects = await collection.find({}).sort({ name: 1 }).toArray();
+    // Загружаем объекты из Beds24
+    const beds24Objects = await collection.find({}).sort({ name: 1 }).toArray();
+    
+    // Загружаем внутренние объекты (Компания и т.д.)
+    const internalObjectsRaw = await getInternalObjects();
+    
+    // Объединяем оба списка: сначала внутренние, потом Beds24
+    const objects = [...internalObjectsRaw, ...beds24Objects];
 
     // Получаем всех пользователей с их объектами один раз,
     // чтобы потом собрать список пользователей, у которых есть доступ к каждому объекту
@@ -75,7 +83,14 @@ export async function getAllObjects() {
     const collection = db.collection('objects');
     const usersCollection = db.collection('users');
 
-    const objects = await collection.find({}).sort({ name: 1 }).toArray();
+    // Загружаем объекты из Beds24
+    const beds24Objects = await collection.find({}).sort({ name: 1 }).toArray();
+    
+    // Загружаем внутренние объекты (Компания и т.д.)
+    const internalObjectsRaw = await getInternalObjects();
+    
+    // Объединяем оба списка: сначала внутренние, потом Beds24
+    const objects = [...internalObjectsRaw, ...beds24Objects];
 
     const users = await usersCollection.find({}, {
         projection: {

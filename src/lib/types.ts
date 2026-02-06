@@ -50,7 +50,8 @@ export interface AnalyticsBooking {
     arrival: string,
     departure: string,
     bookingTime: string,
-    price: number
+    price: number,
+    referer?: string
 }
 
 export interface AnalyticsResult {
@@ -173,6 +174,12 @@ export interface Report {
 
 export type ExpenseStatus = 'draft' | 'confirmed';
 
+/** Вложение к расходу/доходу: изображения, документы, таблицы */
+export interface AccountancyAttachment {
+    name: string;   // Имя файла
+    url: string;    // URL для скачивания/просмотра
+}
+
 export interface Expense {
     _id?: string;
     objectId: number;              // ID объекта
@@ -182,6 +189,7 @@ export interface Expense {
     date: Date;                    // Дата расхода
     comment?: string;              // Комментарий
     status: ExpenseStatus;         // Черновик / Подтверждён
+    attachments?: AccountancyAttachment[];  // До 5 файлов, макс. 20 МБ каждый
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
     createdAt?: Date;              // Дата создания записи
@@ -194,6 +202,7 @@ export interface Income {
     date: Date;                    // Дата дохода
     amount: number;                // Сумма дохода
     category: string;              // Категория дохода
+    attachments?: AccountancyAttachment[];  // До 5 файлов, макс. 20 МБ каждый
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
     createdAt?: Date;              // Дата создания записи
@@ -206,6 +215,32 @@ export interface AccountancyCategory {
     name: string;
     type: AccountancyCategoryType;
     createdAt?: Date;
+}
+
+export type AuditLogAction = 'create' | 'update' | 'delete';
+
+export type AuditLogEntity = 'expense' | 'income' | 'report' | 'user' | 'category' | 'booking' | 'other';
+
+export interface AuditLog {
+    _id?: string;
+    entity: AuditLogEntity;       // Тип сущности (расход, доход, отчёт и т.д.)
+    entityId?: string;             // ID изменённой сущности
+    action: AuditLogAction;        // Тип действия (создание, обновление, удаление)
+    userId: string;                // ID пользователя, выполнившего действие
+    userName: string;              // Имя пользователя
+    userRole: string;              // Роль пользователя
+    description: string;           // Описание действия
+    oldData?: any;                 // Старые данные (для update и delete)
+    newData?: any;                 // Новые данные (для create и update)
+    metadata?: {                   // Дополнительная информация
+        objectId?: number;
+        bookingId?: number;
+        category?: string;
+        amount?: number;
+        ip?: string;
+        userAgent?: string;
+    };
+    timestamp: Date;               // Дата и время действия
 }
 
 

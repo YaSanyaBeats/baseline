@@ -1,8 +1,8 @@
 'use client'
 
 import { User, UserObject } from "@/lib/types";
-import { getUsers, sendDeleteUser } from "@/lib/users";
-import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, TextField } from "@mui/material";
+import { getUsers, sendDeleteUser, sendEditUser } from "@/lib/users";
+import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, TextField, Switch, FormControlLabel } from "@mui/material";
 import { useEffect, useState } from "react";
 import StarIcon from '@mui/icons-material/Star';
 import EditIcon from '@mui/icons-material/Edit';
@@ -21,6 +21,7 @@ export default function Page() {
     const [search, setSearch] = useState('');
     const [openConfirm, setOpenConfirm] = useState(false);
     const [selectedDeleteUser, setSelectedDeleteUser] = useState('');
+    const [updatingAccountTypeId, setUpdatingAccountTypeId] = useState<string | null>(null);
     const { setSnackbar } = useSnackbar();
     
     const roleDictionary = {
@@ -51,6 +52,24 @@ export default function Page() {
             updateUsers();
             setOpenConfirm(false);
         })
+    }
+
+    const handleAccountTypeChange = async (user: User) => {
+        if (!user._id || updatingAccountTypeId) return;
+        const newType = user.accountType === 'premium' ? 'basic' : 'premium';
+        setUpdatingAccountTypeId(user._id);
+        sendEditUser({ ...user, accountType: newType }).then((result) => {
+            setSnackbar({
+                open: true,
+                message: result.message,
+                severity: result.success ? 'success' : 'error',
+            });
+            if (result.success) {
+                setUsers((prev) => prev.map((u) => u._id === user._id ? { ...u, accountType: newType } : u));
+            }
+        }).finally(() => {
+            setUpdatingAccountTypeId(null);
+        });
     }
 
     const updateUsers = () => {
@@ -121,6 +140,7 @@ export default function Page() {
                     <TableRow>
                         <TableCell>{t('users.user')}</TableCell>
                         <TableCell>{t('users.role')}</TableCell>
+                        <TableCell>{t('users.accountType')}</TableCell>
                         <TableCell>{t('users.hasAccessTo')}</TableCell>
                         <TableCell sx={{width: '30px'}}/>
                         <TableCell sx={{width: '30px'}}/>
@@ -139,6 +159,21 @@ export default function Page() {
                                 </TableCell>
                                 <TableCell>
                                     {roleDictionary[user.role]}
+                                </TableCell>
+                                <TableCell>
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={user.accountType === 'premium'}
+                                                onChange={() => handleAccountTypeChange(user)}
+                                                disabled={updatingAccountTypeId === user._id}
+                                                color="primary"
+                                            />
+                                        }
+                                        label={user.accountType === 'premium' ? t('header.premium') : t('header.basic')}
+                                        labelPlacement="start"
+                                        sx={{ ml: 0 }}
+                                    />
                                 </TableCell>
                                 <TableCell>
                                     {getObjectsLabelObject(user.objects).map((record, index) => (

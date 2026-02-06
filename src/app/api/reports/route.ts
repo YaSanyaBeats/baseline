@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { Report } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function GET(request: NextRequest) {
     try {
@@ -142,7 +143,22 @@ export async function POST(request: NextRequest) {
             createdAt: new Date()
         };
 
-        await reportsCollection.insertOne(newReport as any);
+        const result = await reportsCollection.insertOne(newReport as any);
+
+        // Логируем создание отчёта
+        await logAuditAction({
+            entity: 'report',
+            entityId: result.insertedId.toString(),
+            action: 'create',
+            userId: accountantId,
+            userName: accountant.name,
+            userRole,
+            description: `Создан отчёт за ${reportData.reportMonth}/${reportData.reportYear} для объекта ${reportData.objectId}`,
+            newData: newReport,
+            metadata: {
+                objectId: reportData.objectId,
+            },
+        });
 
         return NextResponse.json({
             success: true,

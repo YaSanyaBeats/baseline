@@ -4,6 +4,7 @@ import {
     Box,
     Button,
     FormControl,
+    IconButton,
     InputLabel,
     MenuItem,
     Select,
@@ -15,10 +16,12 @@ import {
 } from "@mui/material"
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CloseIcon from '@mui/icons-material/Close';
 import Link from 'next/link';
 import { useEffect, useState } from "react";
-import { AccountancyCategory, Expense, ExpenseStatus, UserObject } from "@/lib/types";
+import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from "@/lib/types";
 import { getExpenses, updateExpense } from "@/lib/expenses";
+import FileAttachments from "@/components/accountancy/FileAttachments";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -73,6 +76,7 @@ export default function Page() {
                             date: found.date
                                 ? new Date(found.date as any).toISOString().slice(0, 10)
                                 : '',
+                            attachments: found.attachments ?? [],
                         });
                         if (found.objectId) {
                             setSelectedObjects([{
@@ -197,6 +201,9 @@ export default function Page() {
             bookingId: booking.id,
         }));
     };
+    const handleDetachBooking = () => {
+        setExpense((prev) => ({ ...prev, bookingId: undefined }));
+    };
 
     const handleSubmit = () => {
         if (!validate()) return;
@@ -212,6 +219,7 @@ export default function Page() {
             date: new Date(expense.date as string),
             comment: expense.comment || '',
             status: (expense.status as ExpenseStatus) || 'draft',
+            attachments: expense.attachments ?? [],
             accountantId: '', // не используется при обновлении
         };
 
@@ -283,9 +291,20 @@ export default function Page() {
                                 {t('accountancy.selectBooking')}
                             </Button>
                             {expense.bookingId && (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.bookingId')}: {expense.bookingId}
-                                </Typography>
+                                <>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {t('accountancy.bookingId')}: {expense.bookingId}
+                                    </Typography>
+                                    <IconButton
+                                        size="small"
+                                        color="secondary"
+                                        onClick={handleDetachBooking}
+                                        title={t('accountancy.detachBooking')}
+                                        aria-label={t('accountancy.detachBooking')}
+                                    >
+                                        <CloseIcon fontSize="small" />
+                                    </IconButton>
+                                </>
                             )}
                         </Stack>
                     </Box>
@@ -373,6 +392,15 @@ export default function Page() {
                                 </Typography>
                             )}
                         </FormControl>
+                    </Box>
+                    <Box>
+                        <FileAttachments
+                            value={expense.attachments ?? []}
+                            onChange={(attachments: AccountancyAttachment[]) =>
+                                setExpense((prev) => ({ ...prev, attachments }))
+                            }
+                            disabled={loading}
+                        />
                     </Box>
                 </Stack>
                 <Stack direction={"row"} spacing={2} mt={2}>

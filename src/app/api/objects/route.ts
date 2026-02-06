@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
     try {
         const db = await getDB();
         const collection = db.collection('objects');
+        const internalObjectsCollection = db.collection('internalObjects');
         const searchParams = request.nextUrl.searchParams;
         
         // Обработка запроса по массиву ID
@@ -14,9 +15,16 @@ export async function GET(request: NextRequest) {
             const ids = searchParams.getAll('id[]');
             const idsNumbers = ids.map((e) => +e);
             
-            const objects = await collection.find({
+            // Ищем в обеих коллекциях
+            const beds24Objects = await collection.find({
                 id: { $in: idsNumbers }
             }).toArray();
+            
+            const internalObjects = await internalObjectsCollection.find({
+                id: { $in: idsNumbers }
+            }).toArray();
+            
+            const objects = [...internalObjects, ...beds24Objects];
             
             return NextResponse.json(objects);
         }
@@ -41,9 +49,16 @@ export async function GET(request: NextRequest) {
             const objectInfo = user.objects;
             const idsNumbers = objectInfo.map((e: any) => +e.id);
             
-            const objects = await collection.find({
+            // Ищем в обеих коллекциях
+            const beds24Objects = await collection.find({
                 id: { $in: idsNumbers }
             }).toArray();
+            
+            const internalObjects = await internalObjectsCollection.find({
+                id: { $in: idsNumbers }
+            }).toArray();
+            
+            const objects = [...internalObjects, ...beds24Objects];
             
             const neededObjects = objects.map((object: any) => {
                 let rooms = [];

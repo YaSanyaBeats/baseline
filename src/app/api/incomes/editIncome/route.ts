@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { Income } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function POST(request: NextRequest) {
     try {
@@ -72,12 +73,34 @@ export async function POST(request: NextRequest) {
             category: incomeData.category,
             amount: incomeData.amount,
             date: new Date(incomeData.date),
+            attachments: incomeData.attachments ?? [],
         };
 
         await incomesCollection.updateOne(
             { _id: new ObjectId(incomeData._id) },
             { $set: updateData },
         );
+
+        // Логируем обновление дохода
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'income',
+            entityId: incomeData._id,
+            action: 'update',
+            userId,
+            userName,
+            userRole,
+            description: `Обновлён доход: ${incomeData.category}, сумма ${incomeData.amount}`,
+            oldData: existingIncome,
+            newData: updateData,
+            metadata: {
+                objectId: incomeData.objectId,
+                bookingId: incomeData.bookingId,
+                category: incomeData.category,
+                amount: incomeData.amount,
+            },
+        });
 
         return NextResponse.json({
             success: true,

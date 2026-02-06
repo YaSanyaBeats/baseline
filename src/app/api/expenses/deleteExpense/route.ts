@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function DELETE(request: NextRequest) {
     try {
@@ -52,6 +53,26 @@ export async function DELETE(request: NextRequest) {
         }
 
         await expensesCollection.deleteOne({ _id: new ObjectId(id) });
+
+        // Логируем удаление расхода
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'expense',
+            entityId: id,
+            action: 'delete',
+            userId,
+            userName,
+            userRole,
+            description: `Удалён расход: ${existingExpense.category}, сумма ${existingExpense.amount}`,
+            oldData: existingExpense,
+            metadata: {
+                objectId: existingExpense.objectId,
+                bookingId: existingExpense.bookingId,
+                category: existingExpense.category,
+                amount: existingExpense.amount,
+            },
+        });
 
         return NextResponse.json({
             success: true,

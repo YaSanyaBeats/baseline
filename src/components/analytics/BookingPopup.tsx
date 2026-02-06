@@ -32,6 +32,8 @@ export default function BookingPopup(props: { open: boolean, bookings: Analytics
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.status')}</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.period')}</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.price')}</TableCell>
+                                <TableCell sx={{fontWeight: 'bold'}}>{t('analytics.referer')}</TableCell>
+                                <TableCell sx={{fontWeight: 'bold'}}>{t('analytics.bookingDate')}</TableCell>
                                 <TableCell></TableCell>
                             </TableRow>
                         </TableHead>
@@ -46,6 +48,8 @@ export default function BookingPopup(props: { open: boolean, bookings: Analytics
                                         {formatDate(booking.arrival)} - {formatDate(booking.departure)}
                                     </TableCell>
                                     <TableCell sx={{whiteSpace: 'nowrap'}}>{booking.price} ฿</TableCell>
+                                    <TableCell sx={{whiteSpace: 'nowrap'}}>{booking.referer ?? '—'}</TableCell>
+                                    <TableCell sx={{whiteSpace: 'nowrap'}}>{formatDate(booking.bookingTime)}</TableCell>
                                     <TableCell>
                                         <Link target="_blank" href={`https://beds24.com/control2.php?ajax=bookedit&id=${booking.id}&tab=1`}>
                                             <IconButton>

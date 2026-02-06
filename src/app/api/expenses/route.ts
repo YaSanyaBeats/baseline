@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function GET() {
     try {
@@ -113,12 +114,31 @@ export async function POST(request: NextRequest) {
             date: new Date(expenseData.date),
             comment: expenseData.comment || '',
             status: expenseData.status,
+            attachments: expenseData.attachments ?? [],
             accountantId,
             accountantName: accountant.name,
             createdAt: new Date(),
         };
 
-        await expensesCollection.insertOne(expenseToInsert as any);
+        const result = await expensesCollection.insertOne(expenseToInsert as any);
+
+        // Логируем создание расхода
+        await logAuditAction({
+            entity: 'expense',
+            entityId: result.insertedId.toString(),
+            action: 'create',
+            userId: accountantId,
+            userName: accountant.name,
+            userRole: userRole,
+            description: `Создан расход: ${expenseData.category}, сумма ${expenseData.amount}`,
+            newData: expenseToInsert,
+            metadata: {
+                objectId: expenseData.objectId,
+                bookingId: expenseData.bookingId,
+                category: expenseData.category,
+                amount: expenseData.amount,
+            },
+        });
 
         return NextResponse.json({
             success: true,

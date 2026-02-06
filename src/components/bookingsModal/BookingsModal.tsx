@@ -62,7 +62,9 @@ export default function BookingsModal(props: {
             monthMap.get(key)?.bookings.push(booking);
         });
 
-        return Array.from(monthMap.values()).sort((a, b) => a.sortValue - b.sortValue);
+        const groups = Array.from(monthMap.values()).sort((a, b) => b.sortValue - a.sortValue);
+        groups.forEach((g) => g.bookings.sort((a, b) => new Date(b.arrival).getTime() - new Date(a.arrival).getTime()));
+        return groups;
     }, [bookings]);
 
     // Загрузка отчётов для объекта

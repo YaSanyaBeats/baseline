@@ -88,7 +88,8 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
             departure: booking.departure,
             bookingTime: booking.bookingTime,
             price: price,
-            invoiceItems: booking.invoiceItems
+            invoiceItems: booking.invoiceItems,
+            referer: booking.referer
         };
 
         bookingPerPeriod.bookings.push(newBooking);
@@ -465,11 +466,22 @@ export async function GET(request: NextRequest) {
 
         const db = await getDB();
         const objectCollection = db.collection('objects');
-        const objects = await objectCollection.find({
+        const internalObjectsCollection = db.collection('internalObjects');
+        
+        // Ищем объекты в обеих коллекциях
+        const beds24Objects = await objectCollection.find({
             id: { $in: objectIDs }
         }).sort({
             name: 1
         }).toArray();
+        
+        const internalObjects = await internalObjectsCollection.find({
+            id: { $in: objectIDs }
+        }).sort({
+            name: 1
+        }).toArray();
+        
+        const objects = [...internalObjects, ...beds24Objects];
 
         const objectsResult = await Promise.all(objects.map(async (object) => {
             const start = performance.now();

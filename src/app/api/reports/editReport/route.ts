@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { Report } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function POST(request: NextRequest) {
     try {
@@ -95,6 +96,24 @@ export async function POST(request: NextRequest) {
             { _id: new ObjectId(reportData._id) },
             { $set: updateData }
         );
+
+        // Логируем обновление отчёта
+        const userId = (session.user as any)._id;
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
+        await logAuditAction({
+            entity: 'report',
+            entityId: reportData._id,
+            action: 'update',
+            userId,
+            userName,
+            userRole,
+            description: `Обновлён отчёт за ${reportData.reportMonth}/${reportData.reportYear} для объекта ${reportData.objectId}`,
+            oldData: existingReport,
+            newData: updateData,
+            metadata: {
+                objectId: reportData.objectId,
+            },
+        });
 
         return NextResponse.json({
             success: true,

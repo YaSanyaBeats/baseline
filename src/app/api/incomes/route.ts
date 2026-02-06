@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { Income } from '@/lib/types';
 import { ObjectId } from 'mongodb';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function GET() {
     try {
@@ -102,12 +103,31 @@ export async function POST(request: NextRequest) {
             category: incomeData.category,
             amount: incomeData.amount,
             date: new Date(incomeData.date),
+            attachments: incomeData.attachments ?? [],
             accountantId,
             accountantName: accountant.name,
             createdAt: new Date(),
         };
 
-        await incomesCollection.insertOne(incomeToInsert as any);
+        const result = await incomesCollection.insertOne(incomeToInsert as any);
+
+        // Логируем создание дохода
+        await logAuditAction({
+            entity: 'income',
+            entityId: result.insertedId.toString(),
+            action: 'create',
+            userId: accountantId,
+            userName: accountant.name,
+            userRole: userRole,
+            description: `Создан доход: ${incomeData.category}, сумма ${incomeData.amount}`,
+            newData: incomeToInsert,
+            metadata: {
+                objectId: incomeData.objectId,
+                bookingId: incomeData.bookingId,
+                category: incomeData.category,
+                amount: incomeData.amount,
+            },
+        });
 
         return NextResponse.json({
             success: true,

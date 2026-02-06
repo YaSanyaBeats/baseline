@@ -1,12 +1,14 @@
 'use client'
 
-import { Box, Button, FormControl, InputLabel, MenuItem, Select, Stack, TextField, Typography, Alert } from "@mui/material"
+import { Box, Button, FormControl, IconButton, InputLabel, MenuItem, Select, Stack, TextField, Typography, Alert } from "@mui/material"
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CloseIcon from '@mui/icons-material/Close';
 import Link from 'next/link';
 import { useEffect, useState } from "react";
-import { AccountancyCategory, Income, UserObject } from "@/lib/types";
+import { AccountancyCategory, AccountancyAttachment, Income, UserObject } from "@/lib/types";
 import { addIncome } from "@/lib/incomes";
+import FileAttachments from "@/components/accountancy/FileAttachments";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -123,6 +125,9 @@ export default function Page() {
             bookingId: booking.id,
         }));
     };
+    const handleDetachBooking = () => {
+        setIncome((prev) => ({ ...prev, bookingId: undefined }));
+    };
 
     const handleSubmit = () => {
         if (!validate()) return;
@@ -135,6 +140,7 @@ export default function Page() {
             category: income.category as string,
             amount: income.amount as number,
             date: new Date(income.dateString as string),
+            attachments: income.attachments ?? [],
             accountantId: '', // сервер заполнит фактическое значение
         };
 
@@ -198,9 +204,20 @@ export default function Page() {
                                 {t('accountancy.selectBooking')}
                             </Button>
                             {income.bookingId && (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.bookingId')}: {income.bookingId}
-                                </Typography>
+                                <>
+                                    <Typography variant="body2" color="text.secondary">
+                                        {t('accountancy.bookingId')}: {income.bookingId}
+                                    </Typography>
+                                    <IconButton
+                                        size="small"
+                                        color="secondary"
+                                        onClick={handleDetachBooking}
+                                        title={t('accountancy.detachBooking')}
+                                        aria-label={t('accountancy.detachBooking')}
+                                    >
+                                        <CloseIcon fontSize="small" />
+                                    </IconButton>
+                                </>
                             )}
                         </Stack>
                     </Box>
@@ -255,6 +272,15 @@ export default function Page() {
                             onChange={handleChangeField('dateString')}
                             error={!!errors.dateString}
                             helperText={errors.dateString}
+                        />
+                    </Box>
+                    <Box>
+                        <FileAttachments
+                            value={income.attachments ?? []}
+                            onChange={(attachments: AccountancyAttachment[]) =>
+                                setIncome((prev) => ({ ...prev, attachments }))
+                            }
+                            disabled={loading}
                         />
                     </Box>
                 </Stack>

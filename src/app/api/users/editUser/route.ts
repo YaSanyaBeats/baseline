@@ -2,9 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 import bcrypt from 'bcrypt';
 import { ObjectId } from 'mongodb';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
+import { logAuditAction } from '@/lib/auditLog';
 
 export async function POST(request: NextRequest) {
     try {
+        const session = await getServerSession(authOptions);
+        if (!session || !session.user) {
+            return NextResponse.json(
+                { success: false, message: 'Необходима авторизация' },
+                { status: 401 },
+            );
+        }
+
         const db = await getDB();
         const usersCollection = db.collection('users');
         
@@ -12,6 +23,9 @@ export async function POST(request: NextRequest) {
         const user = body.params?.user || body.user;
         
         if (user && user.login) {
+            // Получаем старые данные пользователя
+            const existingUser = await usersCollection.findOne({ _id: new ObjectId(user._id as string) });
+            
             const updateData: any = {
                 name: user.name,
                 login: user.login,
@@ -47,6 +61,25 @@ export async function POST(request: NextRequest) {
                 { _id: new ObjectId(user._id as string) },
                 { $set: updateData }
             );
+
+            // Логируем обновление пользователя
+            const userId = (session.user as any)._id;
+            const userName = (session.user as any).name || session.user.name || 'Unknown';
+            const userRole = (session.user as any).role || 'unknown';
+            const updateDataForLog = { ...updateData };
+            delete updateDataForLog.password; // Не сохраняем пароль в логах
+            
+            await logAuditAction({
+                entity: 'user',
+                entityId: user._id,
+                action: 'update',
+                userId,
+                userName,
+                userRole,
+                description: `Обновлён пользователь: ${user.login} (${user.name})`,
+                oldData: existingUser,
+                newData: updateDataForLog,
+            });
             
             return NextResponse.json({
                 success: true,
