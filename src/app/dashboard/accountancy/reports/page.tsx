@@ -217,7 +217,7 @@ export default function Page() {
             </Box>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
                 <Typography variant="h4">{t('accountancy.title')}</Typography>
-                <Link href="/dashboard/accountancy/add">
+                <Link href="/dashboard/accountancy/reports/add">
                     <Button 
                         variant="contained" 
                         startIcon={<AddIcon />}
