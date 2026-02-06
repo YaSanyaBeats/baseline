@@ -95,7 +95,8 @@ export default function AuditLogsPage() {
         if (hasAccess) {
             loadLogs(true);
         }
-    }, [hasAccess, loadLogs]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasAccess]);
 
     const handleApplyFilters = () => {
         loadLogs(true);
@@ -118,7 +119,8 @@ export default function AuditLogsPage() {
         if (skip > 0) {
             loadLogs(false);
         }
-    }, [skip, loadLogs]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [skip]);
 
     const getEntityColor = (entity: AuditLogEntity): "default" | "primary" | "secondary" | "error" | "info" | "success" | "warning" => {
         switch (entity) {

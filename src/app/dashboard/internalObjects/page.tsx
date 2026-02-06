@@ -102,7 +102,8 @@ export default function InternalObjectsPage() {
         } finally {
             setLoading(false);
         }
-    }, [setSnackbar, t]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // setSnackbar и t стабильны, не добавляем их чтобы избежать бесконечного цикла
 
     useEffect(() => {
         if (isAdmin) {
@@ -110,7 +111,8 @@ export default function InternalObjectsPage() {
         } else {
             setLoading(false);
         }
-    }, [isAdmin, loadCompanyObject]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isAdmin]);
 
     const handleInitialize = async () => {
         try {
