@@ -68,6 +68,7 @@ export default function Page() {
                         setExpense({
                             _id: found._id,
                             objectId: found.objectId,
+                            roomId: found.roomId,
                             bookingId: found.bookingId,
                             category: found.category,
                             amount: found.amount,
@@ -81,7 +82,7 @@ export default function Page() {
                         if (found.objectId) {
                             setSelectedObjects([{
                                 id: found.objectId,
-                                rooms: [],
+                                rooms: found.roomId ? [found.roomId] : [],
                             }]);
                         }
                     } else {
@@ -112,7 +113,8 @@ export default function Page() {
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
         const objectId = value.length > 0 ? value[0].id : undefined;
-        setExpense((prev) => ({ ...prev, objectId }));
+        const roomId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        setExpense((prev) => ({ ...prev, objectId, roomId }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             if (objectId) {
@@ -213,6 +215,7 @@ export default function Page() {
         const payload: Expense = {
             _id: expense._id as string,
             objectId: expense.objectId as number,
+            roomId: expense.roomId,
             bookingId: expense.bookingId,
             category: expense.category as string,
             amount: expense.amount as number,

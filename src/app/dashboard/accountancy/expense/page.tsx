@@ -167,9 +167,12 @@ export default function Page() {
         if (filterRoomId) {
             const roomIdNum = Number(filterRoomId);
             if (roomIdNum === NO_ROOM_ID) {
-                filtered = filtered.filter((e) => !e.bookingId);
+                filtered = filtered.filter((e) => !e.roomId && !e.bookingId);
             } else {
                 filtered = filtered.filter((e) => {
+                    // Прямая привязка к комнате
+                    if (e.roomId === roomIdNum) return true;
+                    // Привязка через бронирование
                     if (!e.bookingId) return false;
                     const booking = bookings.find((b) => b.id === e.bookingId);
                     return booking && (booking.unitId ?? null) === roomIdNum;

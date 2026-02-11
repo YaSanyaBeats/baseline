@@ -49,7 +49,8 @@ export default function Page() {
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
         const objectId = value.length > 0 ? value[0].id : undefined;
-        setIncome((prev) => ({ ...prev, objectId }));
+        const roomId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        setIncome((prev) => ({ ...prev, objectId, roomId }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             if (objectId) {
@@ -136,6 +137,7 @@ export default function Page() {
 
         const payload: Income = {
             objectId: income.objectId as number,
+            roomId: income.roomId,
             bookingId: income.bookingId,
             category: income.category as string,
             amount: income.amount as number,

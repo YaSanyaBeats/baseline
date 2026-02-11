@@ -183,6 +183,7 @@ export interface AccountancyAttachment {
 export interface Expense {
     _id?: string;
     objectId: number;              // ID объекта
+    roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
     category: string;              // Категория расхода
     amount: number;                // Сумма расхода
@@ -198,6 +199,7 @@ export interface Expense {
 export interface Income {
     _id?: string;
     objectId: number;              // ID объекта
+    roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
     date: Date;                    // Дата дохода
     amount: number;                // Сумма дохода

@@ -120,18 +120,30 @@ export default function Page() {
                     setBookings([]);
                 }
 
-                // Расходы и доходы без привязки к комнате (без bookingId) — по объекту
+                // Расходы и доходы с прямой привязкой к комнате (roomId) или без привязки
                 exp.forEach((e) => {
                     if (e.bookingId) return;
-                    const key = `${e.objectId}-no-room`;
-                    if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                    stats[key].expenses += e.amount;
+                    if (e.roomId) {
+                        const key = `${e.objectId}-${e.roomId}`;
+                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
+                        stats[key].expenses += e.amount;
+                    } else {
+                        const key = `${e.objectId}-no-room`;
+                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
+                        stats[key].expenses += e.amount;
+                    }
                 });
                 inc.forEach((i) => {
                     if (i.bookingId) return;
-                    const key = `${i.objectId}-no-room`;
-                    if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                    stats[key].incomes += i.amount;
+                    if (i.roomId) {
+                        const key = `${i.objectId}-${i.roomId}`;
+                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
+                        stats[key].incomes += i.amount;
+                    } else {
+                        const key = `${i.objectId}-no-room`;
+                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
+                        stats[key].incomes += i.amount;
+                    }
                 });
 
                 setRoomStats(stats);
@@ -255,9 +267,12 @@ export default function Page() {
     const filteredOperations = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
 
-        const matchRoom = (bookingId?: number) => {
+        const matchRoom = (roomId?: number, bookingId?: number) => {
             if (selectedRoomId === 'all') return true;
-            if (selectedRoomId === NO_ROOM_ID) return !bookingId;
+            if (selectedRoomId === NO_ROOM_ID) return !roomId && !bookingId;
+            // Прямая привязка к комнате
+            if (roomId === selectedRoomId) return true;
+            // Привязка через бронирование
             if (!bookingId) return false;
             const booking = bookings.find((b) => b.id === bookingId);
             if (!booking) return false;
@@ -273,7 +288,7 @@ export default function Page() {
         const rows: OperationRow[] = [];
 
         expenses
-            .filter((e) => e.objectId === selectedObjectId && matchRoom(e.bookingId))
+            .filter((e) => e.objectId === selectedObjectId && matchRoom(e.roomId, e.bookingId))
             .forEach((e) => {
                 rows.push({
                     id: `exp-${e._id ?? ''}`,
@@ -288,7 +303,7 @@ export default function Page() {
             });
 
         incomes
-            .filter((i) => i.objectId === selectedObjectId && matchRoom(i.bookingId))
+            .filter((i) => i.objectId === selectedObjectId && matchRoom(i.roomId, i.bookingId))
             .forEach((i) => {
                 rows.push({
                     id: `inc-${i._id ?? ''}`,

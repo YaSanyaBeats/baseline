@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
 
         const updateData: any = {
             objectId: expenseData.objectId,
+            roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,

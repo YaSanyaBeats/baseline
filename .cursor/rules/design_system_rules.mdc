@@ -1,0 +1,188 @@
+---
+description: Design system and Figma MCP integration rules for baseline project
+globs: ["**/*.tsx", "**/*.ts", "**/*.css"]
+alwaysApply: true
+---
+
+# Design System Rules — Baseline / Figma MCP Integration
+
+Правила для перевода Figma-дизайнов в код с учётом существующей кодовой базы.
+
+---
+
+## 1. Token Definitions (Дизайн-токены)
+
+### Где определены
+- **Тема**: `src/app/layout.tsx` — `createTheme()` через MUI ThemeProvider
+- **CSS Variables**: префикс `--template-*` (MUI cssVariables)
+- **Цвета**: используются MUI palette + inline в компонентах (HeaderMenu — Premium/Basic Chip)
+
+### Формат
+```tsx
+createTheme({
+  cssVariables: {
+    colorSchemeSelector: ':root, [data-mui-color-scheme]',
+    cssVarPrefix: 'template',
+  },
+  typography: {
+    fontFamily: 'Inter, Arial',
+  },
+})
+```
+
+### Паттерны
+- `theme.spacing(n)` — отступы (4px базовый шаг)
+- `theme.breakpoints.up('sm')` — адаптивность
+- `theme.applyStyles('dark', {...})` — тёмная тема
+- Box shadows: `hsla(220, 30%, 5%, 0.05)` и аналоги
+
+### Рекомендация
+При переводе Figma: сопоставлять цвета/spacing с `theme.palette`, `theme.spacing`, избегать хардкода.
+
+---
+
+## 2. Component Library
+
+### Расположение
+- **Общие**: `src/components/`
+- **Стилизованные**: `src/components/styled/` — Card, SignInContainer
+
+### Архитектура
+- MUI как основа (`@mui/material`)
+- `styled()` из `@mui/material/styles` для кастомных компонентов
+- CSS Modules для локальных стилей: `leftMenu.module.css`
+
+### Ключевые компоненты
+| Компонент | Путь | Назначение |
+|-----------|------|------------|
+| Card, SignInContainer | `components/styled/Card.tsx` | Карточки, формы входа |
+| MiniDrawer | `components/leftMenu/MiniDrawer.tsx` | Боковое меню дашборда |
+| HeaderMenu | `components/headerMenu/HeaderMenu.tsx` | Хедер с языком, Chip, меню |
+| GlobalSnackbar | `components/globalSnackbar/GlobalSnackbar.tsx` | Уведомления |
+
+### Паттерн стилизации
+```tsx
+const Card = styled(MuiCard)(({ theme }) => ({
+  padding: theme.spacing(4),
+  gap: theme.spacing(2),
+  [theme.breakpoints.up('sm')]: { maxWidth: '450px' },
+  ...theme.applyStyles('dark', { boxShadow: '...' }),
+}))
+```
+
+---
+
+## 3. Frameworks & Libraries
+
+| Категория | Технология |
+|-----------|------------|
+| UI | React 19, Next.js 15 |
+| Стили | MUI v7, Emotion, CSS Modules |
+| Иконки | @mui/icons-material |
+| Сборка | Next.js (Turbopack) |
+
+---
+
+## 4. Asset Management
+
+### Хранение
+- `public/` — статика (логотипы, шрифты)
+  - `public/logo-new.svg`, `public/logo-white.svg`, `public/logo.svg`
+  - `public/fonts/Inter-Regular.ttf`, `Inter-Bold.ttf`
+
+### Использование
+- `next/image` для изображений: `<Image src="/logo-new.svg" alt="..." width={90} height={40} />`
+- Шрифты — `@font-face` в `MuiCssBaseline.styleOverrides` в layout
+
+### Figma MCP
+- Если Figma MCP возвращает localhost URL для изображений/SVG — использовать его напрямую
+- Не добавлять новые икон-паки, если ассеты приходят из Figma
+- Не использовать плейсхолдеры при наличии реальных источников
+
+---
+
+## 5. Icon System
+
+### Источник
+- `@mui/icons-material` — единственный источник иконок
+
+### Импорт
+```tsx
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business } from '@mui/icons-material';
+```
+
+### Размер
+- `fontSize="small"` для меню
+- `fontSize="inherit"` при необходимости наследования
+
+---
+
+## 6. Styling Approach
+
+### Методология
+- **MUI sx** — основной способ инлайн-стилей
+- **styled()** — переиспользуемые обёртки над MUI
+- **CSS Modules** — точечно (например, `.link` в leftMenu)
+
+### Глобальные стили
+- `CssBaseline` + `enableColorScheme`
+- `@font-face` в `MuiCssBaseline.styleOverrides`
+
+### Адаптивность
+- `useMediaQuery('(min-width:768px)')` для mobile/desktop
+- `theme.breakpoints.up('sm')` в styled/sx
+- Брейкпоинты MUI: xs, sm, md, lg, xl
+
+---
+
+## 7. Project Structure
+
+```
+src/
+├── app/                    # App Router (Next.js)
+│   ├── api/                # API routes
+│   ├── dashboard/          # Защищённые страницы
+│   ├── login/
+│   └── layout.tsx
+├── components/             # UI компоненты
+│   ├── styled/             # Стилизованные примитивы
+│   ├── leftMenu/
+│   ├── headerMenu/
+│   └── ...
+├── lib/                    # Утилиты, API-клиент, типы
+├── providers/              # React Context провайдеры
+├── i18n/                   # Интернационализация
+└── types/                  # Типы
+```
+
+### Паттерны
+- `'use client'` — для интерактивных страниц и компонентов
+- `@/` — алиас для `src/`
+- Страницы — в `app/.../page.tsx`
+
+---
+
+## 8. Figma MCP Required Flow
+
+При вёрстке из Figma **обязательно**:
+
+1. Вызвать `get_design_context` для выбранного фрейма/ноды
+2. Если контекст слишком большой — использовать `get_metadata`, затем `get_design_context` для нужных нод
+3. Вызвать `get_screenshot` для визуальной сверки
+4. После получения контекста и скриншота — скачать ассеты и приступить к реализации
+5. Переводить вывод (обычно React + Tailwind) в MUI/sx/styled по правилам этого проекта
+6. Использовать `theme.spacing`, `theme.palette`, существующие компоненты
+7. Сверять результат с Figma по скриншоту
+
+### Implementation Rules
+- Tailwind из Figma MCP — как референс дизайна, не как финальный код
+- Заменять Tailwind на MUI sx / styled / theme tokens
+- Переиспользовать Card, Typography, Button, TextField и др.
+- Не хардкодить цвета и отступы — использовать `theme`
+- Соблюдать i18n через `useTranslation()` и `t('key')`
+
+---
+
+## 9. MUI MCP
+
+При работе с MUI-компонентами используй MCP-сервер `mui-mcp` для актуальной документации.

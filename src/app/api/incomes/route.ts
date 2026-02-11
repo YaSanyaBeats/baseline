@@ -99,6 +99,7 @@ export async function POST(request: NextRequest) {
 
         const incomeToInsert = {
             objectId: incomeData.objectId,
+            roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,
             category: incomeData.category,
             amount: incomeData.amount,
