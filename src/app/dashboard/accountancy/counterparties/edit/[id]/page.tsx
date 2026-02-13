@@ -72,7 +72,7 @@ export default function Page() {
         };
 
         load();
-    }, [hasAccess, counterpartyId, router, setSnackbar, t]);
+    }, [hasAccess, counterpartyId, router]);
 
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
