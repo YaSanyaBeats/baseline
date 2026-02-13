@@ -27,6 +27,7 @@ import {
     getAccountancyCategories,
     reorderAccountancyCategories,
 } from '@/lib/accountancyCategories';
+import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -73,24 +74,6 @@ function categoriesToTree(
             });
     }
     return build(null);
-}
-
-function flattenTreeForSelect(
-    items: TreeItems<{ name: string; category: AccountancyCategory }>,
-    depth = 0
-): Array<{ id: string; name: string; depth: number }> {
-    const result: Array<{ id: string; name: string; depth: number }> = [];
-    for (const item of items) {
-        result.push({
-            id: String(item.id),
-            name: item.name,
-            depth,
-        });
-        if (item.children?.length) {
-            result.push(...flattenTreeForSelect(item.children, depth + 1));
-        }
-    }
-    return result;
 }
 
 function treeToReorderPayload(
@@ -292,7 +275,7 @@ function CategorySection({
                                 }
                             >
                                 <MenuItem value="">{t('accountancy.noParent')}</MenuItem>
-                                {flattenTreeForSelect(treeItems).map((item) => (
+                                {buildCategoriesForSelect(categories, type).map((item) => (
                                     <MenuItem key={item.id} value={item.id}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
                                         {item.name}

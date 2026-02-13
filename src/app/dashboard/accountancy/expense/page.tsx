@@ -39,6 +39,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Expense, ExpenseStatus, Booking } from "@/lib/types";
 import { getExpenses, deleteExpense, updateExpense } from "@/lib/expenses";
 import { getBookingsByIds } from "@/lib/bookings";
+import { getAccountancyCategories } from "@/lib/accountancyCategories";
+import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useObjects } from "@/providers/ObjectsProvider";
@@ -99,6 +101,7 @@ export default function Page() {
 
     const hasAccess = isAdmin || isAccountant;
 
+    const [categories, setCategories] = useState<Awaited<ReturnType<typeof getAccountancyCategories>>>([]);
     const [filterObjectId, setFilterObjectId] = useState<string>(() => loadExpenseFilters()?.filterObjectId ?? '');
     const [filterCategory, setFilterCategory] = useState<string>(() => loadExpenseFilters()?.filterCategory ?? '');
     const [filterStatus, setFilterStatus] = useState<string>(() => loadExpenseFilters()?.filterStatus ?? '');
@@ -123,9 +126,13 @@ export default function Page() {
     }, [filterObjectId, filterCategory, filterStatus, filterRoomId, sortByAmountAsc, sortByDateAsc, filtersExpanded]);
 
     useEffect(() => {
-        getExpenses()
-            .then(async (list) => {
+        Promise.all([
+            getExpenses(),
+            getAccountancyCategories('expense'),
+        ])
+            .then(async ([list, cats]) => {
                 setExpenses(list);
+                setCategories(cats);
                 const bookingIds = Array.from(
                     new Set(list.map((e) => e.bookingId).filter((id): id is number => typeof id === 'number')),
                 );
@@ -427,9 +434,10 @@ export default function Page() {
                                     label={t('accountancy.category')}
                                 >
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {uniqueValues.categories.map((category) => (
-                                        <MenuItem key={category} value={category}>
-                                            {category}
+                                    {buildCategoriesForSelect(categories, 'expense').map((item) => (
+                                        <MenuItem key={item.id} value={item.name}>
+                                            {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
+                                            {item.name}
                                         </MenuItem>
                                     ))}
                                 </Select>

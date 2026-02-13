@@ -27,6 +27,7 @@ import {
     getAccountancyCategoryById,
     updateAccountancyCategory,
 } from '@/lib/accountancyCategories';
+import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -98,13 +99,10 @@ export default function Page() {
         );
     };
     const descendantIds = categoryId ? getDescendantIds(categoryId) : [];
-    const parentOptions = allCategories.filter(
-        (c) =>
-            c.type === category.type &&
-            c._id &&
-            c._id !== categoryId &&
-            !descendantIds.includes(c._id)
-    );
+    const excludeIds = categoryId ? [categoryId, ...descendantIds] : [];
+    const parentOptionsForSelect = category.type
+        ? buildCategoriesForSelect(allCategories, category.type, { excludeIds })
+        : [];
 
     const handleSubmit = async () => {
         const validationErrors: Record<string, string> = {};
@@ -206,9 +204,10 @@ export default function Page() {
                         }
                     >
                         <MenuItem value="">{t('accountancy.noParent')}</MenuItem>
-                        {parentOptions.map((c) => (
-                            <MenuItem key={c._id} value={c._id}>
-                                {c.name}
+                        {parentOptionsForSelect.map((item) => (
+                            <MenuItem key={item.id} value={item.id}>
+                                {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
+                                {item.name}
                             </MenuItem>
                         ))}
                     </Select>

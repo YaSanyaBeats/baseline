@@ -37,6 +37,7 @@ import { useRouter } from 'next/navigation';
 import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
+import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 
 type ExpenseItemForm = {
     category: string;
@@ -339,9 +340,10 @@ export default function Page() {
                                                 handleChangeItem(index, 'category', e.target.value as string)
                                             }
                                         >
-                                            {categories.map((cat) => (
-                                                <MenuItem key={cat._id || cat.name} value={cat.name}>
-                                                    {cat.name}
+                                            {buildCategoriesForSelect(categories, 'expense').map((item) => (
+                                                <MenuItem key={item.id} value={item.name}>
+                                                    {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
+                                                    {item.name}
                                                 </MenuItem>
                                             ))}
                                         </Select>
