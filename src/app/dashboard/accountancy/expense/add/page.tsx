@@ -126,7 +126,7 @@ export default function Page() {
         });
     };
 
-    const handleChangeItemAmount = (index: number, event: React.ChangeEvent<HTMLInputElement>) => {
+    const handleChangeItemAmount = (index: number, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
         const value = event.target.value;
         const num = Number(value);
         handleChangeItem(index, 'amount', isNaN(num) ? undefined : num);
