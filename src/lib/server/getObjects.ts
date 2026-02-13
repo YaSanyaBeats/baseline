@@ -1,5 +1,6 @@
 import { getDB } from "../db/getDB";
 import { getInternalObjects } from "./internalObjects";
+import { getAllObjectMetadata, getAllRoomMetadata } from "./objectRoomMetadata";
 
 export async function getObjects() {
     const db = await getDB();
@@ -31,8 +32,15 @@ export async function getObjects() {
             objects: 1,
         },
     }).toArray();
+
+    // Загружаем метаданные из отдельной коллекции (не стирается при синхронизации)
+    const [objectMetadataMap, roomMetadataMap] = await Promise.all([
+        getAllObjectMetadata(),
+        getAllRoomMetadata(),
+    ]);
     
     const neededObjects = objects.map((object: any) => {
+        const objMeta = objectMetadataMap[object.id];
         let rooms = [];
         
         if (object?.roomTypes?.length) {
@@ -48,10 +56,19 @@ export async function getObjects() {
                     })
                     .map((user: any) => user.name || user.login);
 
+                const roomMeta = roomMetadataMap[`${object.id}_${room?.id}`];
                 return {
                     id: room?.id,
                     name: room?.name,
                     accessUsers: roomAccessUsers,
+                    ...(roomMeta && {
+                        bedrooms: roomMeta.bedrooms,
+                        bathrooms: roomMeta.bathrooms,
+                        livingRoomSofas: roomMeta.livingRoomSofas,
+                        kitchen: roomMeta.kitchen,
+                        level: roomMeta.level,
+                        commissionSchemeId: roomMeta.commissionSchemeId,
+                    }),
                 }
             })
         }
@@ -60,6 +77,10 @@ export async function getObjects() {
             id: object.id,
             name: object.name,
             roomTypes: rooms,
+            ...(objMeta && {
+                district: objMeta.district,
+                objectType: objMeta.objectType,
+            }),
         }
     })
 
@@ -100,11 +121,17 @@ export async function getAllObjects() {
         },
     }).toArray();
 
+    const [objectMetadataMap, roomMetadataMap] = await Promise.all([
+        getAllObjectMetadata(),
+        getAllRoomMetadata(),
+    ]);
+
     const neededObjects = objects.map((object: any) => {
+        const objMeta = objectMetadataMap[object.id];
         return {
             id: object.id,
             name: object.name,
-            roomTypes: object.roomTypes[0].units.map((room: any) => {
+            roomTypes: (object.roomTypes?.[0]?.units || []).map((room: any) => {
                 // Список пользователей, у которых есть доступ именно к этой комнате
                 const roomAccessUsers = users
                     .filter((user: any) => {
@@ -116,11 +143,24 @@ export async function getAllObjects() {
                     })
                     .map((user: any) => user.name || user.login);
 
+                const roomMeta = roomMetadataMap[`${object.id}_${room.id}`];
                 return {
                     id: room.id,
                     name: room.name,
                     accessUsers: roomAccessUsers,
+                    ...(roomMeta && {
+                        bedrooms: roomMeta.bedrooms,
+                        bathrooms: roomMeta.bathrooms,
+                        livingRoomSofas: roomMeta.livingRoomSofas,
+                        kitchen: roomMeta.kitchen,
+                        level: roomMeta.level,
+                        commissionSchemeId: roomMeta.commissionSchemeId,
+                    }),
                 }
+            }),
+            ...(objMeta && {
+                district: objMeta.district,
+                objectType: objMeta.objectType,
             }),
         }
     })

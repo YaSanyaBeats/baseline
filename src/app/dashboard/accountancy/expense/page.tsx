@@ -26,6 +26,7 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
+    Switch,
 } from "@mui/material"
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -36,7 +37,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useEffect, useMemo, useState } from "react";
 import { Expense, ExpenseStatus, Booking } from "@/lib/types";
-import { getExpenses, deleteExpense } from "@/lib/expenses";
+import { getExpenses, deleteExpense, updateExpense } from "@/lib/expenses";
 import { getBookingsByIds } from "@/lib/bookings";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
@@ -45,7 +46,44 @@ import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-const NO_ROOM_ID = -1;
+const STORAGE_KEY = 'accountancy-expense-filters';
+
+function loadExpenseFilters() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return {
+            filterObjectId: String(parsed.filterObjectId ?? ''),
+            filterCategory: String(parsed.filterCategory ?? ''),
+            filterStatus: String(parsed.filterStatus ?? ''),
+            filterRoomId: String(parsed.filterRoomId ?? ''),
+            sortByAmountAsc: parsed.sortByAmountAsc === true || parsed.sortByAmountAsc === false ? parsed.sortByAmountAsc : null,
+            sortByDateAsc: parsed.sortByDateAsc === true || parsed.sortByDateAsc === false ? parsed.sortByDateAsc : true,
+            filtersExpanded: Boolean(parsed.filtersExpanded ?? true),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveExpenseFilters(state: {
+    filterObjectId: string;
+    filterCategory: string;
+    filterStatus: string;
+    filterRoomId: string;
+    sortByAmountAsc: boolean | null;
+    sortByDateAsc: boolean | null;
+    filtersExpanded: boolean;
+}) {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+        // ignore
+    }
+}
 
 export default function Page() {
     const { t } = useTranslation();
@@ -57,19 +95,32 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null);
+    const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
 
-    const [filterObjectId, setFilterObjectId] = useState<string>('');
-    const [filterCategory, setFilterCategory] = useState<string>('');
-    const [filterStatus, setFilterStatus] = useState<string>('');
-    const [filterRoomId, setFilterRoomId] = useState<string>('');
+    const [filterObjectId, setFilterObjectId] = useState<string>(() => loadExpenseFilters()?.filterObjectId ?? '');
+    const [filterCategory, setFilterCategory] = useState<string>(() => loadExpenseFilters()?.filterCategory ?? '');
+    const [filterStatus, setFilterStatus] = useState<string>(() => loadExpenseFilters()?.filterStatus ?? '');
+    const [filterRoomId, setFilterRoomId] = useState<string>(() => loadExpenseFilters()?.filterRoomId ?? '');
     const [bookings, setBookings] = useState<Booking[]>([]);
 
-    const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(null);
-    const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(true);
+    const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(() => loadExpenseFilters()?.sortByAmountAsc ?? null);
+    const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(() => loadExpenseFilters()?.sortByDateAsc ?? true);
 
-    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(true);
+    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(() => loadExpenseFilters()?.filtersExpanded ?? true);
+
+    useEffect(() => {
+        saveExpenseFilters({
+            filterObjectId,
+            filterCategory,
+            filterStatus,
+            filterRoomId,
+            sortByAmountAsc,
+            sortByDateAsc,
+            filtersExpanded,
+        });
+    }, [filterObjectId, filterCategory, filterStatus, filterRoomId, sortByAmountAsc, sortByDateAsc, filtersExpanded]);
 
     useEffect(() => {
         getExpenses()
@@ -134,6 +185,15 @@ export default function Page() {
         return object.name;
     };
 
+    const getRoomName = (expense: Expense): string => {
+        const roomId = expense.roomId ?? (expense.bookingId ? bookings.find((b) => b.id === expense.bookingId)?.unitId : undefined);
+        if (roomId == null) return '-';
+        const object = objects.find((obj) => obj.id === expense.objectId);
+        const room = object?.roomTypes?.find((r) => r.id === roomId);
+        const name = room?.name?.trim();
+        return name ? name : String(roomId);
+    };
+
     const getStatusLabel = (status: ExpenseStatus) => {
         if (status === 'draft') return t('accountancy.statusDraft');
         if (status === 'confirmed') return t('accountancy.statusConfirmed');
@@ -166,18 +226,14 @@ export default function Page() {
 
         if (filterRoomId) {
             const roomIdNum = Number(filterRoomId);
-            if (roomIdNum === NO_ROOM_ID) {
-                filtered = filtered.filter((e) => !e.roomId && !e.bookingId);
-            } else {
-                filtered = filtered.filter((e) => {
-                    // Прямая привязка к комнате
-                    if (e.roomId === roomIdNum) return true;
-                    // Привязка через бронирование
-                    if (!e.bookingId) return false;
-                    const booking = bookings.find((b) => b.id === e.bookingId);
-                    return booking && (booking.unitId ?? null) === roomIdNum;
-                });
-            }
+            filtered = filtered.filter((e) => {
+                // Прямая привязка к комнате
+                if (e.roomId === roomIdNum) return true;
+                // Привязка через бронирование
+                if (!e.bookingId) return false;
+                const booking = bookings.find((b) => b.id === e.bookingId);
+                return booking && (booking.unitId ?? null) === roomIdNum;
+            });
         }
 
         filtered.sort((a, b) => {
@@ -244,6 +300,41 @@ export default function Page() {
     const handleEditClick = (expense: Expense) => {
         if (expense._id) {
             router.push(`/dashboard/accountancy/expense/edit/${expense._id}`);
+        }
+    };
+
+    const handleStatusToggle = async (expense: Expense) => {
+        if (!expense._id) return;
+        const newStatus: ExpenseStatus = expense.status === 'confirmed' ? 'draft' : 'confirmed';
+        setStatusUpdatingId(expense._id);
+        try {
+            const payload: Expense = {
+                ...expense,
+                status: newStatus,
+                date: expense.date
+                    ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                    : new Date(),
+            };
+            const res = await updateExpense(payload);
+            setSnackbar({
+                open: true,
+                message: res.message || t('accountancy.expenseUpdated'),
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                setExpenses((prev) =>
+                    prev.map((e) => (e._id === expense._id ? { ...e, status: newStatus } : e)),
+                );
+            }
+        } catch (error) {
+            console.error('Error updating expense status:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setStatusUpdatingId(null);
         }
     };
 
@@ -321,14 +412,11 @@ export default function Page() {
                                     label={t('common.room')}
                                 >
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {filterObjectId && [
-                                        <MenuItem key="no-room" value={String(NO_ROOM_ID)}>{t('accountancy.noRoom')}</MenuItem>,
-                                        ...roomsForSelectedObject.map((room) => (
-                                            <MenuItem key={room.id} value={String(room.id)}>
-                                                {room.name || `Room ${room.id}`}
-                                            </MenuItem>
-                                        )),
-                                    ]}
+                                    {filterObjectId && roomsForSelectedObject.map((room) => (
+                                        <MenuItem key={room.id} value={String(room.id)}>
+                                            {room.name || `Room ${room.id}`}
+                                        </MenuItem>
+                                    ))}
                                 </Select>
                             </FormControl>
                             <FormControl sx={{ minWidth: 150 }}>
@@ -392,6 +480,7 @@ export default function Page() {
                             <TableRow>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.dateColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.objectColumn')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('common.room')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.bookingColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.categoryColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>
@@ -443,7 +532,7 @@ export default function Page() {
                         <TableBody>
                             {filteredAndSortedExpenses.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={8} align="center">
+                                    <TableCell colSpan={9} align="center">
                                         <Typography sx={{ py: 2 }}>
                                             {t('accountancy.noFilteredExpenses')}
                                         </Typography>
@@ -454,11 +543,27 @@ export default function Page() {
                                     <TableRow key={expense._id}>
                                         <TableCell>{formatDate(expense.date)}</TableCell>
                                         <TableCell>{getObjectName(expense)}</TableCell>
+                                        <TableCell>{getRoomName(expense)}</TableCell>
                                         <TableCell>{expense.bookingId ?? '-'}</TableCell>
                                         <TableCell>{expense.category}</TableCell>
                                         <TableCell>{formatAmount(expense.amount)}</TableCell>
                                         <TableCell>{formatDate(expense.date)}</TableCell>
-                                        <TableCell>{getStatusLabel(expense.status)}</TableCell>
+                                        <TableCell>
+                                            <Stack direction="row" alignItems="center" spacing={1}>
+                                                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70 }}>
+                                                    {expense.status === 'confirmed'
+                                                        ? t('accountancy.statusConfirmed')
+                                                        : t('accountancy.statusDraft')}
+                                                </Typography>
+                                                <Switch
+                                                    checked={expense.status === 'confirmed'}
+                                                    onChange={() => handleStatusToggle(expense)}
+                                                    disabled={statusUpdatingId === expense._id}
+                                                    size="small"
+                                                    color="primary"
+                                                />
+                                            </Stack>
+                                        </TableCell>
                                         <TableCell>
                                             <Stack direction="row" spacing={1}>
                                                 <IconButton

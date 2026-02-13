@@ -21,6 +21,7 @@ import Link from 'next/link';
 import { useEffect, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from "@/lib/types";
 import { getExpenses, updateExpense } from "@/lib/expenses";
+import { getCounterparties } from "@/lib/counterparties";
 import FileAttachments from "@/components/accountancy/FileAttachments";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
@@ -49,15 +50,22 @@ export default function Page() {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant;
 
     useEffect(() => {
         if (hasAccess) {
-            getAccountancyCategories('expense')
-                .then(setCategories)
+            Promise.all([
+                getAccountancyCategories('expense'),
+                getCounterparties(),
+            ])
+                .then(([cats, cps]) => {
+                    setCategories(cats);
+                    setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                })
                 .catch((error) => {
-                    console.error('Error loading categories:', error);
+                    console.error('Error loading data:', error);
                 });
         }
         if (hasAccess && expenseId) {
@@ -70,6 +78,7 @@ export default function Page() {
                             objectId: found.objectId,
                             roomId: found.roomId,
                             bookingId: found.bookingId,
+                            counterpartyId: found.counterpartyId,
                             category: found.category,
                             amount: found.amount,
                             comment: found.comment,
@@ -217,6 +226,7 @@ export default function Page() {
             objectId: expense.objectId as number,
             roomId: expense.roomId,
             bookingId: expense.bookingId,
+            counterpartyId: expense.counterpartyId,
             category: expense.category as string,
             amount: expense.amount as number,
             date: new Date(expense.date as string),
@@ -332,6 +342,25 @@ export default function Page() {
                                     {errors.category}
                                 </Typography>
                             )}
+                        </FormControl>
+                    </Box>
+                    <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.counterparty.title')}</InputLabel>
+                            <Select
+                                value={expense.counterpartyId || ''}
+                                label={t('accountancy.counterparty.title')}
+                                onChange={(e) =>
+                                    setExpense((prev) => ({ ...prev, counterpartyId: e.target.value || undefined }))
+                                }
+                            >
+                                <MenuItem value="">—</MenuItem>
+                                {counterparties.map((cp) => (
+                                    <MenuItem key={cp._id} value={cp._id}>
+                                        {cp.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
                         </FormControl>
                     </Box>
                     <Box>

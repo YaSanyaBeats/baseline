@@ -80,6 +80,7 @@ export async function POST(request: NextRequest) {
             objectId: expenseData.objectId,
             roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,
+            counterpartyId: expenseData.counterpartyId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,
             date: new Date(expenseData.date),

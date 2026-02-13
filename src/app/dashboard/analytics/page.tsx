@@ -105,7 +105,8 @@ export default function Page() {
         let isValid = true;
         let newErrors = defaultErrors;
 
-        if(!filterData.objects.length) {
+        const validObjects = filterData.objects.filter((o) => o.id > 0);
+        if(!validObjects.length) {
             newErrors = {
                 ...newErrors,
                 objects: {
@@ -183,7 +184,11 @@ export default function Page() {
 
         setLoadAnalytics(true);
         try {
-            const currentAnalyticsData = await getAnalytics(filterData);
+            const analyticsFilterData = {
+                ...filterData,
+                objects: filterData.objects.filter((o) => o.id > 0),
+            };
+            const currentAnalyticsData = await getAnalytics(analyticsFilterData);
             setAnalyticsData(currentAnalyticsData);
         }
         catch {
@@ -335,8 +340,8 @@ export default function Page() {
                         id="objects"
                         error={errors.objects.error}
                         helperText={errors.objects.message}
-                        objects={objects} 
-                        selectedObjects={filterData.objects} 
+                        objects={objects.filter((o) => o.id > 0)} 
+                        selectedObjects={filterData.objects.filter((o) => o.id > 0)} 
                         onChange={handleObjectChange} />
                     </Stack>
                     <Stack direction={'column'} spacing={1}>

@@ -19,7 +19,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import Link from 'next/link';
 import { useEffect, useState } from "react";
-import { AccountancyCategory, AccountancyAttachment, Income, UserObject } from "@/lib/types";
+import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomes, updateIncome } from "@/lib/incomes";
 import FileAttachments from "@/components/accountancy/FileAttachments";
 import { useSnackbar } from "@/providers/SnackbarContext";
@@ -70,6 +70,7 @@ export default function Page() {
                             dateString: found.date
                                 ? new Date(found.date as any).toISOString().slice(0, 10)
                                 : '',
+                            status: (found as any).status || 'draft',
                             attachments: found.attachments ?? [],
                         });
                         if (found.objectId) {
@@ -200,6 +201,7 @@ export default function Page() {
             category: income.category as string,
             amount: income.amount as number,
             date: new Date(income.dateString as string),
+            status: (income.status as IncomeStatus) || 'draft',
             attachments: income.attachments ?? [],
             accountantId: '', // не используется при обновлении
         };
@@ -341,6 +343,21 @@ export default function Page() {
                             error={!!errors.dateString}
                             helperText={errors.dateString}
                         />
+                    </Box>
+                    <Box>
+                        <FormControl sx={{ minWidth: 150 }}>
+                            <InputLabel>{t('accountancy.status')}</InputLabel>
+                            <Select
+                                value={income.status || 'draft'}
+                                onChange={(e) =>
+                                    setIncome((prev) => ({ ...prev, status: e.target.value as IncomeStatus }))
+                                }
+                                label={t('accountancy.status')}
+                            >
+                                <MenuItem value="draft">{t('accountancy.statusDraft')}</MenuItem>
+                                <MenuItem value="confirmed">{t('accountancy.statusConfirmed')}</MenuItem>
+                            </Select>
+                        </FormControl>
                     </Box>
                     <Box>
                         <FileAttachments

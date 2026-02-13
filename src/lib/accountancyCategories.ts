@@ -9,24 +9,40 @@ export async function getAccountancyCategories(type?: AccountancyCategoryType): 
     return response.data;
 }
 
+export async function getAccountancyCategoryById(id: string): Promise<AccountancyCategory | null> {
+    const categories = await getAccountancyCategories();
+    return categories.find((c) => c._id === id) ?? null;
+}
+
 export async function addAccountancyCategory(
     name: string,
     type: AccountancyCategoryType,
+    parentId?: string | null,
 ): Promise<CommonResponse> {
     const response = await axios.post(getApiUrl('accountancyCategories'), {
         name,
         type,
+        parentId: parentId ?? null,
     });
     return response.data;
 }
 
 export async function updateAccountancyCategory(
     id: string,
-    name: string,
+    data: Partial<Omit<AccountancyCategory, '_id' | 'createdAt'>>,
 ): Promise<CommonResponse> {
     const response = await axios.put(getApiUrl('accountancyCategories'), {
         _id: id,
-        name,
+        ...data,
+    });
+    return response.data;
+}
+
+export async function reorderAccountancyCategories(
+    items: Array<{ id: string; parentId: string | null; order: number }>,
+): Promise<CommonResponse> {
+    const response = await axios.put(getApiUrl('accountancyCategories'), {
+        reorder: items,
     });
     return response.data;
 }

@@ -26,6 +26,7 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
+    Switch,
 } from "@mui/material"
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -35,8 +36,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useEffect, useMemo, useState } from "react";
-import { Income, Booking } from "@/lib/types";
-import { getIncomes, deleteIncome } from "@/lib/incomes";
+import { Income, IncomeStatus, Booking } from "@/lib/types";
+import { getIncomes, deleteIncome, updateIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
@@ -45,7 +46,44 @@ import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
-const NO_ROOM_ID = -1;
+const STORAGE_KEY = 'accountancy-income-filters';
+
+function loadIncomeFilters() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return {
+            filterObjectId: String(parsed.filterObjectId ?? ''),
+            filterCategory: String(parsed.filterCategory ?? ''),
+            filterRoomId: String(parsed.filterRoomId ?? ''),
+            filterStatus: String(parsed.filterStatus ?? ''),
+            sortByAmountAsc: parsed.sortByAmountAsc === true || parsed.sortByAmountAsc === false ? parsed.sortByAmountAsc : null,
+            sortByDateAsc: parsed.sortByDateAsc === true || parsed.sortByDateAsc === false ? parsed.sortByDateAsc : true,
+            filtersExpanded: Boolean(parsed.filtersExpanded ?? true),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveIncomeFilters(state: {
+    filterObjectId: string;
+    filterCategory: string;
+    filterRoomId: string;
+    filterStatus: string;
+    sortByAmountAsc: boolean | null;
+    sortByDateAsc: boolean | null;
+    filtersExpanded: boolean;
+}) {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch {
+        // ignore
+    }
+}
 
 export default function Page() {
     const { t } = useTranslation();
@@ -57,18 +95,32 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [incomeToDelete, setIncomeToDelete] = useState<Income | null>(null);
+    const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
 
-    const [filterObjectId, setFilterObjectId] = useState<string>('');
-    const [filterCategory, setFilterCategory] = useState<string>('');
-    const [filterRoomId, setFilterRoomId] = useState<string>('');
+    const [filterObjectId, setFilterObjectId] = useState<string>(() => loadIncomeFilters()?.filterObjectId ?? '');
+    const [filterCategory, setFilterCategory] = useState<string>(() => loadIncomeFilters()?.filterCategory ?? '');
+    const [filterRoomId, setFilterRoomId] = useState<string>(() => loadIncomeFilters()?.filterRoomId ?? '');
+    const [filterStatus, setFilterStatus] = useState<string>(() => loadIncomeFilters()?.filterStatus ?? '');
     const [bookings, setBookings] = useState<Booking[]>([]);
 
-    const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(null);
-    const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(true);
+    const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(() => loadIncomeFilters()?.sortByAmountAsc ?? null);
+    const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(() => loadIncomeFilters()?.sortByDateAsc ?? true);
 
-    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(true);
+    const [filtersExpanded, setFiltersExpanded] = useState<boolean>(() => loadIncomeFilters()?.filtersExpanded ?? true);
+
+    useEffect(() => {
+        saveIncomeFilters({
+            filterObjectId,
+            filterCategory,
+            filterRoomId,
+            filterStatus,
+            sortByAmountAsc,
+            sortByDateAsc,
+            filtersExpanded,
+        });
+    }, [filterObjectId, filterCategory, filterRoomId, filterStatus, sortByAmountAsc, sortByDateAsc, filtersExpanded]);
 
     useEffect(() => {
         getIncomes()
@@ -99,15 +151,25 @@ export default function Page() {
 
     const uniqueValues = useMemo(() => {
         const categories = new Set<string>();
+        const statuses = new Set<IncomeStatus>();
 
         incomes.forEach((income) => {
             if (income.category) categories.add(income.category);
+            const s = (income as any).status;
+            if (s === 'draft' || s === 'confirmed') statuses.add(s);
         });
 
         return {
             categories: Array.from(categories).sort(),
+            statuses: statuses.size > 0 ? Array.from(statuses) : (['draft', 'confirmed'] as IncomeStatus[]),
         };
     }, [incomes]);
+
+    const getStatusLabel = (status: IncomeStatus) => {
+        if (status === 'draft') return t('accountancy.statusDraft');
+        if (status === 'confirmed') return t('accountancy.statusConfirmed');
+        return status;
+    };
 
     const roomsForSelectedObject = useMemo(
         () => (filterObjectId ? (objects.find((o) => o.id === Number(filterObjectId))?.roomTypes ?? []) : []),
@@ -130,6 +192,15 @@ export default function Page() {
         return object.name;
     };
 
+    const getRoomName = (income: Income): string => {
+        const roomId = income.roomId ?? (income.bookingId ? bookings.find((b) => b.id === income.bookingId)?.unitId : undefined);
+        if (roomId == null) return '-';
+        const object = objects.find((obj) => obj.id === income.objectId);
+        const room = object?.roomTypes?.find((r) => r.id === roomId);
+        const name = room?.name?.trim();
+        return name ? name : String(roomId);
+    };
+
     const formatAmount = (value: number | undefined): string => {
         if (value == null || Number.isNaN(Number(value))) return '';
         const fixed = Number(value).toFixed(2);
@@ -150,20 +221,20 @@ export default function Page() {
             filtered = filtered.filter((e) => e.category === filterCategory);
         }
 
+        if (filterStatus) {
+            filtered = filtered.filter((e) => ((e as any).status ?? 'draft') === filterStatus);
+        }
+
         if (filterRoomId) {
             const roomIdNum = Number(filterRoomId);
-            if (roomIdNum === NO_ROOM_ID) {
-                filtered = filtered.filter((e) => !e.roomId && !e.bookingId);
-            } else {
-                filtered = filtered.filter((e) => {
-                    // Прямая привязка к комнате
-                    if (e.roomId === roomIdNum) return true;
-                    // Привязка через бронирование
-                    if (!e.bookingId) return false;
-                    const booking = bookings.find((b) => b.id === e.bookingId);
-                    return booking && (booking.unitId ?? null) === roomIdNum;
-                });
-            }
+            filtered = filtered.filter((e) => {
+                // Прямая привязка к комнате
+                if (e.roomId === roomIdNum) return true;
+                // Привязка через бронирование
+                if (!e.bookingId) return false;
+                const booking = bookings.find((b) => b.id === e.bookingId);
+                return booking && (booking.unitId ?? null) === roomIdNum;
+            });
         }
 
         filtered.sort((a, b) => {
@@ -188,7 +259,7 @@ export default function Page() {
         });
 
         return filtered;
-    }, [incomes, filterObjectId, filterCategory, filterRoomId, bookings, sortByAmountAsc, sortByDateAsc]);
+    }, [incomes, filterObjectId, filterCategory, filterStatus, filterRoomId, bookings, sortByAmountAsc, sortByDateAsc]);
 
     const handleDeleteClick = (income: Income) => {
         setIncomeToDelete(income);
@@ -230,6 +301,42 @@ export default function Page() {
     const handleEditClick = (income: Income) => {
         if (income._id) {
             router.push(`/dashboard/accountancy/income/edit/${income._id}`);
+        }
+    };
+
+    const handleStatusToggle = async (income: Income) => {
+        if (!income._id) return;
+        const currentStatus = (income as any).status ?? 'draft';
+        const newStatus: IncomeStatus = currentStatus === 'confirmed' ? 'draft' : 'confirmed';
+        setStatusUpdatingId(income._id);
+        try {
+            const payload: Income = {
+                ...income,
+                status: newStatus,
+                date: income.date
+                    ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                    : new Date(),
+            };
+            const res = await updateIncome(payload);
+            setSnackbar({
+                open: true,
+                message: res.message || t('accountancy.incomeUpdated'),
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                setIncomes((prev) =>
+                    prev.map((i) => (i._id === income._id ? { ...i, status: newStatus } : i)),
+                );
+            }
+        } catch (error) {
+            console.error('Error updating income status:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setStatusUpdatingId(null);
         }
     };
 
@@ -307,14 +414,11 @@ export default function Page() {
                                     label={t('common.room')}
                                 >
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {filterObjectId && [
-                                        <MenuItem key="no-room" value={String(NO_ROOM_ID)}>{t('accountancy.noRoom')}</MenuItem>,
-                                        ...roomsForSelectedObject.map((room) => (
-                                            <MenuItem key={room.id} value={String(room.id)}>
-                                                {room.name || `Room ${room.id}`}
-                                            </MenuItem>
-                                        )),
-                                    ]}
+                                    {filterObjectId && roomsForSelectedObject.map((room) => (
+                                        <MenuItem key={room.id} value={String(room.id)}>
+                                            {room.name || `Room ${room.id}`}
+                                        </MenuItem>
+                                    ))}
                                 </Select>
                             </FormControl>
                             <FormControl sx={{ minWidth: 150 }}>
@@ -332,12 +436,28 @@ export default function Page() {
                                     ))}
                                 </Select>
                             </FormControl>
+                            <FormControl sx={{ minWidth: 150 }}>
+                                <InputLabel>{t('accountancy.status')}</InputLabel>
+                                <Select
+                                    value={filterStatus}
+                                    onChange={(e) => setFilterStatus(e.target.value)}
+                                    label={t('accountancy.status')}
+                                >
+                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
+                                    {uniqueValues.statuses.map((status) => (
+                                        <MenuItem key={status} value={status}>
+                                            {getStatusLabel(status)}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                 <Button
                                     variant="outlined"
                                     onClick={() => {
                                         setFilterObjectId('');
                                         setFilterCategory('');
+                                        setFilterStatus('');
                                         setFilterRoomId('');
                                     }}
                                 >
@@ -362,6 +482,7 @@ export default function Page() {
                             <TableRow>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.dateColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.objectColumn')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('common.room')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.bookingColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.categoryColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>
@@ -404,6 +525,7 @@ export default function Page() {
                                         </IconButton>
                                     </Box>
                                 </TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.statusColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold', width: '120px' }}>
                                     {t('accountancy.actions')}
                                 </TableCell>
@@ -412,7 +534,7 @@ export default function Page() {
                         <TableBody>
                             {filteredAndSortedIncomes.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={7} align="center">
+                                    <TableCell colSpan={9} align="center">
                                         <Typography sx={{ py: 2 }}>
                                             {t('accountancy.noFilteredIncomes')}
                                         </Typography>
@@ -423,10 +545,27 @@ export default function Page() {
                                     <TableRow key={income._id}>
                                         <TableCell>{formatDate(income.date)}</TableCell>
                                         <TableCell>{getObjectName(income)}</TableCell>
+                                        <TableCell>{getRoomName(income)}</TableCell>
                                         <TableCell>{income.bookingId ?? '-'}</TableCell>
                                         <TableCell>{income.category}</TableCell>
                                         <TableCell>{formatAmount(income.amount)}</TableCell>
                                         <TableCell>{formatDate(income.date)}</TableCell>
+                                        <TableCell>
+                                            <Stack direction="row" alignItems="center" spacing={1}>
+                                                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70 }}>
+                                                    {((income as any).status ?? 'draft') === 'confirmed'
+                                                        ? t('accountancy.statusConfirmed')
+                                                        : t('accountancy.statusDraft')}
+                                                </Typography>
+                                                <Switch
+                                                    checked={((income as any).status ?? 'draft') === 'confirmed'}
+                                                    onChange={() => handleStatusToggle(income)}
+                                                    disabled={statusUpdatingId === income._id}
+                                                    size="small"
+                                                    color="primary"
+                                                />
+                                            </Stack>
+                                        </TableCell>
                                         <TableCell>
                                             <Stack direction="row" spacing={1}>
                                                 <IconButton

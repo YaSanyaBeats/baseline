@@ -35,6 +35,12 @@ export async function GET(request: NextRequest) {
                         id: 1,
                         propertyId: 1,
                         unitId: 1,
+                        arrival: 1,
+                        departure: 1,
+                        title: 1,
+                        firstName: 1,
+                        lastName: 1,
+                        status: 1,
                     },
                 } as any,
             )

@@ -1,14 +1,30 @@
+/** Уровень комфорта комнаты (из objectRoomMetadata) */
+export type RoomLevel = 'economy' | 'comfort' | 'premium' | 'lux';
+
+/** Тип объекта: апартаменты или вилла */
+export type ObjectType = 'apartments' | 'villa';
+
 export interface Room {
     id: number;
     name: string;
     // Для админа: список пользователей, у которых есть доступ к этой комнате
     accessUsers?: string[];
+    // Метаданные из objectRoomMetadata (редактируемые)
+    bedrooms?: number;
+    bathrooms?: number;
+    livingRoomSofas?: number;
+    kitchen?: 'yes' | 'no';
+    level?: RoomLevel;
+    commissionSchemeId?: 1 | 2 | 3 | 4;
 }
 
 export interface Object {
     id: number;
     name: string;
     roomTypes: Room[];
+    // Метаданные из objectRoomMetadata (редактируемые)
+    district?: string;
+    objectType?: ObjectType;
 }
 
 export interface Booking {
@@ -173,6 +189,7 @@ export interface Report {
 }
 
 export type ExpenseStatus = 'draft' | 'confirmed';
+export type IncomeStatus = 'draft' | 'confirmed';
 
 /** Вложение к расходу/доходу: изображения, документы, таблицы */
 export interface AccountancyAttachment {
@@ -180,11 +197,21 @@ export interface AccountancyAttachment {
     url: string;    // URL для скачивания/просмотра
 }
 
+/** Контрагент: привязка к объекту и комнатам */
+export interface Counterparty {
+    _id?: string;
+    name: string;                  // Имя контрагента
+    roomLinks: UserObject[];       // Привязка к комнатам: { id: objectId, rooms: roomIds[] }
+    comment?: string;              // Комментарий
+    createdAt?: Date;
+}
+
 export interface Expense {
     _id?: string;
     objectId: number;              // ID объекта
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
+    counterpartyId?: string;       // ID контрагента (опционально)
     category: string;              // Категория расхода
     amount: number;                // Сумма расхода
     date: Date;                    // Дата расхода
@@ -204,6 +231,7 @@ export interface Income {
     date: Date;                    // Дата дохода
     amount: number;                // Сумма дохода
     category: string;              // Категория дохода
+    status: IncomeStatus;          // Черновик / Подтверждён
     attachments?: AccountancyAttachment[];  // До 5 файлов, макс. 20 МБ каждый
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
@@ -212,10 +240,25 @@ export interface Income {
 
 export type AccountancyCategoryType = 'expense' | 'income';
 
+/** Делимость: "/2", "/3", "неделимый" */
+export type CategoryDivisibility = '/2' | '/3' | 'неделимый';
+
+/** Чекин / чекаут */
+export type CategoryCheckInOut = 'checkin' | 'checkout';
+
 export interface AccountancyCategory {
     _id?: string;
     name: string;
     type: AccountancyCategoryType;
+    parentId?: string | null;           // ID родительской категории (null = корневая)
+    order?: number;                     // Порядок отображения среди siblings
+    unit?: string;                      // Единица измерения
+    divisibility?: CategoryDivisibility; // Делимость
+    pricePerUnit?: number;              // Цена за единицу
+    attributionDate?: string;           // Дата отнесения (ISO)
+    isAuto?: boolean;                   // Авто / не авто
+    checkInOut?: CategoryCheckInOut;    // Чекин / чекаут
+    reportingPeriod?: string;           // Отчётный период (дата, ISO)
     createdAt?: Date;
 }
 

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
-import { Income } from '@/lib/types';
+import { Income, IncomeStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 
@@ -67,6 +67,13 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const allowedStatuses: IncomeStatus[] = ['draft', 'confirmed'];
+        const status = incomeData.status && allowedStatuses.includes(incomeData.status)
+            ? incomeData.status
+            : (existingIncome.status && allowedStatuses.includes(existingIncome.status as IncomeStatus)
+                ? existingIncome.status
+                : 'draft');
+
         const updateData: any = {
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
@@ -74,6 +81,7 @@ export async function POST(request: NextRequest) {
             category: incomeData.category,
             amount: incomeData.amount,
             date: new Date(incomeData.date),
+            status,
             attachments: incomeData.attachments ?? [],
         };
 

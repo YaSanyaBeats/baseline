@@ -18,23 +18,22 @@ import {
     TableHead,
     TableRow,
     TextField,
+    Switch,
 } from "@mui/material";
-import { useTheme } from "@mui/material/styles";
 import { useUser } from "@/providers/UserProvider";
+import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useObjects } from "@/providers/ObjectsProvider";
 import { Booking, Expense, Income } from "@/lib/types";
-import { getExpenses } from "@/lib/expenses";
-import { getIncomes } from "@/lib/incomes";
+import { getExpenses, updateExpense } from "@/lib/expenses";
+import { getIncomes, updateIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
-
-const NO_ROOM_ID = -1;
 
 export default function Page() {
     const { t } = useTranslation();
-    const theme = useTheme();
     const { isAdmin, isAccountant } = useUser();
+    const { setSnackbar } = useSnackbar();
     const { objects } = useObjects();
 
     // Функция для форматирования чисел с двумя знаками после запятой и разделителями разрядов
@@ -57,6 +56,7 @@ export default function Page() {
     const [dateTo, setDateTo] = useState<string>('');
     // '' = кастомный период по dateFrom/dateTo; 'YYYY-MM' = выбранный месяц
     const [selectedMonth, setSelectedMonth] = useState<string>('');
+    const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
 
     const { hasAccess } = useMemo(() => {
         const hasAccess = isAdmin || isAccountant;
@@ -120,30 +120,18 @@ export default function Page() {
                     setBookings([]);
                 }
 
-                // Расходы и доходы с прямой привязкой к комнате (roomId) или без привязки
+                // Расходы и доходы с прямой привязкой к комнате (roomId)
                 exp.forEach((e) => {
-                    if (e.bookingId) return;
-                    if (e.roomId) {
-                        const key = `${e.objectId}-${e.roomId}`;
-                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                        stats[key].expenses += e.amount;
-                    } else {
-                        const key = `${e.objectId}-no-room`;
-                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                        stats[key].expenses += e.amount;
-                    }
+                    if (e.bookingId || !e.roomId) return;
+                    const key = `${e.objectId}-${e.roomId}`;
+                    if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
+                    stats[key].expenses += e.amount;
                 });
                 inc.forEach((i) => {
-                    if (i.bookingId) return;
-                    if (i.roomId) {
-                        const key = `${i.objectId}-${i.roomId}`;
-                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                        stats[key].incomes += i.amount;
-                    } else {
-                        const key = `${i.objectId}-no-room`;
-                        if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                        stats[key].incomes += i.amount;
-                    }
+                    if (i.bookingId || !i.roomId) return;
+                    const key = `${i.objectId}-${i.roomId}`;
+                    if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
+                    stats[key].incomes += i.amount;
                 });
 
                 setRoomStats(stats);
@@ -238,16 +226,7 @@ export default function Page() {
             };
         });
 
-        const noRoomKey = `${selectedObject.id}-no-room`;
-        const noRoomStat = roomStats[noRoomKey] || { expenses: 0, incomes: 0 };
-        const noRoomRow = {
-            roomId: NO_ROOM_ID,
-            roomName: '', // подставим перевод в рендере
-            expenses: noRoomStat.expenses,
-            incomes: noRoomStat.incomes,
-        };
-
-        const allRows = [...roomRows, noRoomRow];
+        const allRows = roomRows;
         return selectedRoomId === 'all'
             ? allRows
             : allRows.filter((row) => row.roomId === selectedRoomId);
@@ -256,8 +235,10 @@ export default function Page() {
     type OperationRow = {
         id: string;
         type: 'expense' | 'income';
+        entityId: string;
         status: 'draft' | 'confirmed';
         date: Date | string;
+        category: string;
         commentShort: string;
         amount: number;
         createdBy: string;
@@ -269,7 +250,6 @@ export default function Page() {
 
         const matchRoom = (roomId?: number, bookingId?: number) => {
             if (selectedRoomId === 'all') return true;
-            if (selectedRoomId === NO_ROOM_ID) return !roomId && !bookingId;
             // Прямая привязка к комнате
             if (roomId === selectedRoomId) return true;
             // Привязка через бронирование
@@ -293,8 +273,10 @@ export default function Page() {
                 rows.push({
                     id: `exp-${e._id ?? ''}`,
                     type: 'expense',
+                    entityId: e._id ?? '',
                     status: e.status,
                     date: e.date,
+                    category: e.category ?? '—',
                     commentShort: shortComment(e.comment),
                     amount: -e.amount,
                     createdBy: e.accountantName ?? '—',
@@ -308,9 +290,11 @@ export default function Page() {
                 rows.push({
                     id: `inc-${i._id ?? ''}`,
                     type: 'income',
-                    status: 'confirmed',
+                    entityId: i._id ?? '',
+                    status: (i as any).status ?? 'draft',
                     date: i.date,
-                    commentShort: shortComment(i.category),
+                    category: i.category ?? '—',
+                    commentShort: '—',
                     amount: i.amount,
                     createdBy: i.accountantName ?? '—',
                     lastEdit: '—',
@@ -327,6 +311,66 @@ export default function Page() {
         incomes,
         bookings,
     ]);
+
+    const handleStatusToggle = async (row: OperationRow) => {
+        if (!row.entityId) return;
+        const newStatus = row.status === 'confirmed' ? 'draft' : 'confirmed';
+        setStatusUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    status: newStatus,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, status: newStatus } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    status: newStatus,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, status: newStatus } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating status:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setStatusUpdatingId(null);
+        }
+    };
 
     if (!hasAccess) {
         return (
@@ -383,9 +427,27 @@ export default function Page() {
                         {t('accountancy.categoriesTitle')}
                     </Button>
                 </Link>
+
+                <Link href="/dashboard/accountancy/counterparties">
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                    >
+                        {t('accountancy.counterparty.title')}
+                    </Button>
+                </Link>
+
+                <Link href="/dashboard/accountancy/commission">
+                    <Button
+                        fullWidth
+                        variant="contained"
+                    >
+                        {t('accountancy.commission.title')}
+                    </Button>
+                </Link>
             </Stack>
 
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
+            {/* <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
                 <Paper sx={{ p: 2, flexBasis: '33%' }}>
                     <Typography variant="subtitle2" color="text.secondary">
                         {t('accountancy.totalExpenses')}
@@ -410,7 +472,7 @@ export default function Page() {
                         {formatAmount(balance)}
                     </Typography>
                 </Paper>
-            </Stack>
+            </Stack> */}
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
                 <Paper sx={{ p: 2, flex: 1  }}>
@@ -486,8 +548,6 @@ export default function Page() {
                         <TableHead>
                             <TableRow>
                                 <TableCell>{t('common.object')}</TableCell>
-                                <TableCell>{t('accountancy.incomesTitle')}</TableCell>
-                                <TableCell>{t('accountancy.expensesTitle')}</TableCell>
                                 <TableCell>{t('accountancy.balance')}</TableCell>
                             </TableRow>
                         </TableHead>
@@ -496,10 +556,15 @@ export default function Page() {
                                 const stat = objectStats[obj.id] || { expenses: 0, incomes: 0 };
                                 const rowBalance = stat.incomes - stat.expenses;
                                 return (
-                                    <TableRow key={obj.id}>
+                                    <TableRow
+                                        key={obj.id}
+                                        onClick={() => {
+                                            setSelectedObjectId(obj.id);
+                                            setSelectedRoomId('all');
+                                        }}
+                                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                                    >
                                         <TableCell>{obj.name}</TableCell>
-                                        <TableCell>{formatAmount(stat.incomes)}</TableCell>
-                                        <TableCell>{formatAmount(stat.expenses)}</TableCell>
                                         <TableCell sx={{ color: rowBalance >= 0 ? 'success.main' : 'error.main' }}>
                                             {formatAmount(rowBalance)}
                                         </TableCell>
@@ -546,7 +611,6 @@ export default function Page() {
                                     }}
                                 >
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    <MenuItem value={String(NO_ROOM_ID)}>{t('accountancy.noRoom')}</MenuItem>
                                     {roomsForSelectedObject.map((room) => (
                                         <MenuItem key={room.id} value={String(room.id)}>
                                             {room.name || `Room ${room.id}`}
@@ -604,16 +668,27 @@ export default function Page() {
                                         <TableCell>{t('common.room')}</TableCell>
                                         <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.expensesTitle')})</TableCell>
                                         <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.incomesTitle')})</TableCell>
+                                        <TableCell>{t('accountancy.balance')}</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {filteredRoomStats.map((row) => (
-                                        <TableRow key={row.roomId === NO_ROOM_ID ? 'no-room' : row.roomId}>
-                                            <TableCell>{row.roomId === NO_ROOM_ID ? t('accountancy.noRoom') : row.roomName}</TableCell>
-                                            <TableCell>{formatAmount(row.expenses)}</TableCell>
-                                            <TableCell>{formatAmount(row.incomes)}</TableCell>
-                                        </TableRow>
-                                    ))}
+                                    {filteredRoomStats.map((row) => {
+                                        const balance = row.incomes - row.expenses;
+                                        return (
+                                            <TableRow
+                                                key={row.roomId}
+                                                onClick={() => setSelectedRoomId(row.roomId)}
+                                                sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                                            >
+                                                <TableCell>{row.roomName}</TableCell>
+                                                <TableCell>{formatAmount(row.expenses)}</TableCell>
+                                                <TableCell>{formatAmount(row.incomes)}</TableCell>
+                                                <TableCell sx={{ color: balance >= 0 ? 'success.main' : 'error.main' }}>
+                                                    {formatAmount(balance)}
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
                                 </TableBody>
                             </Table>
 
@@ -632,7 +707,7 @@ export default function Page() {
                                                 <TableRow>
                                                     <TableCell>{t('common.status')}</TableCell>
                                                     <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                    <TableCell>{t('accountancy.typeColumn')}</TableCell>
+                                                    <TableCell>{t('accountancy.categoryColumn')}</TableCell>
                                                     <TableCell>{t('accountancy.comment')}</TableCell>
                                                     <TableCell>{t('accountancy.amount')}</TableCell>
                                                     <TableCell>{t('accountancy.createdBy')}</TableCell>
@@ -643,17 +718,20 @@ export default function Page() {
                                                 {filteredOperations.map((row) => (
                                                     <TableRow key={row.id}>
                                                         <TableCell>
-                                                            <Box
-                                                                sx={{
-                                                                    width: 10,
-                                                                    height: 10,
-                                                                    borderRadius: '50%',
-                                                                    bgcolor: row.status === 'draft'
-                                                                        ? theme.palette.error.main
-                                                                        : theme.palette.success.main,
-                                                                }}
-                                                                title={row.status === 'draft' ? t('accountancy.statusDraft') : t('accountancy.statusConfirmed')}
-                                                            />
+                                                            <Stack direction="row" alignItems="center" spacing={1}>
+                                                                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70 }}>
+                                                                    {row.status === 'confirmed'
+                                                                        ? t('accountancy.statusConfirmed')
+                                                                        : t('accountancy.statusDraft')}
+                                                                </Typography>
+                                                                <Switch
+                                                                    checked={row.status === 'confirmed'}
+                                                                    onChange={() => handleStatusToggle(row)}
+                                                                    disabled={statusUpdatingId === row.id}
+                                                                    size="small"
+                                                                    color="primary"
+                                                                />
+                                                            </Stack>
                                                         </TableCell>
                                                         <TableCell>
                                                             {row.date
@@ -664,9 +742,7 @@ export default function Page() {
                                                                   })
                                                                 : '—'}
                                                         </TableCell>
-                                                        <TableCell>
-                                                            {row.type === 'expense' ? t('accountancy.expensesTitle') : t('accountancy.incomesTitle')}
-                                                        </TableCell>
+                                                        <TableCell>{row.category}</TableCell>
                                                         <TableCell>{row.commentShort}</TableCell>
                                                         <TableCell sx={{ color: row.amount >= 0 ? 'success.main' : 'error.main' }}>
                                                             {row.amount >= 0 ? '+' : ''}{formatAmount(row.amount)}
