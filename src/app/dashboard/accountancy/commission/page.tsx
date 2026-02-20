@@ -198,14 +198,14 @@ export default function Page() {
             );
 
             const commissionFromBookings = results.reduce((s, r) => s + r.commission, 0);
-            const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + e.amount, 0);
+            const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0), 0);
             const incomeFromBookings = results.reduce((s, r) => s + r.income, 0);
             const expensesFromBookings = results.reduce((s, r) => s + r.totalExpenses, 0);
 
             const totalCommission = commissionFromBookings;
             const totalWithUnlinkedExpenses = totalCommission + unlinkedExpensesAmount;
             const totalIncome =
-                incomeFromBookings + unlinkedIncomes.reduce((s, i) => s + i.amount, 0);
+                incomeFromBookings + unlinkedIncomes.reduce((s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0), 0);
             const totalExpenses =
                 expensesFromBookings + unlinkedExpensesAmount;
 

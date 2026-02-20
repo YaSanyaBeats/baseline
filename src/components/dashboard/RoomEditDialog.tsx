@@ -40,6 +40,7 @@ interface RoomEditDialogProps {
             kitchen?: 'yes' | 'no';
             level?: RoomLevel;
             commissionSchemeId?: CommissionSchemeId;
+            internetCostPerMonth?: number;
         }
     ) => Promise<void>;
 }
@@ -52,6 +53,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
     const [kitchen, setKitchen] = useState<'yes' | 'no' | ''>('');
     const [level, setLevel] = useState<RoomLevel | ''>('');
     const [commissionSchemeId, setCommissionSchemeId] = useState<CommissionSchemeId | ''>('');
+    const [internetCostPerMonth, setInternetCostPerMonth] = useState<string>('');
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
@@ -62,6 +64,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
             setKitchen(room.kitchen ?? '');
             setLevel(room.level ?? '');
             setCommissionSchemeId(room.commissionSchemeId ?? '');
+            setInternetCostPerMonth(room.internetCostPerMonth !== undefined ? String(room.internetCostPerMonth) : '');
         }
     }, [room]);
 
@@ -76,6 +79,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
                 kitchen: kitchen || undefined,
                 level: level || undefined,
                 commissionSchemeId: commissionSchemeId || undefined,
+                internetCostPerMonth: internetCostPerMonth !== '' ? Number(internetCostPerMonth) : undefined,
             });
             onClose();
         } finally {
@@ -155,6 +159,14 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
                             ))}
                         </Select>
                     </FormControl>
+                    <TextField
+                        label={t('dashboard.internetCostPerMonth')}
+                        type="number"
+                        inputProps={{ min: 0, step: 0.01 }}
+                        value={internetCostPerMonth}
+                        onChange={(e) => setInternetCostPerMonth(e.target.value)}
+                        fullWidth
+                    />
                 </Stack>
             </DialogContent>
             <DialogActions>

@@ -36,7 +36,8 @@
     "select": "Select",
     "error": "Error",
     "serverError": "Server error",
-    "and": "and"
+    "and": "and",
+    "view": "View details"
   },
   "menu": {
     "home": "Home",
@@ -79,6 +80,7 @@
     "levelComfort": "Comfort",
     "levelPremium": "Premium",
     "levelLux": "Lux",
+    "internetCostPerMonth": "Internet cost per month",
     "objectSaved": "Object saved",
     "roomSaved": "Room saved"
   },
@@ -255,6 +257,8 @@
     "expenseDate": "Expense date",
     "incomeDate": "Income date",
     "category": "Category",
+    "cost": "Cost",
+    "quantity": "Quantity",
     "amount": "Amount",
     "bookingId": "Booking ID",
     "comment": "Comment",
@@ -286,11 +290,12 @@
     "noFilteredIncomes": "No incomes match the selected filters",
     "dateColumn": "Date",
     "categoryColumn": "Category",
-    "amountColumn": "Amount",
+    "amountColumn": "Sum",
     "bookingColumn": "Booking",
     "statusColumn": "Status",
     "selectBooking": "Select booking",
     "detachBooking": "Detach booking",
+    "bookingQuickSelect": "Use booking from this page",
     "categoriesTitle": "Income and expense categories",
     "expenseCategories": "Expense categories",
     "incomeCategories": "Income categories",

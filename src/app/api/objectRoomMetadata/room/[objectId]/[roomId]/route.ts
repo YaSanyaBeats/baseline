@@ -105,6 +105,16 @@ export async function PUT(
             }
             data.commissionSchemeId = v;
         }
+        if (body.internetCostPerMonth !== undefined) {
+            const v = Number(body.internetCostPerMonth);
+            if (Number.isNaN(v) || v < 0) {
+                return NextResponse.json(
+                    { success: false, message: 'Стоимость за интернет/месяц должна быть неотрицательным числом' },
+                    { status: 400 }
+                );
+            }
+            data.internetCostPerMonth = v;
+        }
 
         await upsertRoomMetadata(objectIdNum, roomIdNum, data as any);
         return NextResponse.json({ success: true });

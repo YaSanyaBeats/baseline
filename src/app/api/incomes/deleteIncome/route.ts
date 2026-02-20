@@ -64,13 +64,13 @@ export async function DELETE(request: NextRequest) {
             userId,
             userName,
             userRole,
-            description: `Удалён доход: ${existingIncome.category}, сумма ${existingIncome.amount}`,
+            description: `Удалён доход: ${existingIncome.category}, сумма ${(existingIncome.quantity ?? 1) * (existingIncome.amount ?? 0)}`,
             oldData: existingIncome,
             metadata: {
                 objectId: existingIncome.objectId,
                 bookingId: existingIncome.bookingId,
                 category: existingIncome.category,
-                amount: existingIncome.amount,
+                amount: (existingIncome.quantity ?? 1) * (existingIncome.amount ?? 0),
             },
         });
 

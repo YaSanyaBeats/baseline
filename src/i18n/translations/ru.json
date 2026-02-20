@@ -36,7 +36,8 @@
     "select": "Выберите",
     "error": "Ошибка",
     "serverError": "Ошибка сервера",
-    "and": "и"
+    "and": "и",
+    "view": "Открыть детали"
   },
   "menu": {
     "home": "Главная",
@@ -79,6 +80,7 @@
     "levelComfort": "Комфорт",
     "levelPremium": "Премиум",
     "levelLux": "Люкс",
+    "internetCostPerMonth": "Стоимость за интернет/месяц",
     "objectSaved": "Объект сохранён",
     "roomSaved": "Комната сохранена"
   },
@@ -255,6 +257,8 @@
     "expenseDate": "Дата расхода",
     "incomeDate": "Дата дохода",
     "category": "Категория",
+    "cost": "Стоимость",
+    "quantity": "Количество",
     "amount": "Сумма",
     "bookingId": "ID бронирования",
     "comment": "Комментарий",
@@ -291,6 +295,7 @@
     "statusColumn": "Статус",
     "selectBooking": "Выбрать бронирование",
     "detachBooking": "Открепить бронирование",
+    "bookingQuickSelect": "Подставить бронирование со страницы",
     "categoriesTitle": "Категории доходов и расходов",
     "expenseCategories": "Категории расходов",
     "incomeCategories": "Категории доходов",

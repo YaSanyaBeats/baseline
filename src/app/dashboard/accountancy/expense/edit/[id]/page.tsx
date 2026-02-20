@@ -82,11 +82,13 @@ export default function Page() {
                             counterpartyId: found.counterpartyId,
                             category: found.category,
                             amount: found.amount,
+                            quantity: found.quantity ?? 1,
                             comment: found.comment,
                             status: found.status,
                             date: found.date
                                 ? new Date(found.date as any).toISOString().slice(0, 10)
                                 : '',
+                            reportMonth: found.reportMonth ?? '',
                             attachments: found.attachments ?? [],
                         });
                         if (found.objectId) {
@@ -157,6 +159,18 @@ export default function Page() {
         });
     };
 
+    const handleChangeQuantity = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value;
+        const num = Number(value);
+        const q = Number.isInteger(num) && num >= 1 ? num : 1;
+        setExpense((prev) => ({ ...prev, quantity: q }));
+        setErrors((prev) => {
+            const newErrors = { ...prev };
+            delete newErrors.quantity;
+            return newErrors;
+        });
+    };
+
     const handleChangeStatus = (event: any) => {
         const value = event.target.value as ExpenseStatus;
         setExpense((prev) => ({ ...prev, status: value }));
@@ -180,7 +194,10 @@ export default function Page() {
             validationErrors.date = t('accountancy.expenseDate');
         }
         if (!expense.amount || expense.amount <= 0) {
-            validationErrors.amount = t('accountancy.amount');
+            validationErrors.amount = t('accountancy.cost');
+        }
+        if (expense.quantity != null && (expense.quantity < 1 || !Number.isInteger(expense.quantity))) {
+            validationErrors.quantity = t('accountancy.quantity');
         }
         if (!expense.status) {
             validationErrors.status = t('accountancy.status');
@@ -230,9 +247,11 @@ export default function Page() {
             counterpartyId: expense.counterpartyId,
             category: expense.category as string,
             amount: expense.amount as number,
+            quantity: expense.quantity ?? 1,
             date: new Date(expense.date as string),
             comment: expense.comment || '',
             status: (expense.status as ExpenseStatus) || 'draft',
+            reportMonth: expense.reportMonth || undefined,
             attachments: expense.attachments ?? [],
             accountantId: '', // не используется при обновлении
         };
@@ -368,7 +387,7 @@ export default function Page() {
                     <Box>
                         <TextField
                             id="amount"
-                            label={t('accountancy.amount')}
+                            label={t('accountancy.cost')}
                             variant="outlined"
                             sx={{ width: '100%' }}
                             autoComplete="off"
@@ -379,6 +398,26 @@ export default function Page() {
                             helperText={errors.amount}
                             inputProps={{ min: 0, step: 0.01 }}
                         />
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="quantity"
+                            label={t('accountancy.quantity')}
+                            variant="outlined"
+                            sx={{ width: '100%' }}
+                            autoComplete="off"
+                            type="number"
+                            value={expense.quantity ?? 1}
+                            onChange={handleChangeQuantity}
+                            error={!!errors.quantity}
+                            helperText={errors.quantity}
+                            inputProps={{ min: 1, step: 1 }}
+                        />
+                    </Box>
+                    <Box>
+                        <Typography variant="body2" color="text.secondary">
+                            {t('accountancy.amountColumn')}: {((expense.quantity ?? 1) * (expense.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
                     </Box>
                     <Box>
                         <TextField
@@ -394,6 +433,36 @@ export default function Page() {
                             error={!!errors.date}
                             helperText={errors.date}
                         />
+                    </Box>
+                    <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
+                            <Select
+                                value={expense.reportMonth ?? ''}
+                                label={t('accountancy.reportMonth')}
+                                onChange={(e) =>
+                                    setExpense((prev) => ({ ...prev, reportMonth: (e.target.value as string) || undefined }))
+                                }
+                            >
+                                <MenuItem value="">—</MenuItem>
+                                {(() => {
+                                    const options: { value: string; label: string }[] = [];
+                                    const now = new Date();
+                                    for (let i = 0; i < 24; i++) {
+                                        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                                        const y = d.getFullYear();
+                                        const m = d.getMonth() + 1;
+                                        const value = `${y}-${String(m).padStart(2, '0')}`;
+                                        options.push({ value, label: `${t(`accountancy.months.${m}`)} ${y}` });
+                                    }
+                                    return options.map((o) => (
+                                        <MenuItem key={o.value} value={o.value}>
+                                            {o.label}
+                                        </MenuItem>
+                                    ));
+                                })()}
+                            </Select>
+                        </FormControl>
                     </Box>
                     <Box>
                         <TextField

@@ -375,16 +375,19 @@ export function prepareCommissionData(
                 dateInMonth(e.date, monthKey)
         );
 
-        const incomesInMonth = bookingIncomes.reduce((s, i) => s + i.amount, 0);
-        const expensesInMonth = bookingExpenses.reduce((s, e) => s + e.amount, 0);
+        const getExpenseSum = (e: { amount?: number; quantity?: number }) => (e.quantity ?? 1) * (e.amount ?? 0);
+        const getIncomeSum = (i: { amount?: number; quantity?: number }) => (i.quantity ?? 1) * (i.amount ?? 0);
+        const incomesInMonth = bookingIncomes.reduce((s, i) => s + getIncomeSum(i), 0);
+        const expensesInMonth = bookingExpenses.reduce((s, e) => s + getExpenseSum(e), 0);
 
         const expensesByCategory = bookingExpenses.reduce(
             (acc, e) => {
+                const sum = getExpenseSum(e);
                 const existing = acc.find((x) => x.category === e.category);
                 if (existing) {
-                    existing.amount += e.amount;
+                    existing.amount += sum;
                 } else {
-                    acc.push({ category: e.category, amount: e.amount });
+                    acc.push({ category: e.category, amount: sum });
                 }
                 return acc;
             },

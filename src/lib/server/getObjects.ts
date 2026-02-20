@@ -68,6 +68,7 @@ export async function getObjects() {
                         kitchen: roomMeta.kitchen,
                         level: roomMeta.level,
                         commissionSchemeId: roomMeta.commissionSchemeId,
+                        internetCostPerMonth: roomMeta.internetCostPerMonth,
                     }),
                 }
             })
@@ -155,6 +156,7 @@ export async function getAllObjects() {
                         kitchen: roomMeta.kitchen,
                         level: roomMeta.level,
                         commissionSchemeId: roomMeta.commissionSchemeId,
+                        internetCostPerMonth: roomMeta.internetCostPerMonth,
                     }),
                 }
             }),

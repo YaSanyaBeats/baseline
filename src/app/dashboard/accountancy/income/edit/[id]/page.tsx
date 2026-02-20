@@ -68,10 +68,12 @@ export default function Page() {
                             bookingId: found.bookingId,
                             category: found.category,
                             amount: found.amount,
+                            quantity: found.quantity ?? 1,
                             dateString: found.date
                                 ? new Date(found.date as any).toISOString().slice(0, 10)
                                 : '',
                             status: (found as any).status || 'draft',
+                            reportMonth: found.reportMonth ?? '',
                             attachments: found.attachments ?? [],
                         });
                         if (found.objectId) {
@@ -142,6 +144,18 @@ export default function Page() {
         });
     };
 
+    const handleChangeQuantity = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const value = event.target.value;
+        const num = Number(value);
+        const q = Number.isInteger(num) && num >= 1 ? num : 1;
+        setIncome((prev) => ({ ...prev, quantity: q }));
+        setErrors((prev) => {
+            const newErrors = { ...prev };
+            delete newErrors.quantity;
+            return newErrors;
+        });
+    };
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -155,7 +169,10 @@ export default function Page() {
             validationErrors.dateString = t('accountancy.incomeDate');
         }
         if (!income.amount || income.amount <= 0) {
-            validationErrors.amount = t('accountancy.amount');
+            validationErrors.amount = t('accountancy.cost');
+        }
+        if (income.quantity != null && (income.quantity < 1 || !Number.isInteger(income.quantity))) {
+            validationErrors.quantity = t('accountancy.quantity');
         }
 
         if (Object.keys(validationErrors).length > 0) {
@@ -201,8 +218,10 @@ export default function Page() {
             bookingId: income.bookingId,
             category: income.category as string,
             amount: income.amount as number,
+            quantity: income.quantity ?? 1,
             date: new Date(income.dateString as string),
             status: (income.status as IncomeStatus) || 'draft',
+            reportMonth: income.reportMonth || undefined,
             attachments: income.attachments ?? [],
             accountantId: '', // не используется при обновлении
         };
@@ -319,7 +338,7 @@ export default function Page() {
                     <Box>
                         <TextField
                             id="amount"
-                            label={t('accountancy.amount')}
+                            label={t('accountancy.cost')}
                             variant="outlined"
                             sx={{ width: '100%' }}
                             autoComplete="off"
@@ -330,6 +349,26 @@ export default function Page() {
                             helperText={errors.amount}
                             inputProps={{ min: 0, step: 0.01 }}
                         />
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="quantity"
+                            label={t('accountancy.quantity')}
+                            variant="outlined"
+                            sx={{ width: '100%' }}
+                            autoComplete="off"
+                            type="number"
+                            value={income.quantity ?? 1}
+                            onChange={handleChangeQuantity}
+                            error={!!errors.quantity}
+                            helperText={errors.quantity}
+                            inputProps={{ min: 1, step: 1 }}
+                        />
+                    </Box>
+                    <Box>
+                        <Typography variant="body2" color="text.secondary">
+                            {t('accountancy.amountColumn')}: {((income.quantity ?? 1) * (income.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
                     </Box>
                     <Box>
                         <TextField
@@ -345,6 +384,36 @@ export default function Page() {
                             error={!!errors.dateString}
                             helperText={errors.dateString}
                         />
+                    </Box>
+                    <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
+                            <Select
+                                value={income.reportMonth ?? ''}
+                                label={t('accountancy.reportMonth')}
+                                onChange={(e) =>
+                                    setIncome((prev) => ({ ...prev, reportMonth: (e.target.value as string) || undefined }))
+                                }
+                            >
+                                <MenuItem value="">—</MenuItem>
+                                {(() => {
+                                    const options: { value: string; label: string }[] = [];
+                                    const now = new Date();
+                                    for (let i = 0; i < 24; i++) {
+                                        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                                        const y = d.getFullYear();
+                                        const m = d.getMonth() + 1;
+                                        const value = `${y}-${String(m).padStart(2, '0')}`;
+                                        options.push({ value, label: `${t(`accountancy.months.${m}`)} ${y}` });
+                                    }
+                                    return options.map((o) => (
+                                        <MenuItem key={o.value} value={o.value}>
+                                            {o.label}
+                                        </MenuItem>
+                                    ));
+                                })()}
+                            </Select>
+                        </FormControl>
                     </Box>
                     <Box>
                         <FormControl sx={{ minWidth: 150 }}>

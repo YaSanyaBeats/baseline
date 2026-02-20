@@ -16,6 +16,8 @@ export interface Room {
     kitchen?: 'yes' | 'no';
     level?: RoomLevel;
     commissionSchemeId?: 1 | 2 | 3 | 4;
+    /** Стоимость за интернет в месяц (число) */
+    internetCostPerMonth?: number;
 }
 
 export interface Object {
@@ -213,10 +215,12 @@ export interface Expense {
     bookingId?: number;            // ID бронирования (опционально)
     counterpartyId?: string;       // ID контрагента (опционально)
     category: string;              // Категория расхода
-    amount: number;                // Сумма расхода
+    amount: number;                // Стоимость за единицу
+    quantity?: number;            // Количество (по умолчанию 1 для старых записей)
     date: Date;                    // Дата расхода
     comment?: string;              // Комментарий
     status: ExpenseStatus;         // Черновик / Подтверждён
+    reportMonth?: string;          // Месяц отчёта в формате YYYY-MM
     attachments?: AccountancyAttachment[];  // До 5 файлов, макс. 20 МБ каждый
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
@@ -229,9 +233,11 @@ export interface Income {
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
     date: Date;                    // Дата дохода
-    amount: number;                // Сумма дохода
+    amount: number;                // Стоимость за единицу
+    quantity?: number;            // Количество (по умолчанию 1 для старых записей)
     category: string;              // Категория дохода
     status: IncomeStatus;          // Черновик / Подтверждён
+    reportMonth?: string;          // Месяц отчёта в формате YYYY-MM
     attachments?: AccountancyAttachment[];  // До 5 файлов, макс. 20 МБ каждый
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера

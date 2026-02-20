@@ -44,10 +44,14 @@ export async function POST(request: NextRequest) {
 
         if (incomeData.amount <= 0) {
             return NextResponse.json(
-                { success: false, message: 'Сумма должна быть больше нуля' },
+                { success: false, message: 'Стоимость должна быть больше нуля' },
                 { status: 400 },
             );
         }
+
+        const quantity = incomeData.quantity != null && Number.isInteger(incomeData.quantity) && incomeData.quantity >= 1
+            ? incomeData.quantity
+            : 1;
 
         const incomesCollection = db.collection('incomes');
 
@@ -80,6 +84,7 @@ export async function POST(request: NextRequest) {
             bookingId: incomeData.bookingId ?? null,
             category: incomeData.category,
             amount: incomeData.amount,
+            quantity,
             date: new Date(incomeData.date),
             status,
             attachments: incomeData.attachments ?? [],
@@ -100,7 +105,7 @@ export async function POST(request: NextRequest) {
             userId,
             userName,
             userRole,
-            description: `Обновлён доход: ${incomeData.category}, сумма ${incomeData.amount}`,
+            description: `Обновлён доход: ${incomeData.category}, сумма ${quantity * incomeData.amount}`,
             oldData: existingIncome,
             newData: updateData,
             metadata: {

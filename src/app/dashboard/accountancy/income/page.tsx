@@ -41,6 +41,7 @@ import { getIncomes, deleteIncome, updateIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+import { getIncomeSum } from "@/lib/accountancyUtils";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useObjects } from "@/providers/ObjectsProvider";
@@ -247,8 +248,8 @@ export default function Page() {
         filtered.sort((a, b) => {
             const dateA = a.date ? new Date(a.date as any).getTime() : 0;
             const dateB = b.date ? new Date(b.date as any).getTime() : 0;
-            const amountA = a.amount ?? 0;
-            const amountB = b.amount ?? 0;
+            const sumA = getIncomeSum(a);
+            const sumB = getIncomeSum(b);
 
             if (sortByDateAsc !== null) {
                 if (dateA !== dateB) {
@@ -257,8 +258,8 @@ export default function Page() {
             }
 
             if (sortByAmountAsc !== null) {
-                if (amountA !== amountB) {
-                    return sortByAmountAsc ? amountA - amountB : amountB - amountA;
+                if (sumA !== sumB) {
+                    return sortByAmountAsc ? sumA - sumB : sumB - sumA;
                 }
             }
 
@@ -493,6 +494,8 @@ export default function Page() {
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('common.room')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.bookingColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.categoryColumn')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.cost')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.quantity')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         {t('accountancy.amountColumn')}
@@ -542,7 +545,7 @@ export default function Page() {
                         <TableBody>
                             {filteredAndSortedIncomes.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={9} align="center">
+                                    <TableCell colSpan={11} align="center">
                                         <Typography sx={{ py: 2 }}>
                                             {t('accountancy.noFilteredIncomes')}
                                         </Typography>
@@ -557,6 +560,8 @@ export default function Page() {
                                         <TableCell>{income.bookingId ?? '-'}</TableCell>
                                         <TableCell>{income.category}</TableCell>
                                         <TableCell>{formatAmount(income.amount)}</TableCell>
+                                        <TableCell>{income.quantity ?? 1}</TableCell>
+                                        <TableCell>{formatAmount(getIncomeSum(income))} ({t('accountancy.amountColumn')})</TableCell>
                                         <TableCell>{formatDate(income.date)}</TableCell>
                                         <TableCell>
                                             <Stack direction="row" alignItems="center" spacing={1}>

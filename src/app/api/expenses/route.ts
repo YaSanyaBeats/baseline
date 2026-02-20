@@ -72,10 +72,14 @@ export async function POST(request: NextRequest) {
 
         if (expenseData.amount <= 0) {
             return NextResponse.json(
-                { success: false, message: 'Сумма должна быть больше нуля' },
+                { success: false, message: 'Стоимость должна быть больше нуля' },
                 { status: 400 },
             );
         }
+
+        const quantity = expenseData.quantity != null && Number.isInteger(expenseData.quantity) && expenseData.quantity >= 1
+            ? expenseData.quantity
+            : 1;
 
         const allowedStatuses: ExpenseStatus[] = ['draft', 'confirmed'];
         if (!allowedStatuses.includes(expenseData.status)) {
@@ -113,6 +117,7 @@ export async function POST(request: NextRequest) {
             counterpartyId: expenseData.counterpartyId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,
+            quantity,
             date: new Date(expenseData.date),
             comment: expenseData.comment || '',
             status: expenseData.status,
@@ -132,7 +137,7 @@ export async function POST(request: NextRequest) {
             userId: accountantId,
             userName: accountant.name,
             userRole: userRole,
-            description: `Создан расход: ${expenseData.category}, сумма ${expenseData.amount}`,
+            description: `Создан расход: ${expenseData.category}, сумма ${quantity * expenseData.amount}`,
             newData: expenseToInsert,
             metadata: {
                 objectId: expenseData.objectId,

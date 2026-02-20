@@ -19,13 +19,16 @@ import {
     TableRow,
     TextField,
     Switch,
+    IconButton,
 } from "@mui/material";
+import { Visibility } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useObjects } from "@/providers/ObjectsProvider";
 import { Booking, Expense, Income } from "@/lib/types";
+import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
 import { getExpenses, updateExpense } from "@/lib/expenses";
 import { getIncomes, updateIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
@@ -57,6 +60,7 @@ export default function Page() {
     // '' = кастомный период по dateFrom/dateTo; 'YYYY-MM' = выбранный месяц
     const [selectedMonth, setSelectedMonth] = useState<string>('');
     const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+    const [reportMonthUpdatingId, setReportMonthUpdatingId] = useState<string | null>(null);
 
     const { hasAccess } = useMemo(() => {
         const hasAccess = isAdmin || isAccountant;
@@ -103,7 +107,7 @@ export default function Page() {
                         if (!stats[key]) {
                             stats[key] = { expenses: 0, incomes: 0 };
                         }
-                        stats[key].expenses += e.amount;
+                        stats[key].expenses += getExpenseSum(e);
                     });
 
                     inc.forEach((i) => {
@@ -114,7 +118,7 @@ export default function Page() {
                         if (!stats[key]) {
                             stats[key] = { expenses: 0, incomes: 0 };
                         }
-                        stats[key].incomes += i.amount;
+                        stats[key].incomes += getIncomeSum(i);
                     });
                 } else {
                     setBookings([]);
@@ -125,13 +129,13 @@ export default function Page() {
                     if (e.bookingId || !e.roomId) return;
                     const key = `${e.objectId}-${e.roomId}`;
                     if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                    stats[key].expenses += e.amount;
+                    stats[key].expenses += getExpenseSum(e);
                 });
                 inc.forEach((i) => {
                     if (i.bookingId || !i.roomId) return;
                     const key = `${i.objectId}-${i.roomId}`;
                     if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                    stats[key].incomes += i.amount;
+                    stats[key].incomes += getIncomeSum(i);
                 });
 
                 setRoomStats(stats);
@@ -145,8 +149,8 @@ export default function Page() {
 
     
 
-    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-    const totalIncomes = incomes.reduce((sum, i) => sum + i.amount, 0);
+    const totalExpenses = expenses.reduce((sum, e) => sum + getExpenseSum(e), 0);
+    const totalIncomes = incomes.reduce((sum, i) => sum + getIncomeSum(i), 0);
     const balance = totalIncomes - totalExpenses;
 
     // Формат YYYY-MM-DD в локальной таймзоне (без сдвига UTC)
@@ -195,11 +199,11 @@ export default function Page() {
         const map: Record<number, { expenses: number; incomes: number }> = {};
         filteredByDate.expenses.forEach((e) => {
             if (!map[e.objectId]) map[e.objectId] = { expenses: 0, incomes: 0 };
-            map[e.objectId].expenses += e.amount;
+            map[e.objectId].expenses += getExpenseSum(e);
         });
         filteredByDate.incomes.forEach((i) => {
             if (!map[i.objectId]) map[i.objectId] = { expenses: 0, incomes: 0 };
-            map[i.objectId].incomes += i.amount;
+            map[i.objectId].incomes += getIncomeSum(i);
         });
         return map;
     }, [filteredByDate]);
@@ -243,7 +247,23 @@ export default function Page() {
         amount: number;
         createdBy: string;
         lastEdit: string;
+        reportMonth: string;
     };
+
+    // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
+    const reportMonthOptions = useMemo(() => {
+        const options: { value: string; label: string }[] = [];
+        const now = new Date();
+        for (let i = 0; i < 24; i++) {
+            const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const y = d.getFullYear();
+            const m = d.getMonth() + 1;
+            const value = `${y}-${String(m).padStart(2, '0')}`;
+            const monthName = t(`accountancy.months.${m}`);
+            options.push({ value, label: `${monthName} ${y}` });
+        }
+        return options;
+    }, [t]);
 
     const filteredOperations = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
@@ -278,9 +298,10 @@ export default function Page() {
                     date: e.date,
                     category: e.category ?? '—',
                     commentShort: shortComment(e.comment),
-                    amount: -e.amount,
+                    amount: -getExpenseSum(e),
                     createdBy: e.accountantName ?? '—',
                     lastEdit: '—',
+                    reportMonth: e.reportMonth ?? '',
                 });
             });
 
@@ -295,9 +316,10 @@ export default function Page() {
                     date: i.date,
                     category: i.category ?? '—',
                     commentShort: '—',
-                    amount: i.amount,
+                    amount: getIncomeSum(i),
                     createdBy: i.accountantName ?? '—',
                     lastEdit: '—',
+                    reportMonth: i.reportMonth ?? '',
                 });
             });
 
@@ -369,6 +391,65 @@ export default function Page() {
             });
         } finally {
             setStatusUpdatingId(null);
+        }
+    };
+
+    const handleReportMonthChange = async (row: OperationRow, newValue: string) => {
+        if (!row.entityId) return;
+        setReportMonthUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    reportMonth: newValue || undefined,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, reportMonth: newValue || undefined } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    reportMonth: newValue || undefined,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, reportMonth: newValue || undefined } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating report month:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setReportMonthUpdatingId(null);
         }
     };
 
@@ -705,11 +786,13 @@ export default function Page() {
                                         <Table size="small" sx={{ mt: 1 }}>
                                             <TableHead>
                                                 <TableRow>
+                                                    <TableCell width={48} />
                                                     <TableCell>{t('common.status')}</TableCell>
                                                     <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                                    <TableCell>{t('accountancy.reportMonth')}</TableCell>
                                                     <TableCell>{t('accountancy.categoryColumn')}</TableCell>
                                                     <TableCell>{t('accountancy.comment')}</TableCell>
-                                                    <TableCell>{t('accountancy.amount')}</TableCell>
+                                                    <TableCell>{t('accountancy.amountColumn')}</TableCell>
                                                     <TableCell>{t('accountancy.createdBy')}</TableCell>
                                                     <TableCell>{t('accountancy.lastEdit')}</TableCell>
                                                 </TableRow>
@@ -717,6 +800,25 @@ export default function Page() {
                                             <TableBody>
                                                 {filteredOperations.map((row) => (
                                                     <TableRow key={row.id}>
+                                                        <TableCell>
+                                                            <Link
+                                                                href={
+                                                                    row.type === 'expense'
+                                                                        ? `/dashboard/accountancy/expense/edit/${row.entityId}`
+                                                                        : `/dashboard/accountancy/income/edit/${row.entityId}`
+                                                                }
+                                                                aria-label={t('common.view')}
+                                                                style={{ display: 'inline-flex' }}
+                                                            >
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="primary"
+                                                                    component="span"
+                                                                >
+                                                                    <Visibility fontSize="small" />
+                                                                </IconButton>
+                                                            </Link>
+                                                        </TableCell>
                                                         <TableCell>
                                                             <Stack direction="row" alignItems="center" spacing={1}>
                                                                 <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70 }}>
@@ -741,6 +843,27 @@ export default function Page() {
                                                                       year: 'numeric',
                                                                   })
                                                                 : '—'}
+                                                        </TableCell>
+                                                        <TableCell>
+                                                            <FormControl size="small" sx={{ minWidth: 140 }}>
+                                                                <Select
+                                                                    value={row.reportMonth || ''}
+                                                                    displayEmpty
+                                                                    onChange={(e) =>
+                                                                        handleReportMonthChange(row, e.target.value as string)
+                                                                    }
+                                                                    disabled={reportMonthUpdatingId === row.id}
+                                                                >
+                                                                    <MenuItem value="">
+                                                                        <em>—</em>
+                                                                    </MenuItem>
+                                                                    {reportMonthOptions.map((o) => (
+                                                                        <MenuItem key={o.value} value={o.value}>
+                                                                            {o.label}
+                                                                        </MenuItem>
+                                                                    ))}
+                                                                </Select>
+                                                            </FormControl>
                                                         </TableCell>
                                                         <TableCell>{row.category}</TableCell>
                                                         <TableCell>{row.commentShort}</TableCell>

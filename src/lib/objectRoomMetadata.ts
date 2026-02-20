@@ -22,6 +22,7 @@ export interface RoomMetadata {
     kitchen?: 'yes' | 'no';
     level?: RoomLevel;
     commissionSchemeId?: CommissionSchemeId;
+    internetCostPerMonth?: number;
 }
 
 export interface ObjectRoomMetadataResponse {

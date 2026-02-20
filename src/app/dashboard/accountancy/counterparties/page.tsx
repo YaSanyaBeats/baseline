@@ -22,6 +22,7 @@ import { useEffect, useState } from 'react';
 import { Counterparty, Expense } from '@/lib/types';
 import { getCounterparties, deleteCounterparty } from '@/lib/counterparties';
 import { getExpenses } from '@/lib/expenses';
+import { getExpenseSum } from '@/lib/accountancyUtils';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -76,7 +77,7 @@ export default function Page() {
         if (!cp._id) return acc;
         const sum = expenses
             .filter((e) => e.counterpartyId === cp._id)
-            .reduce((s, e) => s + e.amount, 0);
+            .reduce((s, e) => s + getExpenseSum(e), 0);
         acc[cp._id] = sum;
         return acc;
     }, {});

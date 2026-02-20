@@ -23,6 +23,7 @@ export interface RoomMetadataDoc {
     kitchen?: 'yes' | 'no';
     level?: RoomLevel;
     commissionSchemeId?: CommissionSchemeId;
+    internetCostPerMonth?: number;
 }
 
 const OBJECTS_COLLECTION = 'objectRoomMetadata_objects';

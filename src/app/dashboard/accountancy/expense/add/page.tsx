@@ -25,8 +25,9 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import Link from 'next/link';
-import { useEffect, useState } from "react";
-import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from "@/lib/types";
+import { useEffect, useMemo, useState } from "react";
+import { AccountancyCategory, AccountancyAttachment, Booking, Expense, ExpenseStatus, UserObject } from "@/lib/types";
+import { formatTitle } from "@/lib/format";
 import { addExpense } from "@/lib/expenses";
 import { getCounterparties } from "@/lib/counterparties";
 import FileAttachments from "@/components/accountancy/FileAttachments";
@@ -42,21 +43,27 @@ import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 type ExpenseItemForm = {
     category: string;
     amount: number | undefined;
+    quantity: number;
     date: string;
     comment: string;
     status: ExpenseStatus;
     counterpartyId: string;
+    reportMonth: string;
     attachments: AccountancyAttachment[];
+    bookingId: number | undefined;
 };
 
 const defaultExpenseItem: ExpenseItemForm = {
     category: '',
     amount: undefined,
+    quantity: 1,
     date: '',
     comment: '',
     status: 'draft',
     counterpartyId: '',
+    reportMonth: '',
     attachments: [],
+    bookingId: undefined,
 };
 
 export default function Page() {
@@ -66,9 +73,9 @@ export default function Page() {
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [objectId, setObjectId] = useState<number | undefined>();
     const [roomId, setRoomId] = useState<number | undefined>();
-    const [bookingId, setBookingId] = useState<number | undefined>();
     const [items, setItems] = useState<ExpenseItemForm[]>([{ ...defaultExpenseItem }]);
-    const [bookingModalOpen, setBookingModalOpen] = useState(false);
+    const [bookingModalForIndex, setBookingModalForIndex] = useState<number | null>(null);
+    const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
@@ -133,6 +140,13 @@ export default function Page() {
         handleChangeItem(index, 'amount', isNaN(num) ? undefined : num);
     };
 
+    const handleChangeItemQuantity = (index: number, event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        const value = event.target.value;
+        const num = Number(value);
+        const q = Number.isInteger(num) && num >= 1 ? num : 1;
+        handleChangeItem(index, 'quantity', q);
+    };
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -148,7 +162,10 @@ export default function Page() {
                 validationErrors[`item_${index}_date`] = t('accountancy.expenseDate');
             }
             if (!item.amount || item.amount <= 0) {
-                validationErrors[`item_${index}_amount`] = t('accountancy.amount');
+                validationErrors[`item_${index}_amount`] = t('accountancy.cost');
+            }
+            if (item.quantity != null && (item.quantity < 1 || !Number.isInteger(item.quantity))) {
+                validationErrors[`item_${index}_quantity`] = t('accountancy.quantity');
             }
             if (!item.status) {
                 validationErrors[`item_${index}_status`] = t('accountancy.status');
@@ -168,15 +185,26 @@ export default function Page() {
         return true;
     };
 
-    const handleOpenBookingModal = () => setBookingModalOpen(true);
-    const handleCloseBookingModal = () => setBookingModalOpen(false);
+    const usedBookingIds = useMemo(
+        () => Array.from(new Set(items.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number'))),
+        [items],
+    );
 
-    const handleBookingSelect = (booking: { id: number }) => {
-        setBookingId(booking.id);
+    const handleOpenBookingModal = (index: number) => setBookingModalForIndex(index);
+    const handleCloseBookingModal = () => setBookingModalForIndex(null);
+
+    const handleBookingSelect = (booking: Booking) => {
+        if (bookingModalForIndex === null) return;
+        handleChangeItem(bookingModalForIndex, 'bookingId', booking.id);
+        setBookingLabels((prev) => ({
+            ...prev,
+            [booking.id]: formatTitle(booking.firstName, booking.lastName, booking.title),
+        }));
+        setBookingModalForIndex(null);
     };
 
-    const handleDetachBooking = () => {
-        setBookingId(undefined);
+    const handleDetachBooking = (index: number) => {
+        handleChangeItem(index, 'bookingId', undefined);
     };
 
     const handleSubmit = async () => {
@@ -191,13 +219,15 @@ export default function Page() {
                 const payload: Expense = {
                     objectId,
                     roomId,
-                    bookingId,
+                    bookingId: item.bookingId,
                     counterpartyId: item.counterpartyId || undefined,
                     category: item.category,
                     amount: item.amount as number,
+                    quantity: item.quantity ?? 1,
                     date: new Date(item.date),
                     comment: item.comment || '',
                     status: item.status,
+                    reportMonth: item.reportMonth || undefined,
                     attachments: item.attachments ?? [],
                     accountantId: '',
                 };
@@ -271,32 +301,6 @@ export default function Page() {
                                 </Typography>
                             )}
                         </Box>
-                        <Box>
-                            <Stack direction="row" spacing={2} alignItems="center">
-                                <Button
-                                    variant="outlined"
-                                    onClick={handleOpenBookingModal}
-                                >
-                                    {t('accountancy.selectBooking')}
-                                </Button>
-                                {bookingId && (
-                                    <>
-                                        <Typography variant="body2" color="text.secondary">
-                                            {t('accountancy.bookingId')}: {bookingId}
-                                        </Typography>
-                                        <IconButton
-                                            size="small"
-                                            color="secondary"
-                                            onClick={handleDetachBooking}
-                                            title={t('accountancy.detachBooking')}
-                                            aria-label={t('accountancy.detachBooking')}
-                                        >
-                                            <CloseIcon fontSize="small" />
-                                        </IconButton>
-                                    </>
-                                )}
-                            </Stack>
-                        </Box>
                     </Stack>
                 </Paper>
 
@@ -308,10 +312,14 @@ export default function Page() {
                     <TableHead>
                         <TableRow>
                             <TableCell width={40}></TableCell>
+                            <TableCell>{t('accountancy.bookingColumn')}</TableCell>
                             <TableCell>{t('accountancy.category')}</TableCell>
                             <TableCell>{t('accountancy.counterparty.title')}</TableCell>
-                            <TableCell>{t('accountancy.amount')}</TableCell>
+                            <TableCell>{t('accountancy.cost')}</TableCell>
+                            <TableCell>{t('accountancy.quantity')}</TableCell>
+                            <TableCell>{t('accountancy.amountColumn')}</TableCell>
                             <TableCell>{t('accountancy.expenseDate')}</TableCell>
+                            <TableCell>{t('accountancy.reportMonth')}</TableCell>
                             <TableCell>{t('accountancy.comment')}</TableCell>
                             <TableCell>{t('accountancy.status')}</TableCell>
                             <TableCell>{t('accountancy.attachments')}</TableCell>
@@ -329,6 +337,47 @@ export default function Page() {
                                     >
                                         <DeleteOutlineIcon fontSize="small" />
                                     </IconButton>
+                                </TableCell>
+                                <TableCell sx={{ minWidth: 200 }}>
+                                    <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                        <FormControl size="small" sx={{ minWidth: 140 }}>
+                                            <InputLabel>{t('accountancy.bookingQuickSelect')}</InputLabel>
+                                            <Select
+                                                value={item.bookingId ?? ''}
+                                                label={t('accountancy.bookingQuickSelect')}
+                                                onChange={(e) => {
+                                                    const v = e.target.value;
+                                                    const num = typeof v === 'number' ? v : (String(v).trim() === '' ? undefined : Number(v));
+                                                    handleChangeItem(index, 'bookingId', num);
+                                                }}
+                                            >
+                                                <MenuItem value="">—</MenuItem>
+                                                {usedBookingIds.map((id) => (
+                                                    <MenuItem key={id} value={id}>
+                                                        {bookingLabels[id] ?? `#${id}`}
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            onClick={() => handleOpenBookingModal(index)}
+                                        >
+                                            {t('accountancy.selectBooking')}
+                                        </Button>
+                                        {item.bookingId != null && (
+                                            <IconButton
+                                                size="small"
+                                                color="secondary"
+                                                onClick={() => handleDetachBooking(index)}
+                                                title={t('accountancy.detachBooking')}
+                                                aria-label={t('accountancy.detachBooking')}
+                                            >
+                                                <CloseIcon fontSize="small" />
+                                            </IconButton>
+                                        )}
+                                    </Stack>
                                 </TableCell>
                                 <TableCell>
                                     <FormControl size="small" sx={{ minWidth: 160 }} error={!!errors[`item_${index}_category`]}>
@@ -372,12 +421,30 @@ export default function Page() {
                                     <TextField
                                         size="small"
                                         type="number"
+                                        label={t('accountancy.cost')}
                                         value={item.amount ?? ''}
                                         onChange={(e) => handleChangeItemAmount(index, e)}
                                         error={!!errors[`item_${index}_amount`]}
                                         inputProps={{ min: 0, step: 0.01 }}
                                         sx={{ width: 120 }}
                                     />
+                                </TableCell>
+                                <TableCell>
+                                    <TextField
+                                        size="small"
+                                        type="number"
+                                        label={t('accountancy.quantity')}
+                                        value={item.quantity ?? 1}
+                                        onChange={(e) => handleChangeItemQuantity(index, e)}
+                                        error={!!errors[`item_${index}_quantity`]}
+                                        inputProps={{ min: 1, step: 1 }}
+                                        sx={{ width: 90 }}
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    <Typography variant="body2">
+                                        {t('accountancy.amountColumn')}: {((item.quantity ?? 1) * (item.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                    </Typography>
                                 </TableCell>
                                 <TableCell>
                                     <TextField
@@ -391,6 +458,36 @@ export default function Page() {
                                         error={!!errors[`item_${index}_date`]}
                                         sx={{ width: 150 }}
                                     />
+                                </TableCell>
+                                <TableCell>
+                                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                                        <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
+                                        <Select
+                                            value={item.reportMonth || ''}
+                                            label={t('accountancy.reportMonth')}
+                                            onChange={(e) =>
+                                                handleChangeItem(index, 'reportMonth', e.target.value as string)
+                                            }
+                                        >
+                                            <MenuItem value="">—</MenuItem>
+                                            {(() => {
+                                                const options: { value: string; label: string }[] = [];
+                                                const now = new Date();
+                                                for (let i = 0; i < 24; i++) {
+                                                    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+                                                    const y = d.getFullYear();
+                                                    const m = d.getMonth() + 1;
+                                                    const value = `${y}-${String(m).padStart(2, '0')}`;
+                                                    options.push({ value, label: `${t(`accountancy.months.${m}`)} ${y}` });
+                                                }
+                                                return options.map((o) => (
+                                                    <MenuItem key={o.value} value={o.value}>
+                                                        {o.label}
+                                                    </MenuItem>
+                                                ));
+                                            })()}
+                                        </Select>
+                                    </FormControl>
                                 </TableCell>
                                 <TableCell>
                                     <TextField
@@ -459,7 +556,7 @@ export default function Page() {
                 </Stack>
             </form>
             <BookingSelectModal
-                open={bookingModalOpen}
+                open={bookingModalForIndex !== null}
                 onClose={handleCloseBookingModal}
                 onSelect={handleBookingSelect}
                 initialObjectId={objectId}
