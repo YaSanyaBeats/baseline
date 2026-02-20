@@ -120,6 +120,7 @@ export async function POST(request: NextRequest) {
             quantity,
             date: new Date(expenseData.date),
             comment: expenseData.comment || '',
+            reportMonth: expenseData.reportMonth || null,
             status: expenseData.status,
             attachments: expenseData.attachments ?? [],
             accountantId,

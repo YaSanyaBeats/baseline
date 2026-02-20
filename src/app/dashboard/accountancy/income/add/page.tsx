@@ -45,6 +45,7 @@ type IncomeItemForm = {
     quantity: number;
     date: string;
     reportMonth: string;
+    comment: string;
     attachments: AccountancyAttachment[];
     bookingId: number | undefined;
 };
@@ -55,6 +56,7 @@ const defaultIncomeItem: IncomeItemForm = {
     quantity: 1,
     date: '',
     reportMonth: '',
+    comment: '',
     attachments: [],
     bookingId: undefined,
 };
@@ -133,6 +135,12 @@ export default function Page() {
         handleChangeItem(index, 'quantity', q);
     };
 
+    const getEffectiveCost = (item: IncomeItemForm): number => {
+        if (item.amount != null && item.amount > 0) return item.amount;
+        const cat = categories.find((c) => c.name === item.category);
+        return cat?.pricePerUnit ?? 0;
+    };
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -147,7 +155,8 @@ export default function Page() {
             if (!item.date) {
                 validationErrors[`item_${index}_date`] = t('accountancy.incomeDate');
             }
-            if (!item.amount || item.amount <= 0) {
+            const effectiveCost = getEffectiveCost(item);
+            if (effectiveCost <= 0) {
                 validationErrors[`item_${index}_amount`] = t('accountancy.cost');
             }
             if (item.quantity != null && (item.quantity < 1 || !Number.isInteger(item.quantity))) {
@@ -199,16 +208,18 @@ export default function Page() {
 
         try {
             for (const item of items) {
+                const effectiveCost = getEffectiveCost(item);
                 const payload: Income = {
                     objectId,
                     roomId,
                     bookingId: item.bookingId,
                     category: item.category,
-                    amount: item.amount as number,
+                    amount: effectiveCost,
                     quantity: item.quantity ?? 1,
                     date: new Date(item.date),
                     status: 'draft',
                     reportMonth: item.reportMonth || undefined,
+                    comment: item.comment || undefined,
                     attachments: item.attachments ?? [],
                     accountantId: '',
                 };
@@ -300,6 +311,7 @@ export default function Page() {
                             <TableCell>{t('accountancy.amountColumn')}</TableCell>
                             <TableCell>{t('accountancy.incomeDate')}</TableCell>
                             <TableCell>{t('accountancy.reportMonth')}</TableCell>
+                            <TableCell>{t('accountancy.comment')}</TableCell>
                             <TableCell>{t('accountancy.attachments')}</TableCell>
                         </TableRow>
                     </TableHead>
@@ -402,7 +414,7 @@ export default function Page() {
                                 </TableCell>
                                 <TableCell>
                                     <Typography variant="body2">
-                                        {t('accountancy.amountColumn')}: {((item.quantity ?? 1) * (item.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {t('accountancy.amountColumn')}: {((item.quantity ?? 1) * getEffectiveCost(item)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </Typography>
                                 </TableCell>
                                 <TableCell>
@@ -447,6 +459,17 @@ export default function Page() {
                                             })()}
                                         </Select>
                                     </FormControl>
+                                </TableCell>
+                                <TableCell>
+                                    <TextField
+                                        size="small"
+                                        placeholder={t('accountancy.comment')}
+                                        value={item.comment || ''}
+                                        onChange={(e) =>
+                                            handleChangeItem(index, 'comment', e.target.value)
+                                        }
+                                        sx={{ minWidth: 120 }}
+                                    />
                                 </TableCell>
                                 <TableCell>
                                     <FileAttachments

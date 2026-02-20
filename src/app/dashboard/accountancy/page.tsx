@@ -315,7 +315,7 @@ export default function Page() {
                     status: (i as any).status ?? 'draft',
                     date: i.date,
                     category: i.category ?? '—',
-                    commentShort: '—',
+                    commentShort: shortComment(i.comment),
                     amount: getIncomeSum(i),
                     createdBy: i.accountantName ?? '—',
                     lastEdit: '—',

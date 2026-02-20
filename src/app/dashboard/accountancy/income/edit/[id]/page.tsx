@@ -74,6 +74,7 @@ export default function Page() {
                                 : '',
                             status: (found as any).status || 'draft',
                             reportMonth: found.reportMonth ?? '',
+                            comment: found.comment ?? '',
                             attachments: found.attachments ?? [],
                         });
                         if (found.objectId) {
@@ -156,6 +157,12 @@ export default function Page() {
         });
     };
 
+    const getEffectiveCost = (): number => {
+        if (income.amount != null && income.amount > 0) return income.amount;
+        const cat = categories.find((c) => c.name === income.category);
+        return cat?.pricePerUnit ?? 0;
+    };
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -168,7 +175,7 @@ export default function Page() {
         if (!income.dateString) {
             validationErrors.dateString = t('accountancy.incomeDate');
         }
-        if (!income.amount || income.amount <= 0) {
+        if (getEffectiveCost() <= 0) {
             validationErrors.amount = t('accountancy.cost');
         }
         if (income.quantity != null && (income.quantity < 1 || !Number.isInteger(income.quantity))) {
@@ -217,11 +224,12 @@ export default function Page() {
             roomId: income.roomId,
             bookingId: income.bookingId,
             category: income.category as string,
-            amount: income.amount as number,
+            amount: getEffectiveCost(),
             quantity: income.quantity ?? 1,
             date: new Date(income.dateString as string),
             status: (income.status as IncomeStatus) || 'draft',
             reportMonth: income.reportMonth || undefined,
+            comment: income.comment ?? '',
             attachments: income.attachments ?? [],
             accountantId: '', // не используется при обновлении
         };
@@ -367,7 +375,7 @@ export default function Page() {
                     </Box>
                     <Box>
                         <Typography variant="body2" color="text.secondary">
-                            {t('accountancy.amountColumn')}: {((income.quantity ?? 1) * (income.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {t('accountancy.amountColumn')}: {((income.quantity ?? 1) * getEffectiveCost()).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Typography>
                     </Box>
                     <Box>
@@ -429,6 +437,20 @@ export default function Page() {
                                 <MenuItem value="confirmed">{t('accountancy.statusConfirmed')}</MenuItem>
                             </Select>
                         </FormControl>
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="comment"
+                            label={t('accountancy.comment')}
+                            variant="outlined"
+                            sx={{ width: '100%' }}
+                            multiline
+                            minRows={2}
+                            value={income.comment ?? ''}
+                            onChange={(e) =>
+                                setIncome((prev) => ({ ...prev, comment: e.target.value || undefined }))
+                            }
+                        />
                     </Box>
                     <Box>
                         <FileAttachments

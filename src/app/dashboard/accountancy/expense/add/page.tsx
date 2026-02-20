@@ -147,6 +147,12 @@ export default function Page() {
         handleChangeItem(index, 'quantity', q);
     };
 
+    const getEffectiveCost = (item: ExpenseItemForm): number => {
+        if (item.amount != null && item.amount > 0) return item.amount;
+        const cat = categories.find((c) => c.name === item.category);
+        return cat?.pricePerUnit ?? 0;
+    };
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -161,7 +167,8 @@ export default function Page() {
             if (!item.date) {
                 validationErrors[`item_${index}_date`] = t('accountancy.expenseDate');
             }
-            if (!item.amount || item.amount <= 0) {
+            const effectiveCost = getEffectiveCost(item);
+            if (effectiveCost <= 0) {
                 validationErrors[`item_${index}_amount`] = t('accountancy.cost');
             }
             if (item.quantity != null && (item.quantity < 1 || !Number.isInteger(item.quantity))) {
@@ -216,13 +223,14 @@ export default function Page() {
 
         try {
             for (const item of items) {
+                const effectiveCost = getEffectiveCost(item);
                 const payload: Expense = {
                     objectId,
                     roomId,
                     bookingId: item.bookingId,
                     counterpartyId: item.counterpartyId || undefined,
                     category: item.category,
-                    amount: item.amount as number,
+                    amount: effectiveCost,
                     quantity: item.quantity ?? 1,
                     date: new Date(item.date),
                     comment: item.comment || '',
@@ -443,7 +451,7 @@ export default function Page() {
                                 </TableCell>
                                 <TableCell>
                                     <Typography variant="body2">
-                                        {t('accountancy.amountColumn')}: {((item.quantity ?? 1) * (item.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        {t('accountancy.amountColumn')}: {((item.quantity ?? 1) * getEffectiveCost(item)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                     </Typography>
                                 </TableCell>
                                 <TableCell>

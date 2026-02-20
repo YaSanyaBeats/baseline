@@ -114,6 +114,8 @@ export async function POST(request: NextRequest) {
             amount: incomeData.amount,
             quantity,
             date: new Date(incomeData.date),
+            comment: incomeData.comment ?? '',
+            reportMonth: incomeData.reportMonth ?? null,
             status,
             attachments: incomeData.attachments ?? [],
             accountantId,

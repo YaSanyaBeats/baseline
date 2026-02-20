@@ -181,6 +181,12 @@ export default function Page() {
         });
     };
 
+    const getEffectiveCost = (): number => {
+        if (expense.amount != null && expense.amount > 0) return expense.amount;
+        const cat = categories.find((c) => c.name === expense.category);
+        return cat?.pricePerUnit ?? 0;
+    };
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -193,7 +199,7 @@ export default function Page() {
         if (!expense.date) {
             validationErrors.date = t('accountancy.expenseDate');
         }
-        if (!expense.amount || expense.amount <= 0) {
+        if (getEffectiveCost() <= 0) {
             validationErrors.amount = t('accountancy.cost');
         }
         if (expense.quantity != null && (expense.quantity < 1 || !Number.isInteger(expense.quantity))) {
@@ -246,7 +252,7 @@ export default function Page() {
             bookingId: expense.bookingId,
             counterpartyId: expense.counterpartyId,
             category: expense.category as string,
-            amount: expense.amount as number,
+            amount: getEffectiveCost(),
             quantity: expense.quantity ?? 1,
             date: new Date(expense.date as string),
             comment: expense.comment || '',
@@ -416,7 +422,7 @@ export default function Page() {
                     </Box>
                     <Box>
                         <Typography variant="body2" color="text.secondary">
-                            {t('accountancy.amountColumn')}: {((expense.quantity ?? 1) * (expense.amount ?? 0)).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {t('accountancy.amountColumn')}: {((expense.quantity ?? 1) * getEffectiveCost()).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Typography>
                     </Box>
                     <Box>

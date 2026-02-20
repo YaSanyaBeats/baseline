@@ -236,6 +236,7 @@ export interface Income {
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
     category: string;              // Категория дохода
+    comment?: string;              // Комментарий
     status: IncomeStatus;          // Черновик / Подтверждён
     reportMonth?: string;          // Месяц отчёта в формате YYYY-MM
     attachments?: AccountancyAttachment[];  // До 5 файлов, макс. 20 МБ каждый
