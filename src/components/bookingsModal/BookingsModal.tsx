@@ -249,7 +249,7 @@ export default function BookingsModal(props: {
                                                                     size="small"
                                                                     variant="outlined"
                                                                     startIcon={<PlayArrowIcon />}
-                                                                    disabled={autoRunningId === booking.id || processedBookingIds.has(booking.id)}
+                                                                    disabled={autoRunningId === booking.id}
                                                                     onClick={() => handleRunAutoAccounting(booking.id)}
                                                                 >
                                                                     {t('accountancy.autoAccounting.runForBooking')}
@@ -327,7 +327,7 @@ export default function BookingsModal(props: {
                                                                 size="small"
                                                                 variant="outlined"
                                                                 startIcon={<PlayArrowIcon />}
-                                                                disabled={autoRunningId === booking.id || processedBookingIds.has(booking.id)}
+                                                                disabled={autoRunningId === booking.id}
                                                                 onClick={() => handleRunAutoAccounting(booking.id)}
                                                             >
                                                                 {t('accountancy.autoAccounting.runForBooking')}
