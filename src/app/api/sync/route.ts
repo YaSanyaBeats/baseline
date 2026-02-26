@@ -130,14 +130,28 @@ async function syncData(type: string) {
     const db = await getDB();
     const beds24Collection = db.collection('beds24');
     const now = new Date();
-    
+
     await beds24Collection.updateOne(
         {},
-        { 
-            $set: { 
-                [type]: now 
-            } 
+        {
+            $set: {
+                [type]: now
+            }
         },
         { upsert: true }
     );
+
+    // После синхронизации бронирований запускаем автоучёт для новых броней
+    if (type === 'bookings') {
+        try {
+            const { getUnprocessedBookingIds } = await import('@/lib/autoAccountingEngine');
+            const { runRulesForBookings } = await import('@/lib/autoAccountingEngine');
+            const unprocessedIds = await getUnprocessedBookingIds();
+            if (unprocessedIds.length > 0) {
+                await runRulesForBookings(unprocessedIds, null);
+            }
+        } catch (err) {
+            console.error('Auto-accounting after bookings sync failed:', err);
+        }
+    }
 }

@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
             roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,
             counterpartyId: expenseData.counterpartyId ?? null,
+            cashflowId: expenseData.cashflowId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,
             quantity,
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
             reportMonth: expenseData.reportMonth || null,
             status: expenseData.status,
             attachments: expenseData.attachments ?? [],
+            autoCreated: null,
         };
 
         await expensesCollection.updateOne(

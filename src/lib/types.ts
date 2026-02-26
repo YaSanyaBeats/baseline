@@ -208,12 +208,33 @@ export interface Counterparty {
     createdAt?: Date;
 }
 
+/** Тип кэшфлоу: учётный центр движения средств */
+export type CashflowType = 'company' | 'employee' | 'room' | 'object' | 'premium' | 'other';
+
+/** Кэшфлоу: подотчёт / учётный центр для доходов и расходов */
+export interface Cashflow {
+    _id?: string;
+    name: string;                  // Название (например: «Компания», «Зарплата Иванов», «Комната А-101»)
+    type: CashflowType;            // Тип кэшфлоу
+    roomLinks: UserObject[];       // Привязка к комнатам (для type room/object); для company/premium — пусто
+    userId?: string;               // ID пользователя (для type employee, опционально)
+    counterpartyIds?: string[];    // Привязка к контрагентам
+    comment?: string;              // Комментарий
+    createdAt?: Date;
+}
+
+/** Признак и источник автосозданной записи (при ручном изменении сбрасывается) */
+export interface AutoCreatedMeta {
+    ruleId?: string;               // ID правила из конструктора
+}
+
 export interface Expense {
     _id?: string;
     objectId: number;              // ID объекта
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
     counterpartyId?: string;       // ID контрагента (опционально)
+    cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
     category: string;              // Категория расхода
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
@@ -225,6 +246,8 @@ export interface Expense {
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
     createdAt?: Date;              // Дата создания записи
+    /** Запись создана автоучётом; при ручном редактировании сбрасывается */
+    autoCreated?: AutoCreatedMeta | null;
 }
 
 export interface Income {
@@ -232,6 +255,7 @@ export interface Income {
     objectId: number;              // ID объекта
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
+    cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
     date: Date;                    // Дата дохода
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
@@ -243,6 +267,38 @@ export interface Income {
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
     createdAt?: Date;              // Дата создания записи
+    /** Запись создана автоучётом; при ручном редактировании сбрасывается */
+    autoCreated?: AutoCreatedMeta | null;
+}
+
+/** Период применения правила: на бронь целиком или по одному на каждый месяц брони */
+export type AutoAccountingPeriod = 'per_booking' | 'per_month';
+
+/** Откуда брать стоимость для автоучёта */
+export type AutoAccountingAmountSource = 'manual' | 'booking_price' | 'internet_cost' | 'category';
+
+/** Правило автоучёта: при добавлении брони создавать расход/доход по условиям */
+export interface AutoAccountingRule {
+    _id?: string;
+    /** Тип записи */
+    ruleType: 'expense' | 'income';
+    /** ID объекта или 'all' для всех объектов */
+    objectId: number | 'all';
+    /** ID комнаты или 'all' для всех комнат объекта (имеет смысл при заданном objectId) */
+    roomId?: number | 'all';
+    /** Категория расхода/дохода */
+    category: string;
+    /** Количество (например 1 для уборки) */
+    quantity: number;
+    /** Сумма за единицу (при amountSource === 'manual') */
+    amount?: number;
+    /** Откуда брать стоимость: вручную, из брони (price), из метаданных комнаты (интернет), из категории */
+    amountSource?: AutoAccountingAmountSource;
+    /** per_booking — одна запись на бронь; per_month — по одному на каждый месяц проживания */
+    period: AutoAccountingPeriod;
+    /** Порядок применения правил */
+    order: number;
+    createdAt?: Date;
 }
 
 export type AccountancyCategoryType = 'expense' | 'income';
@@ -271,7 +327,7 @@ export interface AccountancyCategory {
 
 export type AuditLogAction = 'create' | 'update' | 'delete';
 
-export type AuditLogEntity = 'expense' | 'income' | 'report' | 'user' | 'category' | 'booking' | 'other';
+export type AuditLogEntity = 'expense' | 'income' | 'report' | 'user' | 'category' | 'booking' | 'cashflow' | 'other';
 
 export interface AuditLog {
     _id?: string;

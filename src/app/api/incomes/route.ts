@@ -110,6 +110,7 @@ export async function POST(request: NextRequest) {
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,
+            cashflowId: incomeData.cashflowId ?? null,
             category: incomeData.category,
             amount: incomeData.amount,
             quantity,
@@ -121,6 +122,7 @@ export async function POST(request: NextRequest) {
             accountantId,
             accountantName: accountant.name,
             createdAt: new Date(),
+            autoCreated: incomeData.autoCreated ?? null,
         };
 
         const result = await incomesCollection.insertOne(incomeToInsert as any);

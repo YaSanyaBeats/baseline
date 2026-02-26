@@ -115,6 +115,7 @@ export async function POST(request: NextRequest) {
             roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,
             counterpartyId: expenseData.counterpartyId ?? null,
+            cashflowId: expenseData.cashflowId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,
             quantity,
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
             accountantId,
             accountantName: accountant.name,
             createdAt: new Date(),
+            autoCreated: expenseData.autoCreated ?? null,
         };
 
         const result = await expensesCollection.insertOne(expenseToInsert as any);

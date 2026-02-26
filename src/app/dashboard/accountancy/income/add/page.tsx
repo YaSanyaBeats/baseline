@@ -38,6 +38,7 @@ import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+import { getCashflows } from "@/lib/cashflows";
 
 type IncomeItemForm = {
     category: string;
@@ -46,6 +47,7 @@ type IncomeItemForm = {
     date: string;
     reportMonth: string;
     comment: string;
+    cashflowId: string;
     attachments: AccountancyAttachment[];
     bookingId: number | undefined;
 };
@@ -57,6 +59,7 @@ const defaultIncomeItem: IncomeItemForm = {
     date: '',
     reportMonth: '',
     comment: '',
+    cashflowId: '',
     attachments: [],
     bookingId: undefined,
 };
@@ -72,6 +75,7 @@ export default function Page() {
     const [bookingModalForIndex, setBookingModalForIndex] = useState<number | null>(null);
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
@@ -80,10 +84,13 @@ export default function Page() {
 
     useEffect(() => {
         if (!hasAccess) return;
-        getAccountancyCategories('income')
-            .then(setCategories)
+        Promise.all([getAccountancyCategories('income'), getCashflows()])
+            .then(([cats, cfs]) => {
+                setCategories(cats);
+                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+            })
             .catch((error) => {
-                console.error('Error loading categories:', error);
+                console.error('Error loading data:', error);
             });
     }, [hasAccess]);
 
@@ -219,6 +226,7 @@ export default function Page() {
                     date: new Date(item.date),
                     status: 'draft',
                     reportMonth: item.reportMonth || undefined,
+                    cashflowId: item.cashflowId || undefined,
                     comment: item.comment || undefined,
                     attachments: item.attachments ?? [],
                     accountantId: '',
@@ -311,6 +319,7 @@ export default function Page() {
                             <TableCell>{t('accountancy.amountColumn')}</TableCell>
                             <TableCell>{t('accountancy.incomeDate')}</TableCell>
                             <TableCell>{t('accountancy.reportMonth')}</TableCell>
+                            <TableCell>{t('accountancy.cashflow.title')}</TableCell>
                             <TableCell>{t('accountancy.comment')}</TableCell>
                             <TableCell>{t('accountancy.attachments')}</TableCell>
                         </TableRow>
@@ -457,6 +466,25 @@ export default function Page() {
                                                     </MenuItem>
                                                 ));
                                             })()}
+                                        </Select>
+                                    </FormControl>
+                                </TableCell>
+                                <TableCell>
+                                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                                        <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
+                                        <Select
+                                            value={item.cashflowId || ''}
+                                            label={t('accountancy.cashflow.title')}
+                                            onChange={(e) =>
+                                                handleChangeItem(index, 'cashflowId', e.target.value as string)
+                                            }
+                                        >
+                                            <MenuItem value="">—</MenuItem>
+                                            {cashflows.map((cf) => (
+                                                <MenuItem key={cf._id} value={cf._id}>
+                                                    {cf.name}
+                                                </MenuItem>
+                                            ))}
                                         </Select>
                                     </FormControl>
                                 </TableCell>

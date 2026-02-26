@@ -27,6 +27,7 @@ import {
     DialogContentText,
     DialogActions,
     Switch,
+    Chip,
 } from "@mui/material"
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -551,12 +552,26 @@ export default function Page() {
                                 </TableRow>
                             ) : (
                                 filteredAndSortedExpenses.map((expense) => (
-                                    <TableRow key={expense._id}>
+                                    <TableRow
+                                        key={expense._id}
+                                        sx={
+                                            (expense as Expense & { autoCreated?: { ruleId?: string } }).autoCreated
+                                                ? { bgcolor: (theme) => (theme.palette.mode === 'light' ? 'rgba(46, 125, 50, 0.06)' : 'rgba(102, 187, 106, 0.1)') }
+                                                : undefined
+                                        }
+                                    >
                                         <TableCell>{formatDate(expense.date)}</TableCell>
                                         <TableCell>{getObjectName(expense)}</TableCell>
                                         <TableCell>{getRoomName(expense)}</TableCell>
                                         <TableCell>{expense.bookingId ?? '-'}</TableCell>
-                                        <TableCell>{expense.category}</TableCell>
+                                        <TableCell>
+                                            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                                                <span>{expense.category}</span>
+                                                {(expense as Expense & { autoCreated?: { ruleId?: string } }).autoCreated && (
+                                                    <Chip size="small" label={t('accountancy.autoAccounting.autoCreatedBadge')} color="success" variant="outlined" />
+                                                )}
+                                            </Stack>
+                                        </TableCell>
                                         <TableCell>{formatAmount(expense.amount)}</TableCell>
                                         <TableCell>{expense.quantity ?? 1}</TableCell>
                                         <TableCell>{formatAmount(getExpenseSum(expense))} ({t('accountancy.amountColumn')})</TableCell>

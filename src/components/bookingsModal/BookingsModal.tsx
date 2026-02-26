@@ -8,8 +8,12 @@ import { formatDate, formatTitle } from "@/lib/format";
 import CloseIcon from '@mui/icons-material/Close';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import DescriptionIcon from '@mui/icons-material/Description';
+import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { useTranslation } from "@/i18n/useTranslation";
 import { getReports } from "@/lib/reports";
+import { runAutoAccountingForBookings, getProcessedBookingIds } from "@/lib/autoAccounting";
+import { useSnackbar } from "@/providers/SnackbarContext";
+import { useUser } from "@/providers/UserProvider";
 const getMaxInvoice = (invoiceItems: InvoiceItem[]) => {
     let maxInvoice: InvoiceItem | undefined;
     invoiceItems.forEach((invoiceItem) => {
@@ -34,9 +38,14 @@ export default function BookingsModal(props: {
     const isMobile = !useMediaQuery('(min-width:768px)');
     const { roomInfo, open, setOpen } = props;
     const { t } = useTranslation();
+    const { setSnackbar } = useSnackbar();
+    const { isAdmin, isAccountant } = useUser();
     const [loading, setLoading] = useState(true);
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [reportsMap, setReportsMap] = useState<Map<string, string>>(new Map()); // key: "year-month", value: reportLink
+    const [autoRunningId, setAutoRunningId] = useState<number | null>(null);
+    const [processedBookingIds, setProcessedBookingIds] = useState<Set<number>>(new Set());
+    const canRunAutoAccounting = isAdmin || isAccountant;
 
     const groupedBookings = useMemo(() => {
         const monthMap = new Map<string, { label: string, bookings: Booking[], sortValue: number, year: number, month: number }>();
@@ -98,7 +107,7 @@ export default function BookingsModal(props: {
     }, [roomInfo]);
 
     useEffect(() => {
-        if(!roomInfo) {
+        if (!roomInfo) {
             return;
         }
 
@@ -106,9 +115,16 @@ export default function BookingsModal(props: {
         getBookingsPerRoom(roomInfo).then((bookings) => {
             setBookings(bookings);
             setLoading(false);
-        })
-        
-    }, [roomInfo])
+        });
+    }, [roomInfo]);
+
+    useEffect(() => {
+        if (!canRunAutoAccounting || bookings.length === 0) return;
+        const ids = bookings.map((b) => b.id);
+        getProcessedBookingIds(ids).then((processedIds) => {
+            setProcessedBookingIds(new Set(processedIds));
+        }).catch(() => {});
+    }, [canRunAutoAccounting, bookings]);
 
     if(!roomInfo) {
         return;
@@ -116,7 +132,26 @@ export default function BookingsModal(props: {
 
     const handleClose = () => {
         setOpen(false);
-    }
+    };
+
+    const handleRunAutoAccounting = async (bookingId: number) => {
+        setAutoRunningId(bookingId);
+        try {
+            const res = await runAutoAccountingForBookings([bookingId]);
+            setSnackbar({
+                open: true,
+                message: res.message,
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                setProcessedBookingIds((prev) => new Set(prev).add(bookingId));
+            }
+        } catch (e) {
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setAutoRunningId(null);
+        }
+    };
 
     const getNightsCount = (arrival: string, departure: string) => {
         const oneDay = 1000 * 60 * 60 * 24;
@@ -194,6 +229,7 @@ export default function BookingsModal(props: {
                                                     <TableCell sx={{fontWeight: 'bold', width: '20%'}}>{t('common.status')}</TableCell>
                                                     <TableCell sx={{fontWeight: 'bold', width: '25%'}}>{t('common.period')}</TableCell>
                                                     <TableCell sx={{fontWeight: 'bold', width: '15%'}}>{t('common.price')}</TableCell>
+                                                    {canRunAutoAccounting && <TableCell sx={{fontWeight: 'bold', width: '120px'}}></TableCell>}
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
@@ -207,6 +243,19 @@ export default function BookingsModal(props: {
                                                             {formatDate(booking.arrival)} - {formatDate(booking.departure)}
                                                         </TableCell>
                                                         <TableCell sx={{whiteSpace: 'nowrap'}}>{getBookingPrice(booking)} ฿</TableCell>
+                                                        {canRunAutoAccounting && (
+                                                            <TableCell>
+                                                                <Button
+                                                                    size="small"
+                                                                    variant="outlined"
+                                                                    startIcon={<PlayArrowIcon />}
+                                                                    disabled={autoRunningId === booking.id || processedBookingIds.has(booking.id)}
+                                                                    onClick={() => handleRunAutoAccounting(booking.id)}
+                                                                >
+                                                                    {t('accountancy.autoAccounting.runForBooking')}
+                                                                </Button>
+                                                            </TableCell>
+                                                        )}
                                                     </TableRow>
                                                 ))}
                                                 <TableRow sx={{background: '#fafafa'}}>
@@ -214,6 +263,7 @@ export default function BookingsModal(props: {
                                                     <TableCell sx={{whiteSpace: 'nowrap'}}>{t('bookings.bookingsCount')}: {group.bookings.length}</TableCell>
                                                     <TableCell sx={{whiteSpace: 'nowrap'}}>{t('bookings.nightsCount')}: {totalNights}</TableCell>
                                                     <TableCell sx={{whiteSpace: 'nowrap', fontWeight: 700}}>{totalPrice} ฿</TableCell>
+                                                    {canRunAutoAccounting && <TableCell></TableCell>}
                                                 </TableRow>
                                             </TableBody>
                                         </Table>
@@ -271,6 +321,19 @@ export default function BookingsModal(props: {
                                                         <Typography sx={{fontWeight: 600}}>{t('common.price')}:</Typography>
                                                         <Typography>{getBookingPrice(booking)} ฿</Typography>
                                                     </Stack>
+                                                    {canRunAutoAccounting && (
+                                                        <Box sx={{ mt: 1, pt: 1, borderTop: '1px solid #00000020' }}>
+                                                            <Button
+                                                                size="small"
+                                                                variant="outlined"
+                                                                startIcon={<PlayArrowIcon />}
+                                                                disabled={autoRunningId === booking.id || processedBookingIds.has(booking.id)}
+                                                                onClick={() => handleRunAutoAccounting(booking.id)}
+                                                            >
+                                                                {t('accountancy.autoAccounting.runForBooking')}
+                                                            </Button>
+                                                        </Box>
+                                                    )}
                                                 </AccordionDetails>
                                             </Accordion>
                                         ))}

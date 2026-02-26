@@ -189,6 +189,7 @@ export default function AuditLogsPage() {
                                 <MenuItem value="user">{t('auditLogs.entityTypes.user')}</MenuItem>
                                 <MenuItem value="category">{t('auditLogs.entityTypes.category')}</MenuItem>
                                 <MenuItem value="booking">{t('auditLogs.entityTypes.booking')}</MenuItem>
+                                <MenuItem value="cashflow">{t('auditLogs.entityTypes.cashflow')}</MenuItem>
                                 <MenuItem value="other">{t('auditLogs.entityTypes.other')}</MenuItem>
                             </Select>
                         </FormControl>

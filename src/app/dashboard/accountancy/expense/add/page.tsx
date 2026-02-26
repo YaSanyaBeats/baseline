@@ -30,6 +30,7 @@ import { AccountancyCategory, AccountancyAttachment, Booking, Expense, ExpenseSt
 import { formatTitle } from "@/lib/format";
 import { addExpense } from "@/lib/expenses";
 import { getCounterparties } from "@/lib/counterparties";
+import { getCashflows } from "@/lib/cashflows";
 import FileAttachments from "@/components/accountancy/FileAttachments";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
@@ -48,6 +49,7 @@ type ExpenseItemForm = {
     comment: string;
     status: ExpenseStatus;
     counterpartyId: string;
+    cashflowId: string;
     reportMonth: string;
     attachments: AccountancyAttachment[];
     bookingId: number | undefined;
@@ -61,6 +63,7 @@ const defaultExpenseItem: ExpenseItemForm = {
     comment: '',
     status: 'draft',
     counterpartyId: '',
+    cashflowId: '',
     reportMonth: '',
     attachments: [],
     bookingId: undefined,
@@ -78,6 +81,7 @@ export default function Page() {
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
@@ -89,10 +93,12 @@ export default function Page() {
         Promise.all([
             getAccountancyCategories('expense'),
             getCounterparties(),
+            getCashflows(),
         ])
-            .then(([cats, cps]) => {
+            .then(([cats, cps, cfs]) => {
                 setCategories(cats);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
             })
             .catch((error) => {
                 console.error('Error loading data:', error);
@@ -229,6 +235,7 @@ export default function Page() {
                     roomId,
                     bookingId: item.bookingId,
                     counterpartyId: item.counterpartyId || undefined,
+                    cashflowId: item.cashflowId || undefined,
                     category: item.category,
                     amount: effectiveCost,
                     quantity: item.quantity ?? 1,
@@ -323,6 +330,7 @@ export default function Page() {
                             <TableCell>{t('accountancy.bookingColumn')}</TableCell>
                             <TableCell>{t('accountancy.category')}</TableCell>
                             <TableCell>{t('accountancy.counterparty.title')}</TableCell>
+                            <TableCell>{t('accountancy.cashflow.title')}</TableCell>
                             <TableCell>{t('accountancy.cost')}</TableCell>
                             <TableCell>{t('accountancy.quantity')}</TableCell>
                             <TableCell>{t('accountancy.amountColumn')}</TableCell>
@@ -420,6 +428,25 @@ export default function Page() {
                                             {counterparties.map((cp) => (
                                                 <MenuItem key={cp._id} value={cp._id}>
                                                     {cp.name}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
+                                </TableCell>
+                                <TableCell>
+                                    <FormControl size="small" sx={{ minWidth: 140 }}>
+                                        <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
+                                        <Select
+                                            value={item.cashflowId || ''}
+                                            label={t('accountancy.cashflow.title')}
+                                            onChange={(e) =>
+                                                handleChangeItem(index, 'cashflowId', e.target.value as string)
+                                            }
+                                        >
+                                            <MenuItem value="">—</MenuItem>
+                                            {cashflows.map((cf) => (
+                                                <MenuItem key={cf._id} value={cf._id}>
+                                                    {cf.name}
                                                 </MenuItem>
                                             ))}
                                         </Select>

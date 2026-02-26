@@ -27,6 +27,7 @@ import {
     DialogContentText,
     DialogActions,
     Switch,
+    Chip,
 } from "@mui/material"
 import AddIcon from '@mui/icons-material/Add';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -553,12 +554,26 @@ export default function Page() {
                                 </TableRow>
                             ) : (
                                 filteredAndSortedIncomes.map((income) => (
-                                    <TableRow key={income._id}>
+                                    <TableRow
+                                        key={income._id}
+                                        sx={
+                                            (income as Income & { autoCreated?: { ruleId?: string } }).autoCreated
+                                                ? { bgcolor: (theme) => (theme.palette.mode === 'light' ? 'rgba(46, 125, 50, 0.06)' : 'rgba(102, 187, 106, 0.1)') }
+                                                : undefined
+                                        }
+                                    >
                                         <TableCell>{formatDate(income.date)}</TableCell>
                                         <TableCell>{getObjectName(income)}</TableCell>
                                         <TableCell>{getRoomName(income)}</TableCell>
                                         <TableCell>{income.bookingId ?? '-'}</TableCell>
-                                        <TableCell>{income.category}</TableCell>
+                                        <TableCell>
+                                            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                                                <span>{income.category}</span>
+                                                {(income as Income & { autoCreated?: { ruleId?: string } }).autoCreated && (
+                                                    <Chip size="small" label={t('accountancy.autoAccounting.autoCreatedBadge')} color="success" variant="outlined" />
+                                                )}
+                                            </Stack>
+                                        </TableCell>
                                         <TableCell>{formatAmount(income.amount)}</TableCell>
                                         <TableCell>{income.quantity ?? 1}</TableCell>
                                         <TableCell>{formatAmount(getIncomeSum(income))} ({t('accountancy.amountColumn')})</TableCell>

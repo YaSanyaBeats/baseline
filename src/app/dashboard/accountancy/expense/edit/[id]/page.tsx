@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from "@/lib/types";
 import { getExpenses, updateExpense } from "@/lib/expenses";
 import { getCounterparties } from "@/lib/counterparties";
+import { getCashflows } from "@/lib/cashflows";
 import FileAttachments from "@/components/accountancy/FileAttachments";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
@@ -52,6 +53,7 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant;
 
@@ -60,10 +62,12 @@ export default function Page() {
             Promise.all([
                 getAccountancyCategories('expense'),
                 getCounterparties(),
+                getCashflows(),
             ])
-                .then(([cats, cps]) => {
+                .then(([cats, cps, cfs]) => {
                     setCategories(cats);
                     setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                    setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 })
                 .catch((error) => {
                     console.error('Error loading data:', error);
@@ -80,6 +84,7 @@ export default function Page() {
                             roomId: found.roomId,
                             bookingId: found.bookingId,
                             counterpartyId: found.counterpartyId,
+                            cashflowId: found.cashflowId,
                             category: found.category,
                             amount: found.amount,
                             quantity: found.quantity ?? 1,
@@ -251,6 +256,7 @@ export default function Page() {
             roomId: expense.roomId,
             bookingId: expense.bookingId,
             counterpartyId: expense.counterpartyId,
+            cashflowId: expense.cashflowId,
             category: expense.category as string,
             amount: getEffectiveCost(),
             quantity: expense.quantity ?? 1,
@@ -385,6 +391,25 @@ export default function Page() {
                                 {counterparties.map((cp) => (
                                     <MenuItem key={cp._id} value={cp._id}>
                                         {cp.name}
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                    </Box>
+                    <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
+                            <Select
+                                value={expense.cashflowId || ''}
+                                label={t('accountancy.cashflow.title')}
+                                onChange={(e) =>
+                                    setExpense((prev) => ({ ...prev, cashflowId: e.target.value || undefined }))
+                                }
+                            >
+                                <MenuItem value="">—</MenuItem>
+                                {cashflows.map((cf) => (
+                                    <MenuItem key={cf._id} value={cf._id}>
+                                        {cf.name}
                                     </MenuItem>
                                 ))}
                             </Select>

@@ -20,6 +20,7 @@ import {
     TextField,
     Switch,
     IconButton,
+    Chip,
 } from "@mui/material";
 import { Visibility } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
@@ -248,6 +249,7 @@ export default function Page() {
         createdBy: string;
         lastEdit: string;
         reportMonth: string;
+        autoCreated?: boolean;
     };
 
     // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
@@ -302,6 +304,7 @@ export default function Page() {
                     createdBy: e.accountantName ?? '—',
                     lastEdit: '—',
                     reportMonth: e.reportMonth ?? '',
+                    autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
                 });
             });
 
@@ -320,6 +323,7 @@ export default function Page() {
                     createdBy: i.accountantName ?? '—',
                     lastEdit: '—',
                     reportMonth: i.reportMonth ?? '',
+                    autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
                 });
             });
 
@@ -518,12 +522,30 @@ export default function Page() {
                     </Button>
                 </Link>
 
+                <Link href="/dashboard/accountancy/cashflow">
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                    >
+                        {t('accountancy.cashflow.title')}
+                    </Button>
+                </Link>
+
                 <Link href="/dashboard/accountancy/commission">
                     <Button
                         fullWidth
                         variant="contained"
                     >
                         {t('accountancy.commission.title')}
+                    </Button>
+                </Link>
+
+                <Link href="/dashboard/accountancy/auto-accounting">
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                    >
+                        {t('accountancy.autoAccounting.title')}
                     </Button>
                 </Link>
             </Stack>
@@ -799,7 +821,14 @@ export default function Page() {
                                             </TableHead>
                                             <TableBody>
                                                 {filteredOperations.map((row) => (
-                                                    <TableRow key={row.id}>
+                                                    <TableRow
+                                                        key={row.id}
+                                                        sx={
+                                                            row.autoCreated
+                                                                ? { bgcolor: (theme) => (theme.palette.mode === 'light' ? 'rgba(46, 125, 50, 0.06)' : 'rgba(102, 187, 106, 0.1)') }
+                                                                : undefined
+                                                        }
+                                                    >
                                                         <TableCell>
                                                             <Link
                                                                 href={
@@ -865,7 +894,14 @@ export default function Page() {
                                                                 </Select>
                                                             </FormControl>
                                                         </TableCell>
-                                                        <TableCell>{row.category}</TableCell>
+                                                        <TableCell>
+                                                            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                                                                <span>{row.category}</span>
+                                                                {row.autoCreated && (
+                                                                    <Chip size="small" label={t('accountancy.autoAccounting.autoCreatedBadge')} color="success" variant="outlined" />
+                                                                )}
+                                                            </Stack>
+                                                        </TableCell>
                                                         <TableCell>{row.commentShort}</TableCell>
                                                         <TableCell sx={{ color: row.amount >= 0 ? 'success.main' : 'error.main' }}>
                                                             {row.amount >= 0 ? '+' : ''}{formatAmount(row.amount)}

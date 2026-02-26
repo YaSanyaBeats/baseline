@@ -1,5 +1,5 @@
 'use client'
-import { syncObjects, syncPrices, syncBookings, getLastSyncTimes } from "@/lib/beds24/objects"
+import { syncObjects, syncBookings, getLastSyncTimes } from "@/lib/beds24/objects"
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { Button, Stack, Typography, Box } from "@mui/material"
 import React from "react";
@@ -16,7 +16,6 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     
     const [loadObjects, setLoadObjects] = React.useState(false);
-    const [loadPrices, setLoadPrices] = React.useState(false);
     const [loadBookings, setLoadBookings] = React.useState(false);
     const [syncTimes, setSyncTimes] = React.useState<SyncTimes>({
         objects: null,
@@ -70,21 +69,6 @@ export default function Page() {
         });
     }
 
-    const handleSyncPrices = () => {
-        setLoadPrices(true);
-        syncPrices().then((res) => {
-            setSnackbar({
-                open: true,
-                message: res.message,
-                severity: res.success ? 'success' : 'error',
-            });
-            setLoadPrices(false);
-            if (res.success) {
-                loadSyncTimes();
-            }
-        });
-    }
-
     const handleSyncBookings = () => {
         setLoadBookings(true);
         syncBookings().then((res) => {
@@ -110,14 +94,6 @@ export default function Page() {
                         </Button>
                         <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
                             Последняя синхронизация: {formatDate(syncTimes.objects)}
-                        </Typography>
-                    </Box>
-                    <Box>
-                        <Button onClick={handleSyncPrices} variant="contained" loading={loadPrices}>
-                            Sync Prices
-                        </Button>
-                        <Typography variant="caption" color="textSecondary" display="block" sx={{ mt: 0.5 }}>
-                            Последняя синхронизация: {formatDate(syncTimes.prices)}
                         </Typography>
                     </Box>
                     <Box>

@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,
+            cashflowId: incomeData.cashflowId ?? null,
             category: incomeData.category,
             amount: incomeData.amount,
             quantity,
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
             reportMonth: incomeData.reportMonth || null,
             status,
             attachments: incomeData.attachments ?? [],
+            autoCreated: null,
         };
 
         await incomesCollection.updateOne(
