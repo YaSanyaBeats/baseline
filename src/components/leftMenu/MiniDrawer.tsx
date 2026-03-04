@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react';
@@ -141,6 +141,13 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
             roles: ['admin', 'accountant']
         },
         { 
+            text: t('menu.cashflow'), 
+            icon: <AccountBalanceWallet fontSize="small" />, 
+            link: '/dashboard/cashflow',
+            roles: [],
+            showOnlyWhenHasCashflow: true
+        },
+        { 
             text: t('menu.auditLogs'), 
             icon: <History fontSize="small" />, 
             link: '/dashboard/auditLogs',
@@ -172,6 +179,8 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
         }
 
         return menu.filter((menuElem) => {
+            const onlyCashflow = (menuElem as { showOnlyWhenHasCashflow?: boolean }).showOnlyWhenHasCashflow;
+            if (onlyCashflow) return Boolean(user.hasCashflow);
             return menuElem.roles.includes(user.role);
         })
     }

@@ -24,12 +24,14 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Booking, Income, UserObject } from "@/lib/types";
 import { formatTitle } from "@/lib/format";
 import { addIncome } from "@/lib/incomes";
+import { getCounterparties } from "@/lib/counterparties";
+import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
+import SourceRecipientSelect, { type SourceRecipientOptionValue, PREFIX_USER } from "@/components/accountancy/SourceRecipientSelect";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -48,6 +50,8 @@ type IncomeItemForm = {
     reportMonth: string;
     comment: string;
     cashflowId: string;
+    source: SourceRecipientOptionValue | '';
+    recipient: SourceRecipientOptionValue | '';
     attachments: AccountancyAttachment[];
     bookingId: number | undefined;
 };
@@ -60,6 +64,8 @@ const defaultIncomeItem: IncomeItemForm = {
     reportMonth: '',
     comment: '',
     cashflowId: '',
+    source: '',
+    recipient: '',
     attachments: [],
     bookingId: undefined,
 };
@@ -67,7 +73,7 @@ const defaultIncomeItem: IncomeItemForm = {
 export default function Page() {
     const { t } = useTranslation();
     const router = useRouter();
-    const { isAdmin, isAccountant } = useUser();
+    const { isAdmin, isAccountant, user } = useUser();
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [objectId, setObjectId] = useState<number | undefined>();
     const [roomId, setRoomId] = useState<number | undefined>();
@@ -76,18 +82,25 @@ export default function Page() {
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
 
-    const hasAccess = isAdmin || isAccountant;
+    const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
+    const recipientLockedForCashflow = Boolean(user?.hasCashflow) && !isAdmin && !isAccountant;
+    const currentUserRecipientValue: SourceRecipientOptionValue | '' =
+        recipientLockedForCashflow && user?._id ? `${PREFIX_USER}${user._id}` : '';
 
     useEffect(() => {
         if (!hasAccess) return;
-        Promise.all([getAccountancyCategories('income'), getCashflows()])
-            .then(([cats, cfs]) => {
+        Promise.all([getAccountancyCategories('income'), getCashflows(), getCounterparties(), getUsersWithCashflow()])
+            .then(([cats, cfs, cps, usersCf]) => {
                 setCategories(cats);
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
             })
             .catch((error) => {
                 console.error('Error loading data:', error);
@@ -108,7 +121,9 @@ export default function Page() {
     };
 
     const handleAddItem = () => {
-        setItems((prev) => [...prev, { ...defaultIncomeItem }]);
+        const newItem = { ...defaultIncomeItem };
+        if (recipientLockedForCashflow && currentUserRecipientValue) newItem.recipient = currentUserRecipientValue;
+        setItems((prev) => [...prev, newItem]);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -226,6 +241,8 @@ export default function Page() {
                     date: new Date(item.date),
                     status: 'draft',
                     reportMonth: item.reportMonth || undefined,
+                    source: item.source || undefined,
+                    recipient: (recipientLockedForCashflow ? currentUserRecipientValue : item.recipient) || undefined,
                     cashflowId: item.cashflowId || undefined,
                     comment: item.comment || undefined,
                     attachments: item.attachments ?? [],
@@ -253,7 +270,7 @@ export default function Page() {
             });
 
             if (successCount > 0) {
-                router.push('/dashboard/accountancy/income');
+                router.back();
             }
         } catch (error) {
             console.error('Error adding incomes:', error);
@@ -314,6 +331,8 @@ export default function Page() {
                             <TableCell width={40}></TableCell>
                             <TableCell>{t('accountancy.bookingColumn')}</TableCell>
                             <TableCell>{t('accountancy.category')}</TableCell>
+                            <TableCell>{t('accountancy.source')}</TableCell>
+                            <TableCell>{t('accountancy.recipient')}</TableCell>
                             <TableCell>{t('accountancy.cost')}</TableCell>
                             <TableCell>{t('accountancy.quantity')}</TableCell>
                             <TableCell>{t('accountancy.amountColumn')}</TableCell>
@@ -396,6 +415,27 @@ export default function Page() {
                                             ))}
                                         </Select>
                                     </FormControl>
+                                </TableCell>
+                                <TableCell>
+                                    <SourceRecipientSelect
+                                        value={item.source}
+                                        onChange={(v) => handleChangeItem(index, 'source', v)}
+                                        label={t('accountancy.source')}
+                                        counterparties={counterparties}
+                                        usersWithCashflow={usersWithCashflow}
+                                        sx={{ minWidth: 200 }}
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    <SourceRecipientSelect
+                                        value={recipientLockedForCashflow ? currentUserRecipientValue : item.recipient}
+                                        onChange={(v) => handleChangeItem(index, 'recipient', v)}
+                                        label={t('accountancy.recipient')}
+                                        counterparties={counterparties}
+                                        usersWithCashflow={usersWithCashflow}
+                                        disabled={recipientLockedForCashflow}
+                                        sx={{ minWidth: 200 }}
+                                    />
                                 </TableCell>
                                 <TableCell>
                                     <TextField
@@ -524,11 +564,13 @@ export default function Page() {
                 </Button>
 
                 <Stack direction="row" spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy/income">
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />}>
-                            {t('common.cancel')}
-                        </Button>
-                    </Link>
+                    <Button
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
                     <Button
                         variant="contained"
                         endIcon={<SendIcon />}

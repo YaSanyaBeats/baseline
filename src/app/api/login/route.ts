@@ -29,7 +29,8 @@ export async function POST(request: NextRequest) {
                 name: user.name,
                 role: user.role,
                 objects: user.objects,
-                accountType: user.accountType
+                accountType: user.accountType,
+                hasCashflow: Boolean(user.hasCashflow),
             },
             token
         });

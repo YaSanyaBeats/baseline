@@ -41,7 +41,8 @@ export async function GET() {
             bankName: user.bankName,
             accountNumber: user.accountNumber,
             accountType: user.accountType,
-            reportLink: user.reportLink
+            reportLink: user.reportLink,
+            hasCashflow: Boolean(user.hasCashflow),
         });
     } catch (error) {
         console.error('Error in GET /api/user/me:', error);

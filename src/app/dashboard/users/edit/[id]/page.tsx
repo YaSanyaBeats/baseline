@@ -1,6 +1,6 @@
 'use client'
 
-import { Box, Button, FormControl, IconButton, InputAdornment, InputLabel, MenuItem, OutlinedInput, Select, Stack, TextField, Typography } from "@mui/material"
+import { Box, Button, FormControl, FormControlLabel, IconButton, InputAdornment, InputLabel, MenuItem, OutlinedInput, Select, Stack, TextField, Typography, Checkbox } from "@mui/material"
 import SendIcon from '@mui/icons-material/Send';
 import Link from "next/link";
 import { ChangeEvent, useEffect, useState } from "react";
@@ -23,7 +23,8 @@ const defaultUser: User = {
     bankName: '',
     accountNumber: '',
     accountType: 'basic',
-    reportLink: ''
+    reportLink: '',
+    hasCashflow: false,
 }
 
 export default function Page() {
@@ -50,7 +51,8 @@ export default function Page() {
                 bankName: currentUser.bankName || '',
                 accountNumber: currentUser.accountNumber || '',
                 accountType: currentUser.accountType || 'basic',
-                reportLink: currentUser.reportLink || ''
+                reportLink: currentUser.reportLink || '',
+                hasCashflow: Boolean(currentUser.hasCashflow),
             }));
             console.log(currentUser);
         })
@@ -382,6 +384,17 @@ export default function Page() {
                             error={!!errors.reportLink}
                             helperText={errors.reportLink}
                             placeholder="https://example.com/report"
+                        />
+                    </Box>
+                    <Box>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={Boolean(user.hasCashflow)}
+                                    onChange={(e) => setUser({ ...user, hasCashflow: e.target.checked })}
+                                />
+                            }
+                            label={t('users.hasCashflow')}
                         />
                     </Box>
                 </Stack>

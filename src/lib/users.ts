@@ -8,6 +8,14 @@ export async function getUsers(): Promise<User[]>{
     return response.data;
 }
 
+/** Пользователи с кешфлоу (для выбора в источнике/получателе расходов и доходов). */
+export async function getUsersWithCashflow(): Promise<{ _id: string; name: string }[]> {
+    const response = await axios.get(getApiUrl('users'), {
+        params: { hasCashflow: 'true' },
+    });
+    return response.data;
+}
+
 export async function getUser(id: string): Promise<User>{
     const response = await axios.get(getApiUrl('users'), {
         params: {

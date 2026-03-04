@@ -133,7 +133,9 @@ export interface User {
     bankName?: string,
     accountNumber?: string,
     accountType?: 'basic' | 'premium',
-    reportLink?: string
+    reportLink?: string,
+    /** Доступ к вкладке «Кешфлоу»: свои расходы/доходы, только черновики */
+    hasCashflow?: boolean,
 }
 
 export interface UserObject {
@@ -223,10 +225,94 @@ export interface Cashflow {
     createdAt?: Date;
 }
 
+/** Тип фильтра в правиле кэшфлоу */
+export type CashflowRuleFilterType =
+    | 'rooms'
+    | 'metadata'
+    | 'counterparty'
+    | 'category'
+    | 'roomMetadata'
+    | 'booking'
+    | 'bookingDate'
+    | 'recordDate'
+    | 'amount'
+    | 'reportMonth'
+    | 'status'
+    | 'recordType';
+
+/** Оператор сравнения для чисел и дат */
+export type CashflowRuleCompareOperator = 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between' | 'after' | 'before';
+
+/** Один фильтр в правиле */
+export interface CashflowRuleFilter {
+    id: string;
+    type: CashflowRuleFilterType;
+    /** rooms: привязка объект → комнаты */
+    roomLinks?: UserObject[];
+    /** metadata: поле (district, objectType) и значение */
+    metadataField?: string;
+    metadataValue?: string;
+    /** counterparty */
+    counterpartyId?: string;
+    sourceOrRecipient?: 'source' | 'recipient' | 'both';
+    /** category: названия категорий (расход/доход) */
+    categoryNames?: string[];
+    /** roomMetadata: поле комнаты (bedrooms, bathrooms, level, kitchen и т.д.) */
+    roomMetadataField?: string;
+    roomMetadataOperator?: CashflowRuleCompareOperator;
+    roomMetadataValue?: string | number;
+    roomMetadataValueTo?: string | number; // для between
+    /** booking: есть привязка к брони (true/false) или список ID броней */
+    hasBooking?: boolean;
+    bookingIds?: number[];
+    /** bookingDate: дата брони (arrival/departure), нужны данные броней при расчёте */
+    bookingDateField?: 'arrival' | 'departure';
+    bookingDateOperator?: CashflowRuleCompareOperator;
+    bookingDateValue?: string;
+    bookingDateValueTo?: string;
+    /** recordDate: дата записи расхода/дохода */
+    recordDateOperator?: CashflowRuleCompareOperator;
+    recordDateValue?: string;
+    recordDateValueTo?: string;
+    /** amount: сумма (количество × цена) */
+    amountOperator?: CashflowRuleCompareOperator;
+    amountValue?: number;
+    amountValueTo?: number;
+    /** reportMonth: месяц отчёта YYYY-MM */
+    reportMonth?: string;
+    reportMonths?: string[];
+    /** status: черновик / подтверждён */
+    recordStatus?: 'draft' | 'confirmed';
+    /** recordType: только расход / только доход */
+    recordType?: 'expense' | 'income';
+}
+
+/** Логика между фильтрами правила: И / ИЛИ */
+export type CashflowRuleFilterLogic = 'and' | 'or';
+
+/** Знак баланса правила: плюс — сумма по модулю, минус — минус сумма по модулю */
+export type CashflowRuleBalanceSign = 'plus' | 'minus';
+
+/** Правило кэшфлоу: набор фильтров для отбора расходов/доходов и подсчёта баланса */
+export interface CashflowRule {
+    _id?: string;
+    name: string;
+    filterLogic: CashflowRuleFilterLogic;
+    filters: CashflowRuleFilter[];
+    /** Знак баланса: plus — все суммы складываются по модулю, minus — отнимаются по модулю */
+    balanceSign: CashflowRuleBalanceSign;
+    /** @deprecated используйте balanceSign (true → 'plus', false → 'minus') */
+    positiveSign?: boolean;
+    createdAt?: Date;
+}
+
 /** Признак и источник автосозданной записи (при ручном изменении сбрасывается) */
 export interface AutoCreatedMeta {
     ruleId?: string;               // ID правила из конструктора
 }
+
+/** Значение поля «Источник»/«Получатель»: "room:objectId:roomId", "cp:counterpartyId" или "user:userId" */
+export type SourceRecipientValue = string;
 
 export interface Expense {
     _id?: string;
@@ -234,6 +320,10 @@ export interface Expense {
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
     counterpartyId?: string;       // ID контрагента (опционально)
+    /** Источник: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    source?: SourceRecipientValue;
+    /** Получатель: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    recipient?: SourceRecipientValue;
     cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
     category: string;              // Категория расхода
     amount: number;                // Стоимость за единицу
@@ -255,6 +345,10 @@ export interface Income {
     objectId: number;              // ID объекта
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
+    /** Источник: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    source?: SourceRecipientValue;
+    /** Получатель: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    recipient?: SourceRecipientValue;
     cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
     date: Date;                    // Дата дохода
     amount: number;                // Стоимость за единицу
@@ -277,19 +371,38 @@ export type AutoAccountingPeriod = 'per_booking' | 'per_month';
 /** Откуда брать стоимость для автоучёта */
 export type AutoAccountingAmountSource = 'manual' | 'booking_price' | 'internet_cost' | 'category';
 
+/** Откуда брать количество для автоучёта */
+export type AutoAccountingQuantitySource = 'manual' | 'guests' | 'guests_div_2';
+
 /** Правило автоучёта: при добавлении брони создавать расход/доход по условиям */
 export interface AutoAccountingRule {
     _id?: string;
+    /** Название правила (для отображения в списке) */
+    name?: string;
     /** Тип записи */
     ruleType: 'expense' | 'income';
     /** ID объекта или 'all' для всех объектов */
     objectId: number | 'all';
     /** ID комнаты или 'all' для всех комнат объекта (имеет смысл при заданном objectId) */
     roomId?: number | 'all';
+    /** Фильтр по метаданным объекта: поле (district, objectType) */
+    objectMetadataField?: 'district' | 'objectType';
+    /** Значение метаданных объекта для совпадения */
+    objectMetadataValue?: string;
+    /** Фильтр по метаданным комнаты: поле (level, bedrooms, bathrooms, kitchen и т.д.) */
+    roomMetadataField?: string;
+    /** Оператор сравнения для метаданных комнаты */
+    roomMetadataOperator?: CashflowRuleCompareOperator;
+    /** Значение метаданных комнаты */
+    roomMetadataValue?: string | number;
+    /** Второе значение для оператора between */
+    roomMetadataValueTo?: string | number;
     /** Категория расхода/дохода */
     category: string;
-    /** Количество (например 1 для уборки) */
+    /** Количество (при quantitySource === 'manual') */
     quantity: number;
+    /** Откуда брать количество: вручную, количество гостей, гости÷2 (округление вверх) */
+    quantitySource?: AutoAccountingQuantitySource;
     /** Сумма за единицу (при amountSource === 'manual') */
     amount?: number;
     /** Откуда брать стоимость: вручную, из брони (price), из метаданных комнаты (интернет), из категории */

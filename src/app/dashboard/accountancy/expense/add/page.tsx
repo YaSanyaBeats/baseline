@@ -24,14 +24,15 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
-import Link from 'next/link';
 import { useEffect, useMemo, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Booking, Expense, ExpenseStatus, UserObject } from "@/lib/types";
 import { formatTitle } from "@/lib/format";
 import { addExpense } from "@/lib/expenses";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
+import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
+import SourceRecipientSelect, { type SourceRecipientOptionValue, PREFIX_USER } from "@/components/accountancy/SourceRecipientSelect";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -50,6 +51,8 @@ type ExpenseItemForm = {
     status: ExpenseStatus;
     counterpartyId: string;
     cashflowId: string;
+    source: SourceRecipientOptionValue | '';
+    recipient: SourceRecipientOptionValue | '';
     reportMonth: string;
     attachments: AccountancyAttachment[];
     bookingId: number | undefined;
@@ -64,6 +67,8 @@ const defaultExpenseItem: ExpenseItemForm = {
     status: 'draft',
     counterpartyId: '',
     cashflowId: '',
+    source: '',
+    recipient: '',
     reportMonth: '',
     attachments: [],
     bookingId: undefined,
@@ -72,7 +77,7 @@ const defaultExpenseItem: ExpenseItemForm = {
 export default function Page() {
     const { t } = useTranslation();
     const router = useRouter();
-    const { isAdmin, isAccountant } = useUser();
+    const { isAdmin, isAccountant, user } = useUser();
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [objectId, setObjectId] = useState<number | undefined>();
     const [roomId, setRoomId] = useState<number | undefined>();
@@ -81,12 +86,16 @@ export default function Page() {
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
 
-    const hasAccess = isAdmin || isAccountant;
+    const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
+    const sourceLockedForCashflow = Boolean(user?.hasCashflow) && !isAdmin && !isAccountant;
+    const currentUserSourceValue: SourceRecipientOptionValue | '' =
+        sourceLockedForCashflow && user?._id ? `${PREFIX_USER}${user._id}` : '';
 
     useEffect(() => {
         if (!hasAccess) return;
@@ -94,11 +103,13 @@ export default function Page() {
             getAccountancyCategories('expense'),
             getCounterparties(),
             getCashflows(),
+            getUsersWithCashflow(),
         ])
-            .then(([cats, cps, cfs]) => {
+            .then(([cats, cps, cfs, usersCf]) => {
                 setCategories(cats);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
             })
             .catch((error) => {
                 console.error('Error loading data:', error);
@@ -119,7 +130,9 @@ export default function Page() {
     };
 
     const handleAddItem = () => {
-        setItems((prev) => [...prev, { ...defaultExpenseItem }]);
+        const newItem = { ...defaultExpenseItem };
+        if (sourceLockedForCashflow && currentUserSourceValue) newItem.source = currentUserSourceValue;
+        setItems((prev) => [...prev, newItem]);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -235,6 +248,8 @@ export default function Page() {
                     roomId,
                     bookingId: item.bookingId,
                     counterpartyId: item.counterpartyId || undefined,
+                    source: (sourceLockedForCashflow ? currentUserSourceValue : item.source) || undefined,
+                    recipient: item.recipient || undefined,
                     cashflowId: item.cashflowId || undefined,
                     category: item.category,
                     amount: effectiveCost,
@@ -268,7 +283,7 @@ export default function Page() {
             });
 
             if (successCount > 0) {
-                router.push('/dashboard/accountancy/expense');
+                router.back();
             }
         } catch (error) {
             console.error('Error adding expenses:', error);
@@ -330,6 +345,8 @@ export default function Page() {
                             <TableCell>{t('accountancy.bookingColumn')}</TableCell>
                             <TableCell>{t('accountancy.category')}</TableCell>
                             <TableCell>{t('accountancy.counterparty.title')}</TableCell>
+                            <TableCell>{t('accountancy.source')}</TableCell>
+                            <TableCell>{t('accountancy.recipient')}</TableCell>
                             <TableCell>{t('accountancy.cashflow.title')}</TableCell>
                             <TableCell>{t('accountancy.cost')}</TableCell>
                             <TableCell>{t('accountancy.quantity')}</TableCell>
@@ -432,6 +449,27 @@ export default function Page() {
                                             ))}
                                         </Select>
                                     </FormControl>
+                                </TableCell>
+                                <TableCell>
+                                    <SourceRecipientSelect
+                                        value={sourceLockedForCashflow ? currentUserSourceValue : item.source}
+                                        onChange={(v) => handleChangeItem(index, 'source', v)}
+                                        label={t('accountancy.source')}
+                                        counterparties={counterparties}
+                                        usersWithCashflow={usersWithCashflow}
+                                        disabled={sourceLockedForCashflow}
+                                        sx={{ minWidth: 200 }}
+                                    />
+                                </TableCell>
+                                <TableCell>
+                                    <SourceRecipientSelect
+                                        value={item.recipient}
+                                        onChange={(v) => handleChangeItem(index, 'recipient', v)}
+                                        label={t('accountancy.recipient')}
+                                        counterparties={counterparties}
+                                        usersWithCashflow={usersWithCashflow}
+                                        sx={{ minWidth: 200 }}
+                                    />
                                 </TableCell>
                                 <TableCell>
                                     <FormControl size="small" sx={{ minWidth: 140 }}>
@@ -575,11 +613,13 @@ export default function Page() {
                 </Button>
 
                 <Stack direction="row" spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy/expense">
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />}>
-                            {t('common.cancel')}
-                        </Button>
-                    </Link>
+                    <Button
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
                     <Button
                         variant="contained"
                         endIcon={<SendIcon />}

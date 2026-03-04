@@ -16,12 +16,8 @@ export async function DELETE(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
-            return NextResponse.json(
-                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут удалять доходы.' },
-                { status: 403 },
-            );
-        }
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const userId = (session.user as any)._id?.toString?.() ?? (session.user as any)._id;
 
         const db = await getDB();
         const incomesCollection = db.collection('incomes');
@@ -49,6 +45,16 @@ export async function DELETE(request: NextRequest) {
             return NextResponse.json(
                 { success: false, message: 'Доход не найден' },
                 { status: 404 },
+            );
+        }
+
+        const isAdminOrAccountant = userRole === 'admin' || userRole === 'accountant';
+        const ownerId = existingIncome.accountantId?.toString?.() ?? existingIncome.accountantId;
+        const isOwnDraft = hasCashflow && !isAdminOrAccountant && ownerId === userId && existingIncome.status === 'draft';
+        if (!isAdminOrAccountant && !isOwnDraft) {
+            return NextResponse.json(
+                { success: false, message: 'Недостаточно прав или можно удалять только свои черновики.' },
+                { status: 403 },
             );
         }
 

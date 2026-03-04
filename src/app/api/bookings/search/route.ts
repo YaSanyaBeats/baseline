@@ -1,8 +1,28 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 
 export async function GET(request: NextRequest) {
     try {
+        const session = await getServerSession(authOptions);
+        if (!session || !session.user) {
+            return NextResponse.json(
+                { success: false, message: 'Необходима авторизация' },
+                { status: 401 },
+            );
+        }
+
+        const userRole = (session.user as any).role;
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const hasAccess = userRole === 'admin' || userRole === 'accountant' || hasCashflow || userRole === 'owner';
+        if (!hasAccess) {
+            return NextResponse.json(
+                { success: false, message: 'Недостаточно прав' },
+                { status: 403 },
+            );
+        }
+
         const db = await getDB();
         const searchParams = request.nextUrl.searchParams;
 

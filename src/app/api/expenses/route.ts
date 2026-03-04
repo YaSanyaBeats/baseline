@@ -16,11 +16,31 @@ export async function GET() {
             );
         }
 
+        const userRole = (session.user as any).role;
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const userId = (session.user as any)._id?.toString?.() ?? (session.user as any)._id;
+
         const db = await getDB();
         const expensesCollection = db.collection('expenses');
 
+        const filter: Record<string, unknown> = {};
+        if (userRole !== 'admin' && userRole !== 'accountant') {
+            if (hasCashflow && userId) {
+                const userPrefix = `user:${userId}`;
+                filter.$or = [
+                    { source: userPrefix },
+                    { recipient: userPrefix },
+                ];
+            } else {
+                return NextResponse.json(
+                    { success: false, message: 'Недостаточно прав' },
+                    { status: 403 },
+                );
+            }
+        }
+
         const expenses = await expensesCollection
-            .find({})
+            .find(filter)
             .sort({ date: -1, createdAt: -1 })
             .toArray();
 
@@ -45,9 +65,11 @@ export async function POST(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const canCreate = userRole === 'accountant' || userRole === 'admin' || hasCashflow;
+        if (!canCreate) {
             return NextResponse.json(
-                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут добавлять расходы.' },
+                { success: false, message: 'Недостаточно прав для добавления расходов.' },
                 { status: 403 },
             );
         }
@@ -80,6 +102,11 @@ export async function POST(request: NextRequest) {
         const quantity = expenseData.quantity != null && Number.isInteger(expenseData.quantity) && expenseData.quantity >= 1
             ? expenseData.quantity
             : 1;
+
+        const onlyDraftForCashflow = hasCashflow && userRole !== 'admin' && userRole !== 'accountant';
+        if (onlyDraftForCashflow) {
+            expenseData.status = 'draft';
+        }
 
         const allowedStatuses: ExpenseStatus[] = ['draft', 'confirmed'];
         if (!allowedStatuses.includes(expenseData.status)) {
@@ -115,6 +142,8 @@ export async function POST(request: NextRequest) {
             roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,
             counterpartyId: expenseData.counterpartyId ?? null,
+            source: expenseData.source ?? null,
+            recipient: expenseData.recipient ?? null,
             cashflowId: expenseData.cashflowId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,

@@ -1,17 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import { getAllObjects, getObjects } from '@/lib/server/getObjects';
 
+function hasFullAccess(session: { user?: { role?: string; hasCashflow?: boolean } | null }) {
+    if (!session?.user) return false;
+    const role = (session.user as any).role;
+    const hasCashflow = Boolean((session.user as any).hasCashflow);
+    return role === 'admin' || role === 'accountant' || hasCashflow;
+}
+
 export async function GET(request: NextRequest) {
     try {
+        const session = await getServerSession(authOptions);
+        if (!session || !session.user) {
+            return NextResponse.json(
+                { success: false, message: 'Необходима авторизация' },
+                { status: 401 },
+            );
+        }
+
+        const fullAccess = hasFullAccess(session);
+        const userId = (session.user as any)._id?.toString?.() ?? (session.user as any)._id;
+
         const db = await getDB();
         const collection = db.collection('objects');
         const internalObjectsCollection = db.collection('internalObjects');
         const searchParams = request.nextUrl.searchParams;
-        
+
         // Обработка запроса по массиву ID
         if (searchParams.has('id[]')) {
+            if (!fullAccess) {
+                return NextResponse.json(
+                    { success: false, message: 'Недостаточно прав. Доступ ко всем объектам есть у администратора, бухгалтера или пользователя с кешфлоу.' },
+                    { status: 403 },
+                );
+            }
             const ids = searchParams.getAll('id[]');
             const idsNumbers = ids.map((e) => +e);
             
@@ -31,15 +57,28 @@ export async function GET(request: NextRequest) {
         
         // Обработка запроса всех объектов
         if (searchParams.get('all') === 'true') {
+            if (!fullAccess) {
+                return NextResponse.json(
+                    { success: false, message: 'Недостаточно прав. Доступ ко всем объектам есть у администратора, бухгалтера или пользователя с кешфлоу.' },
+                    { status: 403 },
+                );
+            }
             const neededObjects = await getAllObjects();
             return NextResponse.json(neededObjects);
         }
-        
+
         // Обработка запроса по userID
         if (searchParams.has('userID')) {
+            const requestedUserID = searchParams.get('userID');
+            if (!fullAccess && requestedUserID !== userId) {
+                return NextResponse.json(
+                    { success: false, message: 'Недостаточно прав. Можно запрашивать только свои объекты.' },
+                    { status: 403 },
+                );
+            }
             const users = db.collection('users');
             const user = await users.findOne({
-                '_id': new ObjectId(searchParams.get('userID') as string)
+                '_id': new ObjectId(requestedUserID as string)
             });
             
             if (!user) {
@@ -90,7 +129,13 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(neededObjects);
         }
         
-        // Обычный запрос с фильтрацией
+        // Обычный запрос с фильтрацией (все объекты)
+        if (!fullAccess) {
+            return NextResponse.json(
+                { success: false, message: 'Недостаточно прав. Доступ ко всем объектам есть у администратора, бухгалтера или пользователя с кешфлоу.' },
+                { status: 403 },
+            );
+        }
         const neededObjects = await getObjects();
         return NextResponse.json(neededObjects);
     } catch (error) {

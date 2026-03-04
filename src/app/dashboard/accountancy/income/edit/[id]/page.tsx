@@ -21,7 +21,10 @@ import Link from 'next/link';
 import { useEffect, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomes, updateIncome } from "@/lib/incomes";
+import { getCounterparties } from "@/lib/counterparties";
+import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
+import SourceRecipientSelect, { type SourceRecipientOptionValue } from "@/components/accountancy/SourceRecipientSelect";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -37,7 +40,7 @@ export default function Page() {
     const router = useRouter();
     const params = useParams();
     const incomeId = params?.id as string;
-    const { isAdmin, isAccountant } = useUser();
+    const { isAdmin, isAccountant, user } = useUser();
     const [income, setIncome] = useState<Partial<Income & { dateString: string }>>({});
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -47,15 +50,19 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
-    const hasAccess = isAdmin || isAccountant;
+    const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
 
     useEffect(() => {
         if (hasAccess) {
-            Promise.all([getAccountancyCategories('income'), getCashflows()])
-                .then(([cats, cfs]) => {
+            Promise.all([getAccountancyCategories('income'), getCashflows(), getCounterparties(), getUsersWithCashflow()])
+                .then(([cats, cfs, cps, usersCf]) => {
                     setCategories(cats);
                     setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                    setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                    setUsersWithCashflow(usersCf);
                 })
                 .catch((error) => {
                     console.error('Error loading categories:', error);
@@ -80,6 +87,8 @@ export default function Page() {
                             status: (found as any).status || 'draft',
                             reportMonth: found.reportMonth ?? '',
                             cashflowId: found.cashflowId ?? '',
+                            source: found.source ?? '',
+                            recipient: found.recipient ?? '',
                             comment: found.comment ?? '',
                             attachments: found.attachments ?? [],
                         });
@@ -235,6 +244,8 @@ export default function Page() {
             date: new Date(income.dateString as string),
             status: (income.status as IncomeStatus) || 'draft',
             reportMonth: income.reportMonth || undefined,
+            source: income.source || undefined,
+            recipient: income.recipient || undefined,
             cashflowId: income.cashflowId || undefined,
             comment: income.comment ?? '',
             attachments: income.attachments ?? [],
@@ -429,6 +440,28 @@ export default function Page() {
                                 })()}
                             </Select>
                         </FormControl>
+                    </Box>
+                    <Box>
+                        <SourceRecipientSelect
+                            value={(income.source as SourceRecipientOptionValue) ?? ''}
+                            onChange={(v) => setIncome((prev) => ({ ...prev, source: v || undefined }))}
+                            label={t('accountancy.source')}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            size="medium"
+                            sx={{ width: '100%' }}
+                        />
+                    </Box>
+                    <Box>
+                        <SourceRecipientSelect
+                            value={(income.recipient as SourceRecipientOptionValue) ?? ''}
+                            onChange={(v) => setIncome((prev) => ({ ...prev, recipient: v || undefined }))}
+                            label={t('accountancy.recipient')}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            size="medium"
+                            sx={{ width: '100%' }}
+                        />
                     </Box>
                     <Box>
                         <FormControl sx={{ width: '100%' }}>

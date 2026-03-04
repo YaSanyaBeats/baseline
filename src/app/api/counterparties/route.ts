@@ -19,7 +19,9 @@ export async function GET() {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const hasAccess = userRole === 'accountant' || userRole === 'admin' || hasCashflow;
+        if (!hasAccess) {
             return NextResponse.json(
                 { success: false, message: 'Недостаточно прав' },
                 { status: 403 },
@@ -55,7 +57,9 @@ export async function POST(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const hasAccess = userRole === 'accountant' || userRole === 'admin' || hasCashflow;
+        if (!hasAccess) {
             return NextResponse.json(
                 { success: false, message: 'Недостаточно прав' },
                 { status: 403 },
@@ -135,7 +139,9 @@ export async function PUT(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const hasAccess = userRole === 'accountant' || userRole === 'admin' || hasCashflow;
+        if (!hasAccess) {
             return NextResponse.json(
                 { success: false, message: 'Недостаточно прав' },
                 { status: 403 },
@@ -239,7 +245,9 @@ export async function DELETE(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const hasAccess = userRole === 'accountant' || userRole === 'admin' || hasCashflow;
+        if (!hasAccess) {
             return NextResponse.json(
                 { success: false, message: 'Недостаточно прав' },
                 { status: 403 },

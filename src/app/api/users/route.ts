@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import bcrypt from 'bcrypt';
 import { ObjectId } from 'mongodb';
@@ -7,21 +9,37 @@ export async function GET(request: NextRequest) {
     try {
         const db = await getDB();
         const collection = db.collection('users');
-        
         const searchParams = request.nextUrl.searchParams;
         const id = searchParams.get('id');
-        
+        const hasCashflowOnly = searchParams.get('hasCashflow') === 'true';
+
+        if (hasCashflowOnly) {
+            const session = await getServerSession(authOptions);
+            if (!session?.user) {
+                return NextResponse.json({ success: false, message: 'Необходима авторизация' }, { status: 401 });
+            }
+            const userRole = (session.user as any).role;
+            const hasCashflow = Boolean((session.user as any).hasCashflow);
+            const canAccess = userRole === 'admin' || userRole === 'accountant' || hasCashflow;
+            if (!canAccess) {
+                return NextResponse.json({ success: false, message: 'Недостаточно прав' }, { status: 403 });
+            }
+            const users = await collection
+                .find({ hasCashflow: true }, { projection: { _id: 1, name: 1 } })
+                .toArray();
+            return NextResponse.json(users);
+        }
+
         if (id) {
             const user = await collection.findOne({
                 _id: new ObjectId(id)
             });
-            
             if (user) {
                 return NextResponse.json(user);
             }
             return NextResponse.json({ error: 'User not found' }, { status: 404 });
         }
-        
+
         const users = await collection.find().toArray();
         return NextResponse.json(users);
     } catch (error) {

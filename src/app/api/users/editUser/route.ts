@@ -56,6 +56,9 @@ export async function POST(request: NextRequest) {
             if (user.reportLink !== undefined) {
                 updateData.reportLink = user.reportLink;
             }
+            if (user.hasCashflow !== undefined) {
+                updateData.hasCashflow = Boolean(user.hasCashflow);
+            }
             
             await usersCollection.updateOne(
                 { _id: new ObjectId(user._id as string) },

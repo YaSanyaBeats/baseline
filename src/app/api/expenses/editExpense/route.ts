@@ -17,12 +17,8 @@ export async function POST(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
-            return NextResponse.json(
-                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут редактировать расходы.' },
-                { status: 403 },
-            );
-        }
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const userId = (session.user as any)._id?.toString?.() ?? (session.user as any)._id;
 
         const db = await getDB();
         const body = await request.json();
@@ -80,11 +76,29 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const isAdminOrAccountant = userRole === 'admin' || userRole === 'accountant';
+        const ownerId = existingExpense.accountantId?.toString?.() ?? existingExpense.accountantId;
+        const isOwnDraft = hasCashflow && !isAdminOrAccountant && ownerId === userId && existingExpense.status === 'draft';
+        if (!isAdminOrAccountant && !isOwnDraft) {
+            return NextResponse.json(
+                { success: false, message: 'Недостаточно прав или можно редактировать только свои черновики.' },
+                { status: 403 },
+            );
+        }
+        if (isOwnDraft && expenseData.status !== 'draft') {
+            return NextResponse.json(
+                { success: false, message: 'Пользователи с кешфлоу не могут менять статус на «Подтверждён».' },
+                { status: 400 },
+            );
+        }
+
         const updateData: any = {
             objectId: expenseData.objectId,
             roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,
             counterpartyId: expenseData.counterpartyId ?? null,
+            source: expenseData.source ?? null,
+            recipient: expenseData.recipient ?? null,
             cashflowId: expenseData.cashflowId ?? null,
             category: expenseData.category,
             amount: expenseData.amount,
@@ -103,7 +117,6 @@ export async function POST(request: NextRequest) {
         );
 
         // Логируем обновление расхода
-        const userId = (session.user as any)._id;
         const userName = (session.user as any).name || session.user.name || 'Unknown';
         await logAuditAction({
             entity: 'expense',

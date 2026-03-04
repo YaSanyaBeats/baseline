@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
-import { AutoAccountingRule, AutoAccountingPeriod, AutoAccountingAmountSource } from '@/lib/types';
+import { AutoAccountingRule, AutoAccountingPeriod, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
 import { ObjectId, Filter } from 'mongodb';
 
 type RuleDb = AutoAccountingRule & { _id?: ObjectId };
@@ -18,6 +18,9 @@ function parseRoomId(b: Record<string, unknown>): number | 'all' | undefined {
 }
 
 const VALID_AMOUNT_SOURCES: AutoAccountingAmountSource[] = ['manual', 'booking_price', 'internet_cost', 'category'];
+const VALID_QUANTITY_SOURCES: AutoAccountingQuantitySource[] = ['manual', 'guests', 'guests_div_2'];
+const VALID_OBJECT_META_FIELDS = ['district', 'objectType'] as const;
+const VALID_ROOM_META_OPERATORS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between'] as const;
 
 function parseAmountSource(b: Record<string, unknown>): AutoAccountingAmountSource | undefined {
     if (typeof b.amountSource === 'string' && VALID_AMOUNT_SOURCES.includes(b.amountSource as AutoAccountingAmountSource)) {
@@ -26,10 +29,20 @@ function parseAmountSource(b: Record<string, unknown>): AutoAccountingAmountSour
     return undefined;
 }
 
-function parseRuleBody(body: unknown): { ruleType?: 'expense' | 'income'; objectId?: number | 'all'; roomId?: number | 'all'; category?: string; quantity?: number; amount?: number; amountSource?: AutoAccountingAmountSource; period?: AutoAccountingPeriod; order?: number } | null {
+function parseQuantitySource(b: Record<string, unknown>): AutoAccountingQuantitySource | undefined {
+    if (typeof b.quantitySource === 'string' && VALID_QUANTITY_SOURCES.includes(b.quantitySource as AutoAccountingQuantitySource)) {
+        return b.quantitySource as AutoAccountingQuantitySource;
+    }
+    return undefined;
+}
+
+type PartialRuleUpdate = Partial<Pick<AutoAccountingRule, 'name' | 'ruleType' | 'objectId' | 'roomId' | 'category' | 'quantity' | 'amount' | 'amountSource' | 'quantitySource' | 'period' | 'order' | 'objectMetadataField' | 'objectMetadataValue' | 'roomMetadataField' | 'roomMetadataOperator' | 'roomMetadataValue'>>;
+
+function parseRuleBody(body: unknown): PartialRuleUpdate | null {
     if (!body || typeof body !== 'object') return null;
     const b = body as Record<string, unknown>;
-    const out: { ruleType?: 'expense' | 'income'; objectId?: number | 'all'; roomId?: number | 'all'; category?: string; quantity?: number; amount?: number; amountSource?: AutoAccountingAmountSource; period?: AutoAccountingPeriod; order?: number } = {};
+    const out: PartialRuleUpdate = {};
+    if (typeof b.name === 'string') out.name = b.name.trim() || undefined;
     if (b.ruleType === 'expense' || b.ruleType === 'income') out.ruleType = b.ruleType;
     if (b.objectId === 'all') out.objectId = 'all';
     else if (typeof b.objectId === 'number' && !Number.isNaN(b.objectId)) out.objectId = b.objectId;
@@ -44,8 +57,15 @@ function parseRuleBody(body: unknown): { ruleType?: 'expense' | 'income'; object
     if (typeof b.amount === 'number' && b.amount >= 0) out.amount = b.amount;
     const amountSource = parseAmountSource(b);
     if (amountSource !== undefined) out.amountSource = amountSource;
+    const quantitySource = parseQuantitySource(b);
+    if (quantitySource !== undefined) out.quantitySource = quantitySource;
     if (b.period === 'per_booking' || b.period === 'per_month') out.period = b.period;
     if (typeof b.order === 'number' && Number.isInteger(b.order)) out.order = b.order;
+    if (typeof b.objectMetadataField === 'string' && VALID_OBJECT_META_FIELDS.includes(b.objectMetadataField as any)) out.objectMetadataField = b.objectMetadataField as 'district' | 'objectType';
+    if (typeof b.objectMetadataValue === 'string') out.objectMetadataValue = b.objectMetadataValue.trim() || undefined;
+    if (typeof b.roomMetadataField === 'string' && b.roomMetadataField.trim()) out.roomMetadataField = b.roomMetadataField.trim();
+    if (typeof b.roomMetadataOperator === 'string' && VALID_ROOM_META_OPERATORS.includes(b.roomMetadataOperator as any)) out.roomMetadataOperator = b.roomMetadataOperator as any;
+    if (typeof b.roomMetadataValue === 'string' || typeof b.roomMetadataValue === 'number') out.roomMetadataValue = b.roomMetadataValue;
     return Object.keys(out).length ? out : null;
 }
 
@@ -75,7 +95,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             );
         }
 
-        const body = await request.json();
+        const body = await request.json() as Record<string, unknown>;
         const parsed = parseRuleBody(body);
         if (!parsed || Object.keys(parsed).length === 0) {
             return NextResponse.json(
@@ -98,7 +118,22 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         }
 
         const updateData: Partial<RuleDb> = { ...parsed };
-        await collection.updateOne({ _id: oid } as Filter<RuleDb>, { $set: updateData });
+        const unsetKeys: string[] = [];
+        if (body.objectMetadataField === '' || body.objectMetadataField === null) {
+            unsetKeys.push('objectMetadataField', 'objectMetadataValue');
+            delete updateData.objectMetadataField;
+            delete updateData.objectMetadataValue;
+        }
+        if (body.roomMetadataField === '' || body.roomMetadataField === null) {
+            unsetKeys.push('roomMetadataField', 'roomMetadataOperator', 'roomMetadataValue', 'roomMetadataValueTo');
+            delete updateData.roomMetadataField;
+            delete updateData.roomMetadataOperator;
+            delete updateData.roomMetadataValue;
+            delete (updateData as Record<string, unknown>).roomMetadataValueTo;
+        }
+        const updateOp: Record<string, unknown> = updateData && Object.keys(updateData).length > 0 ? { $set: updateData } : {};
+        if (unsetKeys.length) updateOp.$unset = Object.fromEntries(unsetKeys.map((k) => [k, 1]));
+        await collection.updateOne({ _id: oid } as Filter<RuleDb>, Object.keys(updateOp).length ? updateOp as any : { $set: {} });
 
         return NextResponse.json({
             success: true,

@@ -40,6 +40,9 @@ import { useEffect, useMemo, useState } from "react";
 import { Income, IncomeStatus, Booking } from "@/lib/types";
 import { getIncomes, deleteIncome, updateIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
+import { getCounterparties } from "@/lib/counterparties";
+import { getUsersWithCashflow } from "@/lib/users";
+import { formatSourceRecipientLabel } from "@/components/accountancy/SourceRecipientSelect";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import { getIncomeSum } from "@/lib/accountancyUtils";
@@ -109,6 +112,8 @@ export default function Page() {
     const [filterRoomId, setFilterRoomId] = useState<string>(() => loadIncomeFilters()?.filterRoomId ?? '');
     const [filterStatus, setFilterStatus] = useState<string>(() => loadIncomeFilters()?.filterStatus ?? '');
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(() => loadIncomeFilters()?.sortByAmountAsc ?? null);
     const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(() => loadIncomeFilters()?.sortByDateAsc ?? true);
@@ -131,10 +136,14 @@ export default function Page() {
         Promise.all([
             getIncomes(),
             getAccountancyCategories('income'),
+            getCounterparties(),
+            getUsersWithCashflow(),
         ])
-            .then(async ([list, cats]) => {
+            .then(async ([list, cats, cps, usersCf]) => {
                 setIncomes(list);
                 setCategories(cats);
+                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
                 const bookingIds = Array.from(
                     new Set(list.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number')),
                 );
@@ -495,6 +504,8 @@ export default function Page() {
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('common.room')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.bookingColumn')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.categoryColumn')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.source')}</TableCell>
+                                <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.recipient')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.cost')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>{t('accountancy.quantity')}</TableCell>
                                 <TableCell sx={{ fontWeight: 'bold' }}>
@@ -546,7 +557,7 @@ export default function Page() {
                         <TableBody>
                             {filteredAndSortedIncomes.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={11} align="center">
+                                    <TableCell colSpan={13} align="center">
                                         <Typography sx={{ py: 2 }}>
                                             {t('accountancy.noFilteredIncomes')}
                                         </Typography>
@@ -574,6 +585,8 @@ export default function Page() {
                                                 )}
                                             </Stack>
                                         </TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatSourceRecipientLabel(income.source, objects, counterparties, usersWithCashflow)}</TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatSourceRecipientLabel(income.recipient, objects, counterparties, usersWithCashflow)}</TableCell>
                                         <TableCell>{formatAmount(income.amount)}</TableCell>
                                         <TableCell>{income.quantity ?? 1}</TableCell>
                                         <TableCell>{formatAmount(getIncomeSum(income))} ({t('accountancy.amountColumn')})</TableCell>

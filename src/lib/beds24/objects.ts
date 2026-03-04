@@ -4,7 +4,9 @@ import { getApiUrl } from '../api-client';
 
 export async function getObjects(session: any){
     try {
-        if(session?.user?.role == 'owner') {
+        // Владелец без кешфлоу — только свои объекты; с кешфлоу / admin / accountant — все объекты
+        const isOwnerOnly = session?.user?.role === 'owner' && !session?.user?.hasCashflow;
+        if (isOwnerOnly) {
             const response = await axios.get(getApiUrl('objects'), {
                 params: {
                     userID: session.user._id

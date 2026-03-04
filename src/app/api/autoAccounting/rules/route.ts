@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
-import { AutoAccountingRule, AutoAccountingPeriod, AutoAccountingAmountSource } from '@/lib/types';
+import { AutoAccountingRule, AutoAccountingPeriod, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 
 type RuleDb = AutoAccountingRule & { _id?: ObjectId };
@@ -49,6 +49,9 @@ function parseRoomId(b: Record<string, unknown>): number | 'all' | undefined {
 }
 
 const VALID_AMOUNT_SOURCES: AutoAccountingAmountSource[] = ['manual', 'booking_price', 'internet_cost', 'category'];
+const VALID_QUANTITY_SOURCES: AutoAccountingQuantitySource[] = ['manual', 'guests', 'guests_div_2'];
+const VALID_OBJECT_META_FIELDS = ['district', 'objectType'] as const;
+const VALID_ROOM_META_OPERATORS = ['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'between'] as const;
 
 function parseAmountSource(b: Record<string, unknown>): AutoAccountingAmountSource | undefined {
     if (typeof b.amountSource === 'string' && VALID_AMOUNT_SOURCES.includes(b.amountSource as AutoAccountingAmountSource)) {
@@ -57,7 +60,33 @@ function parseAmountSource(b: Record<string, unknown>): AutoAccountingAmountSour
     return undefined;
 }
 
-function parseRuleBody(body: unknown): { ruleType: 'expense' | 'income'; objectId: number | 'all'; roomId?: number | 'all'; category: string; quantity: number; amount?: number; amountSource?: AutoAccountingAmountSource; period: AutoAccountingPeriod; order: number } | null {
+function parseQuantitySource(b: Record<string, unknown>): AutoAccountingQuantitySource | undefined {
+    if (typeof b.quantitySource === 'string' && VALID_QUANTITY_SOURCES.includes(b.quantitySource as AutoAccountingQuantitySource)) {
+        return b.quantitySource as AutoAccountingQuantitySource;
+    }
+    return undefined;
+}
+
+type ParsedRule = {
+    name?: string;
+    ruleType: 'expense' | 'income';
+    objectId: number | 'all';
+    roomId?: number | 'all';
+    objectMetadataField?: 'district' | 'objectType';
+    objectMetadataValue?: string;
+    roomMetadataField?: string;
+    roomMetadataOperator?: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between';
+    roomMetadataValue?: string | number;
+    category: string;
+    quantity: number;
+    quantitySource?: AutoAccountingQuantitySource;
+    amount?: number;
+    amountSource?: AutoAccountingAmountSource;
+    period: AutoAccountingPeriod;
+    order: number;
+};
+
+function parseRuleBody(body: unknown): ParsedRule | null {
     if (!body || typeof body !== 'object') return null;
     const b = body as Record<string, unknown>;
     const ruleType = b.ruleType === 'expense' || b.ruleType === 'income' ? b.ruleType : null;
@@ -73,13 +102,28 @@ function parseRuleBody(body: unknown): { ruleType: 'expense' | 'income'; objectI
     const quantity = typeof b.quantity === 'number' && b.quantity >= 1 ? b.quantity : 1;
     const amount = typeof b.amount === 'number' && b.amount >= 0 ? b.amount : undefined;
     const amountSource = parseAmountSource(b);
+    const quantitySource = parseQuantitySource(b);
     const period = b.period === 'per_booking' || b.period === 'per_month' ? b.period : 'per_booking';
     const order = typeof b.order === 'number' && Number.isInteger(b.order) ? b.order : 0;
 
+    const objectMetadataField = typeof b.objectMetadataField === 'string' && VALID_OBJECT_META_FIELDS.includes(b.objectMetadataField as any) ? b.objectMetadataField as 'district' | 'objectType' : undefined;
+    const objectMetadataValue = typeof b.objectMetadataValue === 'string' ? b.objectMetadataValue.trim() || undefined : undefined;
+    const roomMetadataField = typeof b.roomMetadataField === 'string' && b.roomMetadataField.trim() ? b.roomMetadataField.trim() : undefined;
+    const roomMetadataOperator = typeof b.roomMetadataOperator === 'string' && VALID_ROOM_META_OPERATORS.includes(b.roomMetadataOperator as any) ? b.roomMetadataOperator : undefined;
+    const roomMetadataValue = roomMetadataField != null && (typeof b.roomMetadataValue === 'string' || typeof b.roomMetadataValue === 'number') ? b.roomMetadataValue : undefined;
+    const name = typeof b.name === 'string' ? b.name.trim() || undefined : undefined;
+
     if (!ruleType || !category) return null;
-    const result: { ruleType: 'expense' | 'income'; objectId: number | 'all'; roomId?: number | 'all'; category: string; quantity: number; amount?: number; amountSource?: AutoAccountingAmountSource; period: AutoAccountingPeriod; order: number } = { ruleType, objectId, category, quantity, amount, period, order };
+    const result: ParsedRule = { ruleType, objectId, category, quantity, amount, period, order };
+    if (name !== undefined) result.name = name;
     if (roomId !== undefined) result.roomId = roomId;
     if (amountSource !== undefined) result.amountSource = amountSource;
+    if (quantitySource !== undefined) result.quantitySource = quantitySource;
+    if (objectMetadataField !== undefined) result.objectMetadataField = objectMetadataField;
+    if (objectMetadataValue !== undefined) result.objectMetadataValue = objectMetadataValue;
+    if (roomMetadataField !== undefined) result.roomMetadataField = roomMetadataField;
+    if (roomMetadataOperator !== undefined) result.roomMetadataOperator = roomMetadataOperator;
+    if (roomMetadataValue !== undefined) result.roomMetadataValue = roomMetadataValue;
     return result;
 }
 
@@ -122,9 +166,16 @@ export async function POST(request: NextRequest) {
             quantity: parsed.quantity,
             period: parsed.period,
             order,
+            ...(parsed.name !== undefined && { name: parsed.name }),
             ...(parsed.amount !== undefined && { amount: parsed.amount }),
             ...(parsed.roomId !== undefined && { roomId: parsed.roomId }),
             ...(parsed.amountSource !== undefined && { amountSource: parsed.amountSource }),
+            ...(parsed.quantitySource !== undefined && { quantitySource: parsed.quantitySource }),
+            ...(parsed.objectMetadataField !== undefined && { objectMetadataField: parsed.objectMetadataField }),
+            ...(parsed.objectMetadataValue !== undefined && { objectMetadataValue: parsed.objectMetadataValue }),
+            ...(parsed.roomMetadataField !== undefined && { roomMetadataField: parsed.roomMetadataField }),
+            ...(parsed.roomMetadataOperator !== undefined && { roomMetadataOperator: parsed.roomMetadataOperator }),
+            ...(parsed.roomMetadataValue !== undefined && { roomMetadataValue: parsed.roomMetadataValue }),
             createdAt: new Date(),
         };
 

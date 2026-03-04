@@ -5,7 +5,7 @@
 
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
-import type { AutoAccountingRule, AutoAccountingAmountSource } from '@/lib/types';
+import type { AutoAccountingRule, AutoAccountingAmountSource, AutoAccountingQuantitySource, CashflowRuleCompareOperator } from '@/lib/types';
 
 type BookingDoc = {
     id: number;
@@ -14,7 +14,52 @@ type BookingDoc = {
     arrival: string;
     departure: string;
     invoiceItems?: { type?: string; lineTotal?: number }[];
+    numAdult?: number;
+    numChild?: number;
 };
+
+function getBookingGuestsCount(booking: BookingDoc): number {
+    const adult = typeof booking.numAdult === 'number' && booking.numAdult >= 0 ? booking.numAdult : 0;
+    const child = typeof booking.numChild === 'number' && booking.numChild >= 0 ? booking.numChild : 0;
+    return adult + child;
+}
+
+function resolveQuantity(
+    rule: AutoAccountingRule & { _id?: ObjectId },
+    booking: BookingDoc
+): number {
+    const source: AutoAccountingQuantitySource = rule.quantitySource ?? 'manual';
+    if (source === 'guests') {
+        const guests = getBookingGuestsCount(booking);
+        return Math.max(1, guests);
+    }
+    if (source === 'guests_div_2') {
+        const guests = getBookingGuestsCount(booking);
+        return Math.max(1, Math.ceil(guests / 2));
+    }
+    return rule.quantity >= 1 ? rule.quantity : 1;
+}
+
+function compareNumber(
+    op: CashflowRuleCompareOperator | undefined,
+    actual: number,
+    value?: number,
+    valueTo?: number
+): boolean {
+    if (op === undefined || value === undefined) return false;
+    const v = Number(value);
+    const vTo = valueTo !== undefined ? Number(valueTo) : undefined;
+    switch (op) {
+        case 'eq': return actual === v;
+        case 'ne': return actual !== v;
+        case 'gt': return actual > v;
+        case 'gte': return actual >= v;
+        case 'lt': return actual < v;
+        case 'lte': return actual <= v;
+        case 'between': return vTo !== undefined && actual >= v && actual <= vTo;
+        default: return false;
+    }
+}
 
 function getBookingPrice(booking: BookingDoc): number {
     let price = 0;
@@ -109,8 +154,10 @@ export async function runRulesForBookings(
         return value;
     };
 
-    const roomMetaCache = new Map<string, number>();
     const ROOMS_META_COLLECTION = 'objectRoomMetadata_rooms';
+    const OBJECTS_META_COLLECTION = 'objectRoomMetadata_objects';
+
+    const roomMetaCache = new Map<string, number>();
     const getInternetCostForRoom = async (objectId: number, roomId: number | undefined): Promise<number> => {
         if (roomId == null) return 0;
         const key = `${objectId}_${roomId}`;
@@ -123,6 +170,54 @@ export async function runRulesForBookings(
         const value = typeof raw === 'number' ? raw : 0;
         roomMetaCache.set(key, value);
         return value;
+    };
+
+    const [objectMetaList, roomMetaList] = await Promise.all([
+        db.collection(OBJECTS_META_COLLECTION).find({}).toArray(),
+        db.collection(ROOMS_META_COLLECTION).find({}).toArray(),
+    ]);
+    const objectMetaMap = new Map<number, { district?: string; objectType?: string }>();
+    const roomMetaMap = new Map<string, Record<string, unknown>>();
+    for (const d of objectMetaList as { objectId: number; district?: string; objectType?: string }[]) {
+        objectMetaMap.set(d.objectId, { district: d.district, objectType: d.objectType });
+    }
+    for (const d of roomMetaList as { objectId: number; roomId: number; [k: string]: unknown }[]) {
+        roomMetaMap.set(`${d.objectId}_${d.roomId}`, d);
+    }
+
+    const matchObjectMetadata = (
+        rule: AutoAccountingRule & { _id?: ObjectId },
+        objectId: number
+    ): boolean => {
+        if (!rule.objectMetadataField || rule.objectMetadataValue === undefined) return true;
+        const meta = objectMetaMap.get(objectId);
+        const value = rule.objectMetadataField === 'district' ? (meta?.district ?? '') : (meta?.objectType ?? '');
+        return String(value).toLowerCase() === String(rule.objectMetadataValue ?? '').toLowerCase();
+    };
+
+    const matchRoomMetadata = (
+        rule: AutoAccountingRule & { _id?: ObjectId },
+        objectId: number,
+        roomId: number | undefined
+    ): boolean => {
+        if (!rule.roomMetadataField || rule.roomMetadataValue === undefined || roomId == null) return true;
+        const meta = roomMetaMap.get(`${objectId}_${roomId}`) as Record<string, unknown> | undefined;
+        const field = rule.roomMetadataField;
+        let actual: number | string | undefined;
+        if (field === 'bedrooms') actual = (meta?.bedrooms as number) ?? undefined;
+        else if (field === 'bathrooms') actual = (meta?.bathrooms as number) ?? undefined;
+        else if (field === 'livingRoomSofas') actual = (meta?.livingRoomSofas as number) ?? undefined;
+        else if (field === 'level') actual = (meta?.level as string) ?? undefined;
+        else if (field === 'kitchen') actual = (meta?.kitchen as string) ?? undefined;
+        else if (field === 'commissionSchemeId') actual = (meta?.commissionSchemeId as number) ?? undefined;
+        else if (field === 'internetCostPerMonth') actual = (meta?.internetCostPerMonth as number) ?? undefined;
+        else return true;
+        if (typeof actual === 'string') {
+            return String(rule.roomMetadataValue).toLowerCase() === actual.toLowerCase();
+        }
+        const numVal = typeof rule.roomMetadataValue === 'number' ? rule.roomMetadataValue : Number(rule.roomMetadataValue);
+        const numTo = (rule as { roomMetadataValueTo?: number }).roomMetadataValueTo;
+        return compareNumber(rule.roomMetadataOperator, Number(actual), numVal, numTo);
     };
 
     const resolveAmount = async (
@@ -165,11 +260,13 @@ export async function runRulesForBookings(
         for (const rule of rules) {
             const ruleObjId = rule.objectId;
             if (ruleObjId !== 'all' && ruleObjId !== objectId) continue;
+            if (!matchObjectMetadata(rule, objectId)) continue;
 
             const ruleRoomId = rule.roomId;
             if (ruleRoomId !== undefined && ruleRoomId !== 'all' && ruleRoomId !== roomId) continue;
+            if (!matchRoomMetadata(rule, objectId, roomId)) continue;
 
-            const quantity = rule.quantity >= 1 ? rule.quantity : 1;
+            const quantity = resolveQuantity(rule, booking);
             const amount = await resolveAmount(rule, booking, objectId, roomId);
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
             const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;

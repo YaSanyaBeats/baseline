@@ -17,12 +17,8 @@ export async function POST(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
-            return NextResponse.json(
-                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут редактировать доходы.' },
-                { status: 403 },
-            );
-        }
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const userId = (session.user as any)._id?.toString?.() ?? (session.user as any)._id;
 
         const db = await getDB();
         const body = await request.json();
@@ -71,6 +67,22 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const isAdminOrAccountant = userRole === 'admin' || userRole === 'accountant';
+        const ownerId = existingIncome.accountantId?.toString?.() ?? existingIncome.accountantId;
+        const isOwnDraft = hasCashflow && !isAdminOrAccountant && ownerId === userId && existingIncome.status === 'draft';
+        if (!isAdminOrAccountant && !isOwnDraft) {
+            return NextResponse.json(
+                { success: false, message: 'Недостаточно прав или можно редактировать только свои черновики.' },
+                { status: 403 },
+            );
+        }
+        if (isOwnDraft && incomeData.status && incomeData.status !== 'draft') {
+            return NextResponse.json(
+                { success: false, message: 'Пользователи с кешфлоу не могут менять статус на «Подтверждён».' },
+                { status: 400 },
+            );
+        }
+
         const allowedStatuses: IncomeStatus[] = ['draft', 'confirmed'];
         const status = incomeData.status && allowedStatuses.includes(incomeData.status)
             ? incomeData.status
@@ -82,6 +94,8 @@ export async function POST(request: NextRequest) {
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,
+            source: incomeData.source ?? null,
+            recipient: incomeData.recipient ?? null,
             cashflowId: incomeData.cashflowId ?? null,
             category: incomeData.category,
             amount: incomeData.amount,

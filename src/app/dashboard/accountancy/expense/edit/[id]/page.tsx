@@ -23,7 +23,9 @@ import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, Use
 import { getExpenses, updateExpense } from "@/lib/expenses";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
+import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
+import SourceRecipientSelect, { type SourceRecipientOptionValue } from "@/components/accountancy/SourceRecipientSelect";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -43,7 +45,7 @@ export default function Page() {
     const router = useRouter();
     const params = useParams();
     const expenseId = params?.id as string;
-    const { isAdmin, isAccountant } = useUser();
+    const { isAdmin, isAccountant, user } = useUser();
     const [expense, setExpense] = useState<Partial<ExpenseForm>>({});
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -53,9 +55,10 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
 
-    const hasAccess = isAdmin || isAccountant;
+    const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
 
     useEffect(() => {
         if (hasAccess) {
@@ -63,11 +66,13 @@ export default function Page() {
                 getAccountancyCategories('expense'),
                 getCounterparties(),
                 getCashflows(),
+                getUsersWithCashflow(),
             ])
-                .then(([cats, cps, cfs]) => {
+                .then(([cats, cps, cfs, usersCf]) => {
                     setCategories(cats);
                     setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                     setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                    setUsersWithCashflow(usersCf);
                 })
                 .catch((error) => {
                     console.error('Error loading data:', error);
@@ -84,6 +89,8 @@ export default function Page() {
                             roomId: found.roomId,
                             bookingId: found.bookingId,
                             counterpartyId: found.counterpartyId,
+                            source: found.source ?? '',
+                            recipient: found.recipient ?? '',
                             cashflowId: found.cashflowId,
                             category: found.category,
                             amount: found.amount,
@@ -256,6 +263,8 @@ export default function Page() {
             roomId: expense.roomId,
             bookingId: expense.bookingId,
             counterpartyId: expense.counterpartyId,
+            source: expense.source || undefined,
+            recipient: expense.recipient || undefined,
             cashflowId: expense.cashflowId,
             category: expense.category as string,
             amount: getEffectiveCost(),
@@ -395,6 +404,28 @@ export default function Page() {
                                 ))}
                             </Select>
                         </FormControl>
+                    </Box>
+                    <Box>
+                        <SourceRecipientSelect
+                            value={(expense.source as SourceRecipientOptionValue) ?? ''}
+                            onChange={(v) => setExpense((prev) => ({ ...prev, source: v || undefined }))}
+                            label={t('accountancy.source')}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            size="medium"
+                            sx={{ width: '100%' }}
+                        />
+                    </Box>
+                    <Box>
+                        <SourceRecipientSelect
+                            value={(expense.recipient as SourceRecipientOptionValue) ?? ''}
+                            onChange={(v) => setExpense((prev) => ({ ...prev, recipient: v || undefined }))}
+                            label={t('accountancy.recipient')}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            size="medium"
+                            sx={{ width: '100%' }}
+                        />
                     </Box>
                     <Box>
                         <FormControl sx={{ width: '100%' }}>

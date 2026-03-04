@@ -16,11 +16,31 @@ export async function GET() {
             );
         }
 
+        const userRole = (session.user as any).role;
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const userId = (session.user as any)._id?.toString?.() ?? (session.user as any)._id;
+
         const db = await getDB();
         const incomesCollection = db.collection('incomes');
 
+        const filter: Record<string, unknown> = {};
+        if (userRole !== 'admin' && userRole !== 'accountant') {
+            if (hasCashflow && userId) {
+                const userPrefix = `user:${userId}`;
+                filter.$or = [
+                    { source: userPrefix },
+                    { recipient: userPrefix },
+                ];
+            } else {
+                return NextResponse.json(
+                    { success: false, message: 'Недостаточно прав' },
+                    { status: 403 },
+                );
+            }
+        }
+
         const incomes = await incomesCollection
-            .find({})
+            .find(filter)
             .sort({ date: -1, createdAt: -1 })
             .toArray();
 
@@ -45,9 +65,11 @@ export async function POST(request: NextRequest) {
         }
 
         const userRole = (session.user as any).role;
-        if (userRole !== 'accountant' && userRole !== 'admin') {
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const canCreate = userRole === 'accountant' || userRole === 'admin' || hasCashflow;
+        if (!canCreate) {
             return NextResponse.json(
-                { success: false, message: 'Недостаточно прав. Только бухгалтер или администратор могут добавлять доходы.' },
+                { success: false, message: 'Недостаточно прав для добавления доходов.' },
                 { status: 403 },
             );
         }
@@ -80,10 +102,13 @@ export async function POST(request: NextRequest) {
             ? incomeData.quantity
             : 1;
 
+        const onlyDraftForCashflow = hasCashflow && userRole !== 'admin' && userRole !== 'accountant';
         const allowedStatuses: IncomeStatus[] = ['draft', 'confirmed'];
-        const status = incomeData.status && allowedStatuses.includes(incomeData.status)
-            ? incomeData.status
-            : 'draft';
+        const status = onlyDraftForCashflow
+            ? 'draft'
+            : (incomeData.status && allowedStatuses.includes(incomeData.status)
+                ? incomeData.status
+                : 'draft');
 
         const accountantId = (session.user as any)._id;
 
@@ -110,6 +135,8 @@ export async function POST(request: NextRequest) {
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,
+            source: incomeData.source ?? null,
+            recipient: incomeData.recipient ?? null,
             cashflowId: incomeData.cashflowId ?? null,
             category: incomeData.category,
             amount: incomeData.amount,

@@ -20,16 +20,25 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Cashflow, Expense, Income } from '@/lib/types';
+import { Cashflow, CashflowRule, Expense, Income } from '@/lib/types';
 import { getCashflows, deleteCashflow } from '@/lib/cashflows';
+import {
+    getCashflowRules,
+    addCashflowRule,
+    updateCashflowRule,
+    deleteCashflowRule,
+} from '@/lib/cashflowRules';
 import { getCounterparties } from '@/lib/counterparties';
 import { getExpenses } from '@/lib/expenses';
 import { getIncomes } from '@/lib/incomes';
-import { getExpenseSum } from '@/lib/accountancyUtils';
+import { getExpenseSum, getBalanceByRule, type ObjectWithMeta } from '@/lib/accountancyUtils';
+import { getBookingsByIds } from '@/lib/bookings';
+import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
+import CashflowRuleDialog from '@/components/accountancy/CashflowRuleDialog';
 
 const CASHFLOW_TYPE_KEYS: Record<string, string> = {
     company: 'typeCompany',
@@ -50,38 +59,66 @@ export default function Page() {
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
+    const [rules, setRules] = useState<CashflowRule[]>([]);
+    const [categories, setCategories] = useState<{ _id: string; name: string; type: string }[]>([]);
+    const [bookingsForRules, setBookingsForRules] = useState<{ id: number; arrival: string; departure: string }[]>([]);
     const [loading, setLoading] = useState(true);
+    const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
+    const [ruleEditing, setRuleEditing] = useState<CashflowRule | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
 
-    useEffect(() => {
-        if (!hasAccess) return;
-
-        const load = async () => {
-            try {
-                const [cashflowsList, counterpartiesList, expensesList, incomesList] = await Promise.all([
+    const loadData = async () => {
+        try {
+            const [cashflowsList, counterpartiesList, expensesList, incomesList, rulesList, categoriesList] =
+                await Promise.all([
                     getCashflows(),
                     getCounterparties(),
                     getExpenses(),
                     getIncomes(),
+                    getCashflowRules(),
+                    getAccountancyCategories(),
                 ]);
-                setCashflows(cashflowsList);
-                setCounterparties(counterpartiesList.map((c) => ({ _id: c._id!, name: c.name })));
-                setExpenses(expensesList);
-                setIncomes(incomesList);
-            } catch (error) {
-                console.error('Error loading cashflows:', error);
-                setSnackbar({
-                    open: true,
-                    message: t('common.serverError'),
-                    severity: 'error',
-                });
-            } finally {
-                setLoading(false);
-            }
-        };
+            setCashflows(cashflowsList);
+            setCounterparties(counterpartiesList.map((c) => ({ _id: c._id!, name: c.name })));
+            setExpenses(expensesList);
+            setIncomes(incomesList);
+            setRules(rulesList);
+            setCategories(
+                (categoriesList ?? []).map((c) => ({
+                    _id: c._id ?? '',
+                    name: c.name,
+                    type: c.type ?? 'expense',
+                }))
+            );
 
-        load();
+            const bookingIds = Array.from(
+                new Set([
+                    ...expensesList.map((e) => e.bookingId).filter((id): id is number => typeof id === 'number'),
+                    ...incomesList.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number'),
+                ])
+            );
+            if (bookingIds.length > 0) {
+                const list = await getBookingsByIds(bookingIds);
+                setBookingsForRules(list.map((b) => ({ id: b.id, arrival: b.arrival, departure: b.departure })));
+            } else {
+                setBookingsForRules([]);
+            }
+        } catch (error) {
+            console.error('Error loading cashflows:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (!hasAccess) return;
+        loadData();
     }, [hasAccess]);
 
     const formatAmount = (value: number): string => {
@@ -146,6 +183,60 @@ export default function Page() {
                 if (res.success) {
                     setCashflows((prev) => prev.filter((c) => c._id !== cf._id));
                 }
+            })
+            .catch(() => {
+                setSnackbar({
+                    open: true,
+                    message: t('common.serverError'),
+                    severity: 'error',
+                });
+            });
+    };
+
+    const objectsForRules: ObjectWithMeta[] = objects.map((o) => ({
+        id: o.id,
+        name: o.name,
+        district: o.district,
+        objectType: o.objectType,
+        roomTypes: o.roomTypes?.map((rt) => ({
+            id: rt.id,
+            name: rt.name,
+            bedrooms: rt.bedrooms,
+            bathrooms: rt.bathrooms,
+            livingRoomSofas: rt.livingRoomSofas,
+            kitchen: rt.kitchen,
+            level: rt.level,
+            commissionSchemeId: rt.commissionSchemeId,
+            internetCostPerMonth: rt.internetCostPerMonth,
+        })),
+    }));
+
+    const handleSaveRule = async (
+        rule: CashflowRule | Omit<CashflowRule, '_id' | 'createdAt'>
+    ): Promise<{ success: boolean; message: string }> => {
+        const isUpdate = '_id' in rule && rule._id;
+        const res = isUpdate
+            ? await updateCashflowRule(rule as CashflowRule)
+            : await addCashflowRule(rule as Omit<CashflowRule, '_id' | 'createdAt'>);
+        setSnackbar({
+            open: true,
+            message: res.message,
+            severity: res.success ? 'success' : 'error',
+        });
+        return res;
+    };
+
+    const handleDeleteRule = (rule: CashflowRule) => {
+        if (!rule._id) return;
+        if (!window.confirm(t('accountancy.cashflow.ruleDeleteConfirm'))) return;
+        deleteCashflowRule(rule._id)
+            .then((res) => {
+                setSnackbar({
+                    open: true,
+                    message: res.message,
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) loadData();
             })
             .catch(() => {
                 setSnackbar({
@@ -276,6 +367,147 @@ export default function Page() {
                     </Table>
                 </Paper>
             )}
+
+            <Box sx={{ mt: 4 }}>
+                <Typography variant="h5" sx={{ mb: 1 }}>
+                    {t('accountancy.cashflow.rulesTitle')}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {t('accountancy.cashflow.rulesDescription')}
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 2 }}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={() => {
+                            setRuleEditing(null);
+                            setRuleDialogOpen(true);
+                        }}
+                    >
+                        {t('accountancy.cashflow.addRule')}
+                    </Button>
+                </Box>
+                {rules.length === 0 ? (
+                    <Paper variant="outlined" sx={{ p: 3 }}>
+                        <Typography color="text.secondary">
+                            {t('accountancy.cashflow.noRules')}
+                        </Typography>
+                        <Button
+                            variant="outlined"
+                            startIcon={<AddIcon />}
+                            sx={{ mt: 2 }}
+                            onClick={() => {
+                                setRuleEditing(null);
+                                setRuleDialogOpen(true);
+                            }}
+                        >
+                            {t('accountancy.cashflow.addRule')}
+                        </Button>
+                    </Paper>
+                ) : (
+                    <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>{t('accountancy.cashflow.ruleName')}</TableCell>
+                                    <TableCell>{t('accountancy.cashflow.filterLogic')}</TableCell>
+                                    <TableCell>{t('accountancy.cashflow.filters')}</TableCell>
+                                    <TableCell>{t('accountancy.cashflow.balance')}</TableCell>
+                                    <TableCell width={100} align="right">
+                                        {t('accountancy.actions')}
+                                    </TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {rules.map((rule) => {
+                                    const result = getBalanceByRule(
+                                        rule,
+                                        expenses,
+                                        incomes,
+                                        objectsForRules,
+                                        bookingsForRules
+                                    );
+                                    const balance = result.balance;
+                                    return (
+                                        <TableRow key={rule._id}>
+                                            <TableCell>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {rule.name}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    size="small"
+                                                    label={
+                                                        rule.filterLogic === 'and'
+                                                            ? t('accountancy.cashflow.filterLogicAnd')
+                                                            : t('accountancy.cashflow.filterLogicOr')
+                                                    }
+                                                    variant="outlined"
+                                                />
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography variant="body2" color="text.secondary">
+                                                    {rule.filters?.length ?? 0}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography
+                                                    variant="body2"
+                                                    sx={{
+                                                        color:
+                                                            balance > 0
+                                                                ? 'success.main'
+                                                                : balance < 0
+                                                                  ? 'error.main'
+                                                                  : 'text.secondary',
+                                                    }}
+                                                >
+                                                    {balance !== 0 && result.balanceSign === 'plus' ? '+' : ''}
+                                                    {formatAmount(balance)}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                <IconButton
+                                                    size="small"
+                                                    aria-label={t('accountancy.editCategory')}
+                                                    onClick={() => {
+                                                        setRuleEditing(rule);
+                                                        setRuleDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <EditIcon fontSize="small" />
+                                                </IconButton>
+                                                <IconButton
+                                                    size="small"
+                                                    aria-label={t('common.delete')}
+                                                    onClick={() => handleDeleteRule(rule)}
+                                                >
+                                                    <DeleteIcon fontSize="small" />
+                                                </IconButton>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </Paper>
+                )}
+            </Box>
+
+            <CashflowRuleDialog
+                open={ruleDialogOpen}
+                onClose={() => {
+                    setRuleDialogOpen(false);
+                    setRuleEditing(null);
+                }}
+                initialRule={ruleEditing}
+                onSaved={loadData}
+                counterparties={counterparties}
+                categories={categories}
+                objects={objects.map((o) => ({ id: o.id, name: o.name, district: o.district, objectType: o.objectType }))}
+                onSave={handleSaveRule}
+            />
         </Box>
     );
 }
