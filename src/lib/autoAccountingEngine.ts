@@ -178,10 +178,10 @@ export async function runRulesForBookings(
     ]);
     const objectMetaMap = new Map<number, { district?: string; objectType?: string }>();
     const roomMetaMap = new Map<string, Record<string, unknown>>();
-    for (const d of objectMetaList as { objectId: number; district?: string; objectType?: string }[]) {
+    for (const d of objectMetaList as unknown as { objectId: number; district?: string; objectType?: string }[]) {
         objectMetaMap.set(d.objectId, { district: d.district, objectType: d.objectType });
     }
-    for (const d of roomMetaList as { objectId: number; roomId: number; [k: string]: unknown }[]) {
+    for (const d of roomMetaList as unknown as { objectId: number; roomId: number; [k: string]: unknown }[]) {
         roomMetaMap.set(`${d.objectId}_${d.roomId}`, d);
     }
 

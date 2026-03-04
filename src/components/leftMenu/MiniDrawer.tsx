@@ -28,6 +28,15 @@ import { useTranslation } from '@/i18n/useTranslation';
 
 const drawerWidth = 240;
 
+type UserRole = User['role'];
+type MenuItem = {
+    text: string;
+    icon: React.ReactNode;
+    link: string;
+    roles: UserRole[];
+    showOnlyWhenHasCashflow?: boolean;
+};
+
 
 const openedMixin = (theme: Theme): CSSObject => ({
 width: drawerWidth,
@@ -115,7 +124,7 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
     const { open, setOpen } = props;
     const { t } = useTranslation();
     
-    const menu = [
+    const menu: MenuItem[] = [
         { 
             text: t('menu.home'), 
             icon: <Dashboard fontSize="small" />, 
@@ -179,8 +188,7 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
         }
 
         return menu.filter((menuElem) => {
-            const onlyCashflow = (menuElem as { showOnlyWhenHasCashflow?: boolean }).showOnlyWhenHasCashflow;
-            if (onlyCashflow) return Boolean(user.hasCashflow);
+            if (menuElem.showOnlyWhenHasCashflow) return Boolean(user.hasCashflow);
             return menuElem.roles.includes(user.role);
         })
     }

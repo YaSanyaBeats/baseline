@@ -109,7 +109,7 @@ function parseRuleBody(body: unknown): ParsedRule | null {
     const objectMetadataField = typeof b.objectMetadataField === 'string' && VALID_OBJECT_META_FIELDS.includes(b.objectMetadataField as any) ? b.objectMetadataField as 'district' | 'objectType' : undefined;
     const objectMetadataValue = typeof b.objectMetadataValue === 'string' ? b.objectMetadataValue.trim() || undefined : undefined;
     const roomMetadataField = typeof b.roomMetadataField === 'string' && b.roomMetadataField.trim() ? b.roomMetadataField.trim() : undefined;
-    const roomMetadataOperator = typeof b.roomMetadataOperator === 'string' && VALID_ROOM_META_OPERATORS.includes(b.roomMetadataOperator as any) ? b.roomMetadataOperator : undefined;
+    const roomMetadataOperator = typeof b.roomMetadataOperator === 'string' && VALID_ROOM_META_OPERATORS.includes(b.roomMetadataOperator as (typeof VALID_ROOM_META_OPERATORS)[number]) ? (b.roomMetadataOperator as (typeof VALID_ROOM_META_OPERATORS)[number]) : undefined;
     const roomMetadataValue = roomMetadataField != null && (typeof b.roomMetadataValue === 'string' || typeof b.roomMetadataValue === 'number') ? b.roomMetadataValue : undefined;
     const name = typeof b.name === 'string' ? b.name.trim() || undefined : undefined;
 

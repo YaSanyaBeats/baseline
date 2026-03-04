@@ -61,7 +61,6 @@ export async function DELETE(request: NextRequest) {
         await incomesCollection.deleteOne({ _id: new ObjectId(id) });
 
         // Логируем удаление дохода
-        const userId = (session.user as any)._id;
         const userName = (session.user as any).name || session.user.name || 'Unknown';
         await logAuditAction({
             entity: 'income',

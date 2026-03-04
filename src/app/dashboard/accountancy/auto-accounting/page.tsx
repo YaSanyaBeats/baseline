@@ -126,7 +126,7 @@ export default function AutoAccountingPage() {
     useEffect(() => {
         if (!hasAccess) return;
         loadStatus();
-    }, [hasAccess, loadRules, loadStatus]);
+    }, [hasAccess]);
 
     const categoriesByType = form.ruleType === 'expense' ? expenseCategories : incomeCategories;
 

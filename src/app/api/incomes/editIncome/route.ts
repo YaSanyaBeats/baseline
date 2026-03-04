@@ -114,7 +114,6 @@ export async function POST(request: NextRequest) {
         );
 
         // Логируем обновление дохода
-        const userId = (session.user as any)._id;
         const userName = (session.user as any).name || session.user.name || 'Unknown';
         await logAuditAction({
             entity: 'income',

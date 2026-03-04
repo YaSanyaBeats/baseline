@@ -5,10 +5,10 @@ import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import { getAllObjects, getObjects } from '@/lib/server/getObjects';
 
-function hasFullAccess(session: { user?: { role?: string; hasCashflow?: boolean } | null }) {
+function hasFullAccess(session: { user?: unknown } | null): boolean {
     if (!session?.user) return false;
-    const role = (session.user as any).role;
-    const hasCashflow = Boolean((session.user as any).hasCashflow);
+    const role = (session.user as { role?: string }).role;
+    const hasCashflow = Boolean((session.user as { hasCashflow?: boolean }).hasCashflow);
     return role === 'admin' || role === 'accountant' || hasCashflow;
 }
 
