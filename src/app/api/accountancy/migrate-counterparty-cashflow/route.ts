@@ -46,7 +46,7 @@ export async function POST() {
 
         // Миграция расходов
         const expensesToMigrate = await expensesCollection
-            .find({ $or: [{ counterpartyId: { $exists: true, $ne: null, $ne: '' } }, { cashflowId: { $exists: true, $ne: null, $ne: '' } }] })
+            .find({ $or: [{ counterpartyId: { $exists: true, $nin: [null, ''] } }, { cashflowId: { $exists: true, $nin: [null, ''] } }] })
             .toArray();
 
         for (const exp of expensesToMigrate) {
@@ -78,7 +78,7 @@ export async function POST() {
 
         // Миграция доходов (у income нет counterpartyId, только cashflowId)
         const incomesToMigrate = await incomesCollection
-            .find({ cashflowId: { $exists: true, $ne: null, $ne: '' } })
+            .find({ cashflowId: { $exists: true, $nin: [null, ''] } })
             .toArray();
 
         for (const inc of incomesToMigrate) {
