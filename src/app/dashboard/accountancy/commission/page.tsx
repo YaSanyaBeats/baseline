@@ -37,15 +37,12 @@ import {
     CommissionSchemeId,
     prepareCommissionData,
     calculateBookingCommission,
+    isOtaCommission,
+    isCoAgentCommission,
 } from '@/lib/commissionCalculation';
 import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
 
-const SCHEMES: { id: CommissionSchemeId; labelKey: string }[] = [
-    { id: 1, labelKey: 'accountancy.commission.scheme1' },
-    { id: 2, labelKey: 'accountancy.commission.scheme2' },
-    { id: 3, labelKey: 'accountancy.commission.scheme3' },
-    { id: 4, labelKey: 'accountancy.commission.scheme4' },
-];
+const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
 
 function formatAmount(value: number): string {
     return value.toLocaleString('ru-RU', {
@@ -69,9 +66,12 @@ export default function Page() {
     const [selectedObjectId, setSelectedObjectId] = useState<number | ''>('');
     const [selectedRoomId, setSelectedRoomId] = useState<number | 'all'>('all');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
-    const [selectedSchemeId, setSelectedSchemeId] = useState<CommissionSchemeId>(2);
 
     const [result, setResult] = useState<{
+        reportTitle: string;
+        linkedIncomes: Income[];
+        otaExpenses: Expense[];
+        coAgentExpenses: Expense[];
         bookings: Array<ReturnType<typeof calculateBookingCommission>>;
         totalCommission: number;
         unlinkedExpensesAmount: number;
@@ -170,8 +170,14 @@ export default function Page() {
                 selectedMonth
             );
 
+            const getSchemeForBooking = (booking: Booking): CommissionSchemeId => {
+                const room = roomsForObject.find((r) => r.id === booking.unitId);
+                const scheme = room?.commissionSchemeId;
+                return (scheme && scheme >= 1 && scheme <= 4 ? scheme : DEFAULT_SCHEME_ID) as CommissionSchemeId;
+            };
+
             const results = inputs.map((input) =>
-                calculateBookingCommission(input, selectedSchemeId)
+                calculateBookingCommission(input, getSchemeForBooking(input.booking))
             );
 
             const [y, m] = selectedMonth.split('-').map(Number);
@@ -197,6 +203,29 @@ export default function Page() {
                     matchRoom(e.roomId)
             );
 
+            const bookingIdsSet = new Set(filteredBookings.map((b) => b.id));
+            const linkedIncomesList = incomes.filter(
+                (i) =>
+                    i.objectId === selectedObjectId &&
+                    i.bookingId != null &&
+                    bookingIdsSet.has(i.bookingId) &&
+                    dateInMonth(i.date)
+            );
+            const linkedExpensesList = expenses.filter(
+                (e) =>
+                    e.objectId === selectedObjectId &&
+                    e.bookingId != null &&
+                    bookingIdsSet.has(e.bookingId) &&
+                    dateInMonth(e.date)
+            );
+            const otaExpensesList = linkedExpensesList.filter((e) => isOtaCommission(e.category));
+            const coAgentExpensesList = linkedExpensesList.filter((e) => isCoAgentCommission(e.category));
+
+            const reportTitle =
+                roomFilter === 'all'
+                    ? selectedObject?.name ?? ''
+                    : `${selectedObject?.name ?? ''} — ${roomsForObject.find((r) => r.id === roomFilter)?.name ?? ''}`;
+
             const commissionFromBookings = results.reduce((s, r) => s + r.commission, 0);
             const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0), 0);
             const incomeFromBookings = results.reduce((s, r) => s + r.income, 0);
@@ -206,10 +235,13 @@ export default function Page() {
             const totalWithUnlinkedExpenses = totalCommission + unlinkedExpensesAmount;
             const totalIncome =
                 incomeFromBookings + unlinkedIncomes.reduce((s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0), 0);
-            const totalExpenses =
-                expensesFromBookings + unlinkedExpensesAmount;
+            const totalExpenses = expensesFromBookings + unlinkedExpensesAmount;
 
             setResult({
+                reportTitle,
+                linkedIncomes: linkedIncomesList,
+                otaExpenses: otaExpensesList,
+                coAgentExpenses: coAgentExpensesList,
                 bookings: results,
                 totalCommission,
                 unlinkedExpensesAmount,
@@ -346,24 +378,6 @@ export default function Page() {
                         </Select>
                     </FormControl>
 
-                    <FormControl sx={{ minWidth: 240 }} size="small">
-                        <InputLabel>{t('accountancy.commission.scheme')}</InputLabel>
-                        <Select
-                            label={t('accountancy.commission.scheme')}
-                            value={selectedSchemeId}
-                            onChange={(e) => {
-                                setSelectedSchemeId(Number(e.target.value) as CommissionSchemeId);
-                                setResult(null);
-                            }}
-                        >
-                            {SCHEMES.map((s) => (
-                                <MenuItem key={s.id} value={s.id}>
-                                    {t(s.labelKey)}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-
                     <Button
                         variant="contained"
                         startIcon={
@@ -387,165 +401,254 @@ export default function Page() {
 
             {result && (
                 <Paper sx={{ p: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                        {t('accountancy.commission.result')}
+                    <Typography variant="h5" sx={{ mb: 3 }}>
+                        {result.reportTitle || t('accountancy.commission.result')}
                     </Typography>
 
-                    <Stack spacing={2} sx={{ mb: 3 }}>
-                        <Stack
-                            direction={{ xs: 'column', sm: 'row' }}
-                            spacing={2}
-                            flexWrap="wrap"
-                            useFlexGap
-                        >
-                            <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 140 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                    {t('accountancy.commission.commissionForMonth')}
-                                </Typography>
-                                <Typography variant="h5" color="primary.main">
-                                    {formatAmount(result.totalCommission)}
-                                </Typography>
-                            </Paper>
-                            <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 140 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                    {t('accountancy.commission.unlinkedExpenses')}
-                                </Typography>
-                                <Typography variant="subtitle1" color="error.main">
-                                    {formatAmount(result.unlinkedExpensesAmount)}
-                                </Typography>
-                            </Paper>
-                            <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 140 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                    {t('accountancy.commission.totalWithUnlinkedExpenses')}
-                                </Typography>
-                                <Typography
-                                    variant="h5"
-                                    color={
-                                        result.totalWithUnlinkedExpenses >= 0
-                                            ? 'primary.main'
-                                            : 'error.main'
-                                    }
-                                >
-                                    {formatAmount(result.totalWithUnlinkedExpenses)}
-                                </Typography>
-                            </Paper>
-                            <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 140 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                    {t('accountancy.commission.totalIncome')}
-                                </Typography>
-                                <Typography variant="subtitle1" color="success.main">
-                                    {formatAmount(result.totalIncome)}
-                                </Typography>
-                            </Paper>
-                            <Paper variant="outlined" sx={{ p: 2, flex: 1, minWidth: 140 }}>
-                                <Typography variant="caption" color="text.secondary">
-                                    {t('accountancy.commission.totalExpenses')}
-                                </Typography>
-                                <Typography variant="subtitle1" color="error.main">
-                                    {formatAmount(result.totalExpenses)}
-                                </Typography>
-                            </Paper>
-                        </Stack>
-                    </Stack>
-
-                    {result.bookings.length === 0 ? (
-                        <Typography color="text.secondary">
-                            {t('accountancy.commission.noBookings')}
-                        </Typography>
-                    ) : (
-                        <>
-                            <Table size="small" sx={{ mb: 2 }}>
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell>{t('bookings.title')}</TableCell>
-                                        <TableCell align="right">
-                                            {t('common.nights')}
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            {t('accountancy.commission.income')}
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            {t('accountancy.commission.expenses')}
-                                        </TableCell>
-                                        <TableCell align="right">
-                                            {t('accountancy.commission.commissionAmount')}
-                                        </TableCell>
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {result.bookings.map((r) => (
-                                        <TableRow key={r.bookingId}>
-                                            <TableCell>{r.bookingTitle}</TableCell>
-                                            <TableCell align="right">
-                                                {r.nights}
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                {formatAmount(r.income)}
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                {formatAmount(r.totalExpenses)}
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                {formatAmount(r.commission)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))}
-                                </TableBody>
-                            </Table>
-
-                            <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                {t('accountancy.commission.algorithmSteps')}
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                                {t('accountancy.commission.incomesList')}
                             </Typography>
-                            {result.bookings.map((r) => (
-                                <Accordion key={r.bookingId} defaultExpanded={result.bookings.length <= 3}>
-                                    <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                        <Typography>
-                                            {r.bookingTitle} — {formatAmount(r.commission)}
-                                        </Typography>
-                                    </AccordionSummary>
-                                    <AccordionDetails>
-                                        <Stack spacing={1}>
-                                            {r.steps.map((step, idx) => (
-                                                <Box
-                                                    key={idx}
-                                                    sx={{
-                                                        display: 'flex',
-                                                        justifyContent: 'space-between',
-                                                        alignItems: 'center',
-                                                        flexWrap: 'wrap',
-                                                        gap: 1,
-                                                    }}
-                                                >
-                                                    <Typography variant="body2">
-                                                        {step.description}
-                                                    </Typography>
-                                                    {step.value !== undefined && (
-                                                        <Typography
-                                                            variant="body2"
-                                                            fontWeight={500}
-                                                        >
-                                                            {typeof step.value === 'number'
-                                                                ? formatAmount(step.value)
-                                                                : step.value}
-                                                        </Typography>
-                                                    )}
-                                                    {step.formula && (
-                                                        <Typography
-                                                            variant="caption"
-                                                            color="text.secondary"
-                                                            sx={{ width: '100%' }}
-                                                        >
-                                                            {step.formula}
-                                                        </Typography>
-                                                    )}
-                                                </Box>
-                                            ))}
-                                        </Stack>
-                                    </AccordionDetails>
-                                </Accordion>
-                            ))}
-                        </>
-                    )}
+                            {result.linkedIncomes.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.commission.noIncomes')}
+                                </Typography>
+                            ) : (
+                                <>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {result.linkedIncomes.map((i) => {
+                                                const sum = (i.quantity ?? 1) * (i.amount ?? 0);
+                                                return (
+                                                    <TableRow key={i._id ?? `${i.date}-${i.category}-${sum}`}>
+                                                        <TableCell>
+                                                            {new Date(i.date).toLocaleDateString('ru-RU')}
+                                                        </TableCell>
+                                                        <TableCell>{i.category}</TableCell>
+                                                        <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1 }}>
+                                        {t('accountancy.commission.sum')}:{' '}
+                                        {formatAmount(
+                                            result.linkedIncomes.reduce(
+                                                (s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0),
+                                                0
+                                            )
+                                        )}
+                                    </Typography>
+                                </>
+                            )}
+                        </Paper>
+
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                                {t('accountancy.commission.bookingsList')}
+                            </Typography>
+                            {result.bookings.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.commission.noBookings')}
+                                </Typography>
+                            ) : (
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>{t('bookings.title')}</TableCell>
+                                            <TableCell align="right">{t('common.nights')}</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {result.bookings.map((r) => (
+                                            <TableRow key={r.bookingId}>
+                                                <TableCell>{r.bookingTitle}</TableCell>
+                                                <TableCell align="right">{r.nights}</TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </TableBody>
+                                </Table>
+                            )}
+                        </Paper>
+
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                                {t('accountancy.commission.otaExpensesList')}
+                            </Typography>
+                            {result.otaExpenses.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.commission.noOtaExpenses')}
+                                </Typography>
+                            ) : (
+                                <>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {result.otaExpenses.map((e) => {
+                                                const sum = (e.quantity ?? 1) * (e.amount ?? 0);
+                                                return (
+                                                    <TableRow key={e._id ?? `${e.date}-${e.category}-${sum}`}>
+                                                        <TableCell>
+                                                            {new Date(e.date).toLocaleDateString('ru-RU')}
+                                                        </TableCell>
+                                                        <TableCell>{e.category}</TableCell>
+                                                        <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1 }}>
+                                        {t('accountancy.commission.sum')}:{' '}
+                                        {formatAmount(
+                                            result.otaExpenses.reduce(
+                                                (s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0),
+                                                0
+                                            )
+                                        )}
+                                    </Typography>
+                                </>
+                            )}
+                        </Paper>
+
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                                {t('accountancy.commission.coAgentExpensesList')}
+                            </Typography>
+                            {result.coAgentExpenses.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.commission.noCoAgentExpenses')}
+                                </Typography>
+                            ) : (
+                                <>
+                                    <Table size="small">
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            {result.coAgentExpenses.map((e) => {
+                                                const sum = (e.quantity ?? 1) * (e.amount ?? 0);
+                                                return (
+                                                    <TableRow key={e._id ?? `${e.date}-${e.category}-${sum}`}>
+                                                        <TableCell>
+                                                            {new Date(e.date).toLocaleDateString('ru-RU')}
+                                                        </TableCell>
+                                                        <TableCell>{e.category}</TableCell>
+                                                        <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                        </TableBody>
+                                    </Table>
+                                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1 }}>
+                                        {t('accountancy.commission.sum')}:{' '}
+                                        {formatAmount(
+                                            result.coAgentExpenses.reduce(
+                                                (s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0),
+                                                0
+                                            )
+                                        )}
+                                    </Typography>
+                                </>
+                            )}
+                        </Paper>
+
+                        <Paper variant="outlined" sx={{ p: 2 }}>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                                {t('accountancy.commission.schemeDescriptions')}
+                            </Typography>
+                            <Stack spacing={0.5} sx={{ mb: 2 }}>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>{t('accountancy.commission.scheme1')}:</strong>{' '}
+                                    {t('accountancy.commission.scheme1Desc')}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>{t('accountancy.commission.scheme2')}:</strong>{' '}
+                                    {t('accountancy.commission.scheme2Desc')}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>{t('accountancy.commission.scheme3')}:</strong>{' '}
+                                    {t('accountancy.commission.scheme3Desc')}
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    <strong>{t('accountancy.commission.scheme4')}:</strong>{' '}
+                                    {t('accountancy.commission.scheme4Desc')}
+                                </Typography>
+                            </Stack>
+                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1, mt: 2 }}>
+                                {t('accountancy.commission.calculationBySchemes')}
+                            </Typography>
+                            {result.bookings.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.commission.noBookings')}
+                                </Typography>
+                            ) : (
+                                result.bookings.map((r) => (
+                                    <Accordion key={r.bookingId} sx={{ mb: 0.5 }} elevation={0}>
+                                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                                            <Typography>
+                                                {r.bookingTitle} — {t('accountancy.commission.scheme')} #{r.schemeId} —{' '}
+                                                {formatAmount(r.commission)}
+                                            </Typography>
+                                        </AccordionSummary>
+                                        <AccordionDetails>
+                                            <Stack spacing={1}>
+                                                {r.steps.map((step, idx) => (
+                                                    <Box
+                                                        key={idx}
+                                                        sx={{
+                                                            display: 'flex',
+                                                            justifyContent: 'space-between',
+                                                            alignItems: 'center',
+                                                            flexWrap: 'wrap',
+                                                            gap: 1,
+                                                        }}
+                                                    >
+                                                        <Typography variant="body2">{step.description}</Typography>
+                                                        {step.value !== undefined && (
+                                                            <Typography variant="body2" fontWeight={500}>
+                                                                {typeof step.value === 'number'
+                                                                    ? formatAmount(step.value)
+                                                                    : step.value}
+                                                            </Typography>
+                                                        )}
+                                                        {step.formula && (
+                                                            <Typography
+                                                                variant="caption"
+                                                                color="text.secondary"
+                                                                sx={{ width: '100%' }}
+                                                            >
+                                                                {step.formula}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                ))}
+                                            </Stack>
+                                        </AccordionDetails>
+                                    </Accordion>
+                                ))
+                            )}
+                        </Paper>
+                    </Box>
                 </Paper>
             )}
         </Box>

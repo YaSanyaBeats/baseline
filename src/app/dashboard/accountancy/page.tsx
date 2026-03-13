@@ -21,6 +21,7 @@ import {
     Switch,
     IconButton,
     Chip,
+    Tooltip,
 } from "@mui/material";
 import { Visibility } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
@@ -33,6 +34,10 @@ import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
 import { getExpenses, updateExpense } from "@/lib/expenses";
 import { getIncomes, updateIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
+import { getCounterparties } from "@/lib/counterparties";
+import { getCashflows } from "@/lib/cashflows";
+import { getUsersWithCashflow } from "@/lib/users";
+import { formatSourceRecipientLabel } from "@/components/accountancy/SourceRecipientSelect";
 
 export default function Page() {
     const { t } = useTranslation();
@@ -51,6 +56,9 @@ export default function Page() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
 
     const [selectedObjectId, setSelectedObjectId] = useState<number | 'all'>('all');
@@ -62,6 +70,7 @@ export default function Page() {
     const [selectedMonth, setSelectedMonth] = useState<string>('');
     const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
     const [reportMonthUpdatingId, setReportMonthUpdatingId] = useState<string | null>(null);
+    const [quantityUpdatingId, setQuantityUpdatingId] = useState<string | null>(null);
 
     const { hasAccess } = useMemo(() => {
         const hasAccess = isAdmin || isAccountant;
@@ -73,7 +82,16 @@ export default function Page() {
 
         const load = async () => {
             try {
-                const [exp, inc] = await Promise.all([getExpenses(), getIncomes()]);
+                const [exp, inc, cps, cfs, usersCf] = await Promise.all([
+                    getExpenses(),
+                    getIncomes(),
+                    getCounterparties(),
+                    getCashflows(),
+                    getUsersWithCashflow(),
+                ]);
+                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
                 setExpenses(exp);
                 setIncomes(inc);
 
@@ -162,22 +180,19 @@ export default function Page() {
     const effectiveDateRange = useMemo(() => {
         if (selectedMonth) {
             const [y, m] = selectedMonth.split('-').map(Number);
-            const from = new Date(y, m - 1, 1);       // 1-е число месяца
-            const to = new Date(y, m, 0);             // последний день месяца
-            return {
-                from: toLocalDateString(from),
-                to: toLocalDateString(to),
-            };
+            const from = new Date(y, m - 1, 1);
+            const to = new Date(y, m, 0);
+            return { from: toLocalDateString(from), to: toLocalDateString(to) };
         }
         return { from: dateFrom, to: dateTo };
     }, [selectedMonth, dateFrom, dateTo]);
 
-    const filteredByDate = useMemo(() => {
+    const isDateInRange = useMemo(() => {
         const { from: effFrom, to: effTo } = effectiveDateRange;
-        const isInRange = (d: Date | string | undefined) => {
+        if (!effFrom && !effTo) return () => true;
+        return (d: Date | string | undefined) => {
             if (!d) return true;
-            if (!effFrom && !effTo) return true;
-            const date = new Date(d as any);
+            const date = new Date(d as string | Date);
             if (effFrom) {
                 const from = new Date(effFrom);
                 if (date < from) return false;
@@ -189,12 +204,15 @@ export default function Page() {
             }
             return true;
         };
+    }, [effectiveDateRange]);
 
-        return {
-            expenses: expenses.filter((e) => isInRange(e.date)),
-            incomes: incomes.filter((i) => isInRange(i.date)),
-        };
-    }, [expenses, incomes, effectiveDateRange]);
+    const filteredByDate = useMemo(
+        () => ({
+            expenses: expenses.filter((e) => isDateInRange(e.date)),
+            incomes: incomes.filter((i) => isDateInRange(i.date)),
+        }),
+        [expenses, incomes, isDateInRange],
+    );
 
     const objectStats = useMemo(() => {
         const map: Record<number, { expenses: number; incomes: number }> = {};
@@ -245,10 +263,11 @@ export default function Page() {
         date: Date | string;
         category: string;
         commentShort: string;
+        quantity: number;
         amount: number;
-        createdBy: string;
-        lastEdit: string;
         reportMonth: string;
+        source?: string;
+        recipient?: string;
         autoCreated?: boolean;
     };
 
@@ -261,11 +280,10 @@ export default function Page() {
             const y = d.getFullYear();
             const m = d.getMonth() + 1;
             const value = `${y}-${String(m).padStart(2, '0')}`;
-            const monthName = t(`accountancy.months.${m}`);
-            options.push({ value, label: `${monthName} ${y}` });
+            options.push({ value, label: `${m}.${y}` });
         }
         return options;
-    }, [t]);
+    }, []);
 
     const filteredOperations = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
@@ -290,7 +308,7 @@ export default function Page() {
         const rows: OperationRow[] = [];
 
         expenses
-            .filter((e) => e.objectId === selectedObjectId && matchRoom(e.roomId, e.bookingId))
+            .filter((e) => e.objectId === selectedObjectId && matchRoom(e.roomId, e.bookingId) && isDateInRange(e.date))
             .forEach((e) => {
                 rows.push({
                     id: `exp-${e._id ?? ''}`,
@@ -300,16 +318,17 @@ export default function Page() {
                     date: e.date,
                     category: e.category ?? '—',
                     commentShort: shortComment(e.comment),
+                    quantity: e.quantity ?? 1,
                     amount: -getExpenseSum(e),
-                    createdBy: e.accountantName ?? '—',
-                    lastEdit: '—',
                     reportMonth: e.reportMonth ?? '',
+                    source: e.source,
+                    recipient: e.recipient,
                     autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
                 });
             });
 
         incomes
-            .filter((i) => i.objectId === selectedObjectId && matchRoom(i.roomId, i.bookingId))
+            .filter((i) => i.objectId === selectedObjectId && matchRoom(i.roomId, i.bookingId) && isDateInRange(i.date))
             .forEach((i) => {
                 rows.push({
                     id: `inc-${i._id ?? ''}`,
@@ -319,10 +338,11 @@ export default function Page() {
                     date: i.date,
                     category: i.category ?? '—',
                     commentShort: shortComment(i.comment),
+                    quantity: i.quantity ?? 1,
                     amount: getIncomeSum(i),
-                    createdBy: i.accountantName ?? '—',
-                    lastEdit: '—',
                     reportMonth: i.reportMonth ?? '',
+                    source: i.source,
+                    recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
                 });
             });
@@ -336,6 +356,7 @@ export default function Page() {
         expenses,
         incomes,
         bookings,
+        isDateInRange,
     ]);
 
     const handleStatusToggle = async (row: OperationRow) => {
@@ -456,6 +477,71 @@ export default function Page() {
             setReportMonthUpdatingId(null);
         }
     };
+
+    const handleQuantityChange = async (row: OperationRow, newQuantity: number) => {
+        if (!row.entityId || newQuantity < 1) return;
+        setQuantityUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    quantity: newQuantity,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, quantity: newQuantity } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    quantity: newQuantity,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, quantity: newQuantity } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating quantity:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setQuantityUpdatingId(null);
+        }
+    };
+
+    const quantityOptions = useMemo(() => {
+        const opts: number[] = [];
+        for (let i = 1; i <= 15; i++) opts.push(i);
+        return opts;
+    }, []);
 
     if (!hasAccess) {
         return (
@@ -578,9 +664,35 @@ export default function Page() {
             </Stack> */}
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
-                <Paper sx={{ p: 2, flex: 1  }}>
+                <Paper sx={{ p: 2, width: 250 }}>
                     <Typography variant="h6" sx={{ mb: 2 }}>
                         {t('accountancy.statsByObject')}
+                    </Typography>
+                    <Table size="small" sx={{ fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 } }}>
+                        <TableBody>
+                            {objects.map((obj) => {
+                                const stat = objectStats[obj.id] || { expenses: 0, incomes: 0 };
+                                const rowBalance = stat.incomes - stat.expenses;
+                                return (
+                                    <TableRow
+                                        key={obj.id}
+                                        onClick={() => {
+                                            setSelectedObjectId(obj.id);
+                                            setSelectedRoomId('all');
+                                        }}
+                                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                                    >
+                                        <TableCell sx={{ py: 0.5, px: 1 }}>{obj.name}</TableCell>
+                                    </TableRow>
+                                );
+                            })}
+                        </TableBody>
+                    </Table>
+                </Paper>
+
+                <Paper sx={{ p: 2, flex: 2 }}>
+                    <Typography variant="h6" sx={{ mb: 2 }}>
+                        {t('accountancy.statsByRoom')}
                     </Typography>
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
                         <FormControl sx={{ minWidth: 200 }} size="small">
@@ -646,44 +758,7 @@ export default function Page() {
                             size="small"
                             sx={{ maxWidth: 200 }}
                         />
-                    </Stack>
-                    <Table size="small">
-                        <TableHead>
-                            <TableRow>
-                                <TableCell>{t('common.object')}</TableCell>
-                                <TableCell>{t('accountancy.balance')}</TableCell>
-                            </TableRow>
-                        </TableHead>
-                        <TableBody>
-                            {objects.map((obj) => {
-                                const stat = objectStats[obj.id] || { expenses: 0, incomes: 0 };
-                                const rowBalance = stat.incomes - stat.expenses;
-                                return (
-                                    <TableRow
-                                        key={obj.id}
-                                        onClick={() => {
-                                            setSelectedObjectId(obj.id);
-                                            setSelectedRoomId('all');
-                                        }}
-                                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
-                                    >
-                                        <TableCell>{obj.name}</TableCell>
-                                        <TableCell sx={{ color: rowBalance >= 0 ? 'success.main' : 'error.main' }}>
-                                            {formatAmount(rowBalance)}
-                                        </TableCell>
-                                    </TableRow>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
-                </Paper>
-
-                <Paper sx={{ p: 2, flex: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                        {t('accountancy.statsByRoom')}
-                    </Typography>
-                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }}>
-                        <FormControl sx={{ minWidth: 180 }}>
+                        <FormControl sx={{ minWidth: 180 }} size="small">
                             <InputLabel>{t('common.object')}</InputLabel>
                             <Select
                                 label={t('common.object')}
@@ -732,46 +807,13 @@ export default function Page() {
                         </Typography>
                     ) : (
                         <>
-                            {selectedObject && (() => {
-                                const totalObjectExpenses = filteredRoomStats.reduce((s, r) => s + r.expenses, 0);
-                                const totalObjectIncomes = filteredRoomStats.reduce((s, r) => s + r.incomes, 0);
-                                const balanceObject = totalObjectIncomes - totalObjectExpenses;
-                                return (
-                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} sx={{ mb: 2 }}>
-                                        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, minWidth: 0 }}>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {t('accountancy.totalExpenses')} ({selectedObject.name})
-                                            </Typography>
-                                            <Typography variant="subtitle1" color="error.main">
-                                                {formatAmount(totalObjectExpenses)}
-                                            </Typography>
-                                        </Paper>
-                                        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, minWidth: 0 }}>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {t('accountancy.totalIncomes')} ({selectedObject.name})
-                                            </Typography>
-                                            <Typography variant="subtitle1" color="success.main">
-                                                {formatAmount(totalObjectIncomes)}
-                                            </Typography>
-                                        </Paper>
-                                        <Paper variant="outlined" sx={{ p: 1.5, flex: 1, minWidth: 0 }}>
-                                            <Typography variant="caption" color="text.secondary">
-                                                {t('accountancy.balance')} ({selectedObject.name})
-                                            </Typography>
-                                            <Typography variant="subtitle1" color={balanceObject >= 0 ? 'success.main' : 'error.main'}>
-                                                {formatAmount(balanceObject)}
-                                            </Typography>
-                                        </Paper>
-                                    </Stack>
-                                );
-                            })()}
-                            <Table size="small">
+                            <Table size="small" sx={{ fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 } }}>
                                 <TableHead>
                                     <TableRow>
-                                        <TableCell>{t('common.room')}</TableCell>
-                                        <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.expensesTitle')})</TableCell>
-                                        <TableCell>{t('accountancy.amountColumn')} ({t('accountancy.incomesTitle')})</TableCell>
-                                        <TableCell>{t('accountancy.balance')}</TableCell>
+                                        <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('common.room')}</TableCell>
+                                        <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')} ({t('accountancy.expensesTitle')})</TableCell>
+                                        <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')} ({t('accountancy.incomesTitle')})</TableCell>
+                                        <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.balance')}</TableCell>
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
@@ -783,10 +825,10 @@ export default function Page() {
                                                 onClick={() => setSelectedRoomId(row.roomId)}
                                                 sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
                                             >
-                                                <TableCell>{row.roomName}</TableCell>
-                                                <TableCell>{formatAmount(row.expenses)}</TableCell>
-                                                <TableCell>{formatAmount(row.incomes)}</TableCell>
-                                                <TableCell sx={{ color: balance >= 0 ? 'success.main' : 'error.main' }}>
+                                                <TableCell sx={{ py: 0.5, px: 1 }}>{row.roomName}</TableCell>
+                                                <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.expenses)}</TableCell>
+                                                <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.incomes)}</TableCell>
+                                                <TableCell sx={{ py: 0.5, px: 1, color: balance >= 0 ? 'success.main' : 'error.main' }}>
                                                     {formatAmount(balance)}
                                                 </TableCell>
                                             </TableRow>
@@ -805,18 +847,19 @@ export default function Page() {
                                             {t('accountancy.noOperations')}
                                         </Typography>
                                     ) : (
-                                        <Table size="small" sx={{ mt: 1 }}>
+                                        <Table size="small" sx={{ mt: 1, fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 }, '& .MuiSelect-select': { py: 0.5, minHeight: 'auto', fontSize: '0.75rem' }, '& .MuiSwitch-root': { transform: 'scale(0.75)' }, '& .MuiIconButton-root': { p: 0.25 } }}>
                                             <TableHead>
                                                 <TableRow>
-                                                    <TableCell width={48} />
-                                                    <TableCell>{t('common.status')}</TableCell>
-                                                    <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                    <TableCell>{t('accountancy.reportMonth')}</TableCell>
-                                                    <TableCell>{t('accountancy.categoryColumn')}</TableCell>
-                                                    <TableCell>{t('accountancy.comment')}</TableCell>
-                                                    <TableCell>{t('accountancy.amountColumn')}</TableCell>
-                                                    <TableCell>{t('accountancy.createdBy')}</TableCell>
-                                                    <TableCell>{t('accountancy.lastEdit')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('common.status')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.reportMonth')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.dateColumn')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.categoryColumn')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.comment')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('common.quantity')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.source')}</TableCell>
+                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.recipient')}</TableCell>
+                                                    <TableCell sx={{ width: 36, py: 0.5, px: 0.5 }} />
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
@@ -829,52 +872,19 @@ export default function Page() {
                                                                 : undefined
                                                         }
                                                     >
-                                                        <TableCell>
-                                                            <Link
-                                                                href={
-                                                                    row.type === 'expense'
-                                                                        ? `/dashboard/accountancy/expense/edit/${row.entityId}`
-                                                                        : `/dashboard/accountancy/income/edit/${row.entityId}`
-                                                                }
-                                                                aria-label={t('common.view')}
-                                                                style={{ display: 'inline-flex' }}
-                                                            >
-                                                                <IconButton
-                                                                    size="small"
-                                                                    color="primary"
-                                                                    component="span"
-                                                                >
-                                                                    <Visibility fontSize="small" />
-                                                                </IconButton>
-                                                            </Link>
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <Stack direction="row" alignItems="center" spacing={1}>
-                                                                <Typography variant="body2" color="text.secondary" sx={{ minWidth: 70 }}>
-                                                                    {row.status === 'confirmed'
-                                                                        ? t('accountancy.statusConfirmed')
-                                                                        : t('accountancy.statusDraft')}
-                                                                </Typography>
-                                                                <Switch
+                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                            <Tooltip title={row.status === 'confirmed' ? t('accountancy.statusConfirmed') : t('accountancy.statusDraft')}>
+                                                            <Switch
                                                                     checked={row.status === 'confirmed'}
                                                                     onChange={() => handleStatusToggle(row)}
                                                                     disabled={statusUpdatingId === row.id}
                                                                     size="small"
                                                                     color="primary"
                                                                 />
-                                                            </Stack>
+                                                            </Tooltip>
                                                         </TableCell>
-                                                        <TableCell>
-                                                            {row.date
-                                                                ? new Date(row.date).toLocaleDateString('ru-RU', {
-                                                                      day: '2-digit',
-                                                                      month: '2-digit',
-                                                                      year: 'numeric',
-                                                                  })
-                                                                : '—'}
-                                                        </TableCell>
-                                                        <TableCell>
-                                                            <FormControl size="small" sx={{ minWidth: 140 }}>
+                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                            <FormControl size="small" sx={{ minWidth: 85 }}>
                                                                 <Select
                                                                     value={row.reportMonth || ''}
                                                                     displayEmpty
@@ -894,20 +904,69 @@ export default function Page() {
                                                                 </Select>
                                                             </FormControl>
                                                         </TableCell>
-                                                        <TableCell>
-                                                            <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
+                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                            {row.date
+                                                                ? new Date(row.date).toLocaleDateString('ru-RU', {
+                                                                      day: '2-digit',
+                                                                      month: '2-digit',
+                                                                      year: 'numeric',
+                                                                  })
+                                                                : '—'}
+                                                        </TableCell>
+                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                            <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap">
                                                                 <span>{row.category}</span>
                                                                 {row.autoCreated && (
                                                                     <Chip size="small" label={t('accountancy.autoAccounting.autoCreatedBadge')} color="success" variant="outlined" />
                                                                 )}
                                                             </Stack>
                                                         </TableCell>
-                                                        <TableCell>{row.commentShort}</TableCell>
-                                                        <TableCell sx={{ color: row.amount >= 0 ? 'success.main' : 'error.main' }}>
+                                                        <TableCell sx={{ py: 0.5, px: 1 }}>{row.commentShort}</TableCell>
+                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                            <FormControl size="small" sx={{ minWidth: 56 }}>
+                                                                <Select
+                                                                    value={row.quantity}
+                                                                    onChange={(e) =>
+                                                                        handleQuantityChange(row, Number(e.target.value))
+                                                                    }
+                                                                    disabled={quantityUpdatingId === row.id}
+                                                                >
+                                                                    {quantityOptions.map((q) => (
+                                                                        <MenuItem key={q} value={q}>
+                                                                            {q}
+                                                                        </MenuItem>
+                                                                    ))}
+                                                                </Select>
+                                                            </FormControl>
+                                                        </TableCell>
+                                                        <TableCell sx={{ py: 0.5, px: 1, color: row.amount >= 0 ? 'success.main' : 'error.main' }}>
                                                             {row.amount >= 0 ? '+' : ''}{formatAmount(row.amount)}
                                                         </TableCell>
-                                                        <TableCell>{row.createdBy}</TableCell>
-                                                        <TableCell>{row.lastEdit}</TableCell>
+                                                        <TableCell sx={{ py: 0.5, px: 1, whiteSpace: 'nowrap' }}>
+                                                            {formatSourceRecipientLabel(row.source, objects, counterparties, usersWithCashflow, cashflows)}
+                                                        </TableCell>
+                                                        <TableCell sx={{ py: 0.5, px: 1, whiteSpace: 'nowrap' }}>
+                                                            {formatSourceRecipientLabel(row.recipient, objects, counterparties, usersWithCashflow, cashflows)}
+                                                        </TableCell>
+                                                        <TableCell sx={{ py: 0.5, px: 0.5 }}>
+                                                            <Link
+                                                                href={
+                                                                    row.type === 'expense'
+                                                                        ? `/dashboard/accountancy/expense/edit/${row.entityId}`
+                                                                        : `/dashboard/accountancy/income/edit/${row.entityId}`
+                                                                }
+                                                                aria-label={t('common.view')}
+                                                                style={{ display: 'inline-flex' }}
+                                                            >
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="primary"
+                                                                    component="span"
+                                                                >
+                                                                    <Visibility fontSize="small" />
+                                                                </IconButton>
+                                                            </Link>
+                                                        </TableCell>
                                                     </TableRow>
                                                 ))}
                                             </TableBody>

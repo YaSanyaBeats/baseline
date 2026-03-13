@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomes, updateIncome } from "@/lib/incomes";
 import { getCounterparties } from "@/lib/counterparties";
+import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
 import SourceRecipientSelect, { type SourceRecipientOptionValue } from "@/components/accountancy/SourceRecipientSelect";
@@ -33,7 +34,6 @@ import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
-import { getCashflows } from "@/lib/cashflows";
 
 export default function Page() {
     const { t } = useTranslation();
@@ -49,19 +49,19 @@ export default function Page() {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
-    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
 
     useEffect(() => {
         if (hasAccess) {
-            Promise.all([getAccountancyCategories('income'), getCashflows(), getCounterparties(), getUsersWithCashflow()])
-                .then(([cats, cfs, cps, usersCf]) => {
+            Promise.all([getAccountancyCategories('income'), getCounterparties(), getCashflows(), getUsersWithCashflow()])
+                .then(([cats, cps, cfs, usersCf]) => {
                     setCategories(cats);
-                    setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                     setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                    setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                     setUsersWithCashflow(usersCf);
                 })
                 .catch((error) => {
@@ -86,7 +86,6 @@ export default function Page() {
                                 : '',
                             status: (found as any).status || 'draft',
                             reportMonth: found.reportMonth ?? '',
-                            cashflowId: found.cashflowId ?? '',
                             source: found.source ?? '',
                             recipient: found.recipient ?? '',
                             comment: found.comment ?? '',
@@ -246,7 +245,6 @@ export default function Page() {
             reportMonth: income.reportMonth || undefined,
             source: income.source || undefined,
             recipient: income.recipient || undefined,
-            cashflowId: income.cashflowId || undefined,
             comment: income.comment ?? '',
             attachments: income.attachments ?? [],
             accountantId: '', // не используется при обновлении
@@ -459,28 +457,11 @@ export default function Page() {
                             label={t('accountancy.recipient')}
                             counterparties={counterparties}
                             usersWithCashflow={usersWithCashflow}
+                            cashflows={cashflows}
+                            includeCashflows
                             size="medium"
                             sx={{ width: '100%' }}
                         />
-                    </Box>
-                    <Box>
-                        <FormControl sx={{ width: '100%' }}>
-                            <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
-                            <Select
-                                value={income.cashflowId ?? ''}
-                                label={t('accountancy.cashflow.title')}
-                                onChange={(e) =>
-                                    setIncome((prev) => ({ ...prev, cashflowId: (e.target.value as string) || undefined }))
-                                }
-                            >
-                                <MenuItem value="">—</MenuItem>
-                                {cashflows.map((cf) => (
-                                    <MenuItem key={cf._id} value={cf._id}>
-                                        {cf.name}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
                     </Box>
                     <Box>
                         <FormControl sx={{ minWidth: 150 }}>

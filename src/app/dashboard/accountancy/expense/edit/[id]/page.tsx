@@ -55,8 +55,8 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
-    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
 
@@ -88,10 +88,8 @@ export default function Page() {
                             objectId: found.objectId,
                             roomId: found.roomId,
                             bookingId: found.bookingId,
-                            counterpartyId: found.counterpartyId,
                             source: found.source ?? '',
                             recipient: found.recipient ?? '',
-                            cashflowId: found.cashflowId,
                             category: found.category,
                             amount: found.amount,
                             quantity: found.quantity ?? 1,
@@ -262,10 +260,8 @@ export default function Page() {
             objectId: expense.objectId as number,
             roomId: expense.roomId,
             bookingId: expense.bookingId,
-            counterpartyId: expense.counterpartyId,
             source: expense.source || undefined,
             recipient: expense.recipient || undefined,
-            cashflowId: expense.cashflowId,
             category: expense.category as string,
             amount: getEffectiveCost(),
             quantity: expense.quantity ?? 1,
@@ -387,25 +383,6 @@ export default function Page() {
                         </FormControl>
                     </Box>
                     <Box>
-                        <FormControl sx={{ width: '100%' }}>
-                            <InputLabel>{t('accountancy.counterparty.title')}</InputLabel>
-                            <Select
-                                value={expense.counterpartyId || ''}
-                                label={t('accountancy.counterparty.title')}
-                                onChange={(e) =>
-                                    setExpense((prev) => ({ ...prev, counterpartyId: e.target.value || undefined }))
-                                }
-                            >
-                                <MenuItem value="">—</MenuItem>
-                                {counterparties.map((cp) => (
-                                    <MenuItem key={cp._id} value={cp._id}>
-                                        {cp.name}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                    </Box>
-                    <Box>
                         <SourceRecipientSelect
                             value={(expense.source as SourceRecipientOptionValue) ?? ''}
                             onChange={(v) => setExpense((prev) => ({ ...prev, source: v || undefined }))}
@@ -423,28 +400,11 @@ export default function Page() {
                             label={t('accountancy.recipient')}
                             counterparties={counterparties}
                             usersWithCashflow={usersWithCashflow}
+                            cashflows={cashflows}
+                            includeCashflows
                             size="medium"
                             sx={{ width: '100%' }}
                         />
-                    </Box>
-                    <Box>
-                        <FormControl sx={{ width: '100%' }}>
-                            <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
-                            <Select
-                                value={expense.cashflowId || ''}
-                                label={t('accountancy.cashflow.title')}
-                                onChange={(e) =>
-                                    setExpense((prev) => ({ ...prev, cashflowId: e.target.value || undefined }))
-                                }
-                            >
-                                <MenuItem value="">—</MenuItem>
-                                {cashflows.map((cf) => (
-                                    <MenuItem key={cf._id} value={cf._id}>
-                                        {cf.name}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
                     </Box>
                     <Box>
                         <TextField

@@ -10,17 +10,19 @@ import {
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 
-/** Значение: "room:objectId:roomId", "cp:counterpartyId" или "user:userId" */
+/** Значение: "room:objectId:roomId", "cp:counterpartyId", "user:userId" или "cf:cashflowId" */
 export type SourceRecipientOptionValue = string;
 
 export const PREFIX_ROOM = 'room:';
 export const PREFIX_CP = 'cp:';
 export const PREFIX_USER = 'user:';
+export const PREFIX_CF = 'cf:';
 
 export type ParsedSourceRecipient =
     | { type: 'room'; objectId: number; roomId: number }
     | { type: 'counterparty'; id: string }
-    | { type: 'user'; id: string };
+    | { type: 'user'; id: string }
+    | { type: 'cashflow'; id: string };
 
 export function parseSourceRecipientValue(
     value: SourceRecipientOptionValue | undefined
@@ -40,6 +42,10 @@ export function parseSourceRecipientValue(
         const id = value.slice(PREFIX_USER.length);
         if (id) return { type: 'user', id };
     }
+    if (value.startsWith(PREFIX_CF)) {
+        const id = value.slice(PREFIX_CF.length);
+        if (id) return { type: 'cashflow', id };
+    }
     return null;
 }
 
@@ -47,7 +53,8 @@ export function formatSourceRecipientLabel(
     value: SourceRecipientOptionValue | undefined,
     objects: { id: number; name: string; roomTypes: { id: number; name: string }[] }[],
     counterparties: { _id: string; name: string }[],
-    usersWithCashflow?: { _id: string; name: string }[]
+    usersWithCashflow?: { _id: string; name: string }[],
+    cashflows?: { _id: string; name: string }[]
 ): string {
     const parsed = parseSourceRecipientValue(value);
     if (!parsed) return '—';
@@ -61,9 +68,18 @@ export function formatSourceRecipientLabel(
         const cp = counterparties.find((c) => c._id === parsed.id);
         return cp ? cp.name : parsed.id;
     }
+    
     if (parsed.type === 'user' && usersWithCashflow) {
-        const u = usersWithCashflow.find((x) => x._id === parsed.id);
+        const idStr = String(parsed.id);
+        const u = usersWithCashflow.find((x) => {
+            const xId = typeof x._id === 'string' ? x._id : (x._id as { toString?: () => string })?.toString?.() ?? '';
+            return xId === idStr;
+        });
         return u ? u.name : parsed.id;
+    }
+    if (parsed.type === 'cashflow' && cashflows) {
+        const cf = cashflows.find((c) => c._id === parsed.id);
+        return cf ? cf.name : parsed.id;
     }
     return parsed.id || '—';
 }
@@ -75,6 +91,10 @@ interface SourceRecipientSelectProps {
     counterparties: { _id: string; name: string }[];
     /** Пользователи с кешфлоу для выбора в качестве источника/получателя */
     usersWithCashflow?: { _id: string; name: string }[];
+    /** Кэшфлоу для выбора в качестве получателя */
+    cashflows?: { _id: string; name: string }[];
+    /** Показывать кэшфлоу в списке (для поля «Кому») */
+    includeCashflows?: boolean;
     size?: 'small' | 'medium';
     sx?: object;
     error?: boolean;
@@ -87,6 +107,8 @@ export default function SourceRecipientSelect({
     label,
     counterparties,
     usersWithCashflow = [],
+    cashflows = [],
+    includeCashflows = false,
     size = 'small',
     sx,
     error,
@@ -114,6 +136,13 @@ export default function SourceRecipientSelect({
         value: `${PREFIX_USER}${u._id}` as SourceRecipientOptionValue,
         label: u.name,
     }));
+
+    const cfOptions = includeCashflows
+        ? cashflows.map((c) => ({
+              value: `${PREFIX_CF}${c._id}` as SourceRecipientOptionValue,
+              label: c.name,
+          }))
+        : [];
 
     return (
         <FormControl size={size} sx={{ minWidth: 200, ...sx }} error={error} disabled={disabled}>
@@ -155,6 +184,16 @@ export default function SourceRecipientSelect({
                     ...userOptions.map((opt) => (
                         <MenuItem key={opt.value} value={opt.value}>
                             {t('accountancy.sourceRecipientUserPrefix')} {opt.label}
+                        </MenuItem>
+                    )),
+                ]}
+                {cfOptions.length > 0 && [
+                    <ListSubheader key="cf-header" sx={{ lineHeight: 2 }}>
+                        {t('accountancy.cashflow.title')}
+                    </ListSubheader>,
+                    ...cfOptions.map((opt) => (
+                        <MenuItem key={opt.value} value={opt.value}>
+                            {t('accountancy.sourceRecipientCashflowPrefix')} {opt.label}
                         </MenuItem>
                     )),
                 ]}

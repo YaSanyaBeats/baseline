@@ -311,7 +311,7 @@ export interface AutoCreatedMeta {
     ruleId?: string;               // ID правила из конструктора
 }
 
-/** Значение поля «Источник»/«Получатель»: "room:objectId:roomId", "cp:counterpartyId" или "user:userId" */
+/** Значение поля «От кого»/«Кому»: "room:objectId:roomId", "cp:counterpartyId" или "user:userId" */
 export type SourceRecipientValue = string;
 
 export interface Expense {
@@ -320,9 +320,9 @@ export interface Expense {
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
     counterpartyId?: string;       // ID контрагента (опционально)
-    /** Источник: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** От кого: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
     source?: SourceRecipientValue;
-    /** Получатель: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** Кому: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
     recipient?: SourceRecipientValue;
     cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
     category: string;              // Категория расхода
@@ -345,9 +345,9 @@ export interface Income {
     objectId: number;              // ID объекта
     roomId?: number;               // ID комнаты (опционально)
     bookingId?: number;            // ID бронирования (опционально)
-    /** Источник: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** От кого: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
     source?: SourceRecipientValue;
-    /** Получатель: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** Кому: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
     recipient?: SourceRecipientValue;
     cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
     date: Date;                    // Дата дохода

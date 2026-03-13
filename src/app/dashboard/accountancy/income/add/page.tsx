@@ -29,6 +29,7 @@ import { AccountancyCategory, AccountancyAttachment, Booking, Income, UserObject
 import { formatTitle } from "@/lib/format";
 import { addIncome } from "@/lib/incomes";
 import { getCounterparties } from "@/lib/counterparties";
+import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
 import SourceRecipientSelect, { type SourceRecipientOptionValue, PREFIX_USER } from "@/components/accountancy/SourceRecipientSelect";
@@ -40,8 +41,6 @@ import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
-import { getCashflows } from "@/lib/cashflows";
-
 type IncomeItemForm = {
     category: string;
     amount: number | undefined;
@@ -49,7 +48,6 @@ type IncomeItemForm = {
     date: string;
     reportMonth: string;
     comment: string;
-    cashflowId: string;
     source: SourceRecipientOptionValue | '';
     recipient: SourceRecipientOptionValue | '';
     attachments: AccountancyAttachment[];
@@ -63,7 +61,6 @@ const defaultIncomeItem: IncomeItemForm = {
     date: '',
     reportMonth: '',
     comment: '',
-    cashflowId: '',
     source: '',
     recipient: '',
     attachments: [],
@@ -81,8 +78,8 @@ export default function Page() {
     const [bookingModalForIndex, setBookingModalForIndex] = useState<number | null>(null);
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
-    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -95,11 +92,11 @@ export default function Page() {
 
     useEffect(() => {
         if (!hasAccess) return;
-        Promise.all([getAccountancyCategories('income'), getCashflows(), getCounterparties(), getUsersWithCashflow()])
-            .then(([cats, cfs, cps, usersCf]) => {
+        Promise.all([getAccountancyCategories('income'), getCounterparties(), getCashflows(), getUsersWithCashflow()])
+            .then(([cats, cps, cfs, usersCf]) => {
                 setCategories(cats);
-                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
             })
             .catch((error) => {
@@ -243,7 +240,6 @@ export default function Page() {
                     reportMonth: item.reportMonth || undefined,
                     source: item.source || undefined,
                     recipient: (recipientLockedForCashflow ? currentUserRecipientValue : item.recipient) || undefined,
-                    cashflowId: item.cashflowId || undefined,
                     comment: item.comment || undefined,
                     attachments: item.attachments ?? [],
                     accountantId: '',
@@ -338,7 +334,6 @@ export default function Page() {
                             <TableCell>{t('accountancy.amountColumn')}</TableCell>
                             <TableCell>{t('accountancy.incomeDate')}</TableCell>
                             <TableCell>{t('accountancy.reportMonth')}</TableCell>
-                            <TableCell>{t('accountancy.cashflow.title')}</TableCell>
                             <TableCell>{t('accountancy.comment')}</TableCell>
                             <TableCell>{t('accountancy.attachments')}</TableCell>
                         </TableRow>
@@ -433,6 +428,8 @@ export default function Page() {
                                         label={t('accountancy.recipient')}
                                         counterparties={counterparties}
                                         usersWithCashflow={usersWithCashflow}
+                                        cashflows={cashflows}
+                                        includeCashflows
                                         disabled={recipientLockedForCashflow}
                                         sx={{ minWidth: 200 }}
                                     />
@@ -506,25 +503,6 @@ export default function Page() {
                                                     </MenuItem>
                                                 ));
                                             })()}
-                                        </Select>
-                                    </FormControl>
-                                </TableCell>
-                                <TableCell>
-                                    <FormControl size="small" sx={{ minWidth: 140 }}>
-                                        <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
-                                        <Select
-                                            value={item.cashflowId || ''}
-                                            label={t('accountancy.cashflow.title')}
-                                            onChange={(e) =>
-                                                handleChangeItem(index, 'cashflowId', e.target.value as string)
-                                            }
-                                        >
-                                            <MenuItem value="">—</MenuItem>
-                                            {cashflows.map((cf) => (
-                                                <MenuItem key={cf._id} value={cf._id}>
-                                                    {cf.name}
-                                                </MenuItem>
-                                            ))}
                                         </Select>
                                     </FormControl>
                                 </TableCell>

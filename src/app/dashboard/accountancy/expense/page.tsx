@@ -41,6 +41,7 @@ import { Expense, ExpenseStatus, Booking } from "@/lib/types";
 import { getExpenses, deleteExpense, updateExpense } from "@/lib/expenses";
 import { getBookingsByIds } from "@/lib/bookings";
 import { getCounterparties } from "@/lib/counterparties";
+import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import { formatSourceRecipientLabel } from "@/components/accountancy/SourceRecipientSelect";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
@@ -113,6 +114,7 @@ export default function Page() {
     const [filterRoomId, setFilterRoomId] = useState<string>(() => loadExpenseFilters()?.filterRoomId ?? '');
     const [bookings, setBookings] = useState<Booking[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(() => loadExpenseFilters()?.sortByAmountAsc ?? null);
@@ -137,12 +139,14 @@ export default function Page() {
             getExpenses(),
             getAccountancyCategories('expense'),
             getCounterparties(),
+            getCashflows(),
             getUsersWithCashflow(),
         ])
-            .then(async ([list, cats, cps, usersCf]) => {
+            .then(async ([list, cats, cps, cfs, usersCf]) => {
                 setExpenses(list);
                 setCategories(cats);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
                 const bookingIds = Array.from(
                     new Set(list.map((e) => e.bookingId).filter((id): id is number => typeof id === 'number')),
@@ -583,8 +587,8 @@ export default function Page() {
                                                 )}
                                             </Stack>
                                         </TableCell>
-                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatSourceRecipientLabel(expense.source, objects, counterparties, usersWithCashflow)}</TableCell>
-                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatSourceRecipientLabel(expense.recipient, objects, counterparties, usersWithCashflow)}</TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatSourceRecipientLabel(expense.source, objects, counterparties, usersWithCashflow, cashflows)}</TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>{formatSourceRecipientLabel(expense.recipient, objects, counterparties, usersWithCashflow, cashflows)}</TableCell>
                                         <TableCell>{formatAmount(expense.amount)}</TableCell>
                                         <TableCell>{expense.quantity ?? 1}</TableCell>
                                         <TableCell>{formatAmount(getExpenseSum(expense))} ({t('accountancy.amountColumn')})</TableCell>

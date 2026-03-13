@@ -49,8 +49,6 @@ type ExpenseItemForm = {
     date: string;
     comment: string;
     status: ExpenseStatus;
-    counterpartyId: string;
-    cashflowId: string;
     source: SourceRecipientOptionValue | '';
     recipient: SourceRecipientOptionValue | '';
     reportMonth: string;
@@ -65,8 +63,6 @@ const defaultExpenseItem: ExpenseItemForm = {
     date: '',
     comment: '',
     status: 'draft',
-    counterpartyId: '',
-    cashflowId: '',
     source: '',
     recipient: '',
     reportMonth: '',
@@ -86,8 +82,8 @@ export default function Page() {
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
-    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
@@ -247,10 +243,8 @@ export default function Page() {
                     objectId,
                     roomId,
                     bookingId: item.bookingId,
-                    counterpartyId: item.counterpartyId || undefined,
                     source: (sourceLockedForCashflow ? currentUserSourceValue : item.source) || undefined,
                     recipient: item.recipient || undefined,
-                    cashflowId: item.cashflowId || undefined,
                     category: item.category,
                     amount: effectiveCost,
                     quantity: item.quantity ?? 1,
@@ -344,10 +338,8 @@ export default function Page() {
                             <TableCell width={40}></TableCell>
                             <TableCell>{t('accountancy.bookingColumn')}</TableCell>
                             <TableCell>{t('accountancy.category')}</TableCell>
-                            <TableCell>{t('accountancy.counterparty.title')}</TableCell>
                             <TableCell>{t('accountancy.source')}</TableCell>
                             <TableCell>{t('accountancy.recipient')}</TableCell>
-                            <TableCell>{t('accountancy.cashflow.title')}</TableCell>
                             <TableCell>{t('accountancy.cost')}</TableCell>
                             <TableCell>{t('accountancy.quantity')}</TableCell>
                             <TableCell>{t('accountancy.amountColumn')}</TableCell>
@@ -432,25 +424,6 @@ export default function Page() {
                                     </FormControl>
                                 </TableCell>
                                 <TableCell>
-                                    <FormControl size="small" sx={{ minWidth: 160 }}>
-                                        <InputLabel>{t('accountancy.counterparty.title')}</InputLabel>
-                                        <Select
-                                            value={item.counterpartyId || ''}
-                                            label={t('accountancy.counterparty.title')}
-                                            onChange={(e) =>
-                                                handleChangeItem(index, 'counterpartyId', e.target.value as string)
-                                            }
-                                        >
-                                            <MenuItem value="">—</MenuItem>
-                                            {counterparties.map((cp) => (
-                                                <MenuItem key={cp._id} value={cp._id}>
-                                                    {cp.name}
-                                                </MenuItem>
-                                            ))}
-                                        </Select>
-                                    </FormControl>
-                                </TableCell>
-                                <TableCell>
                                     <SourceRecipientSelect
                                         value={sourceLockedForCashflow ? currentUserSourceValue : item.source}
                                         onChange={(v) => handleChangeItem(index, 'source', v)}
@@ -468,27 +441,10 @@ export default function Page() {
                                         label={t('accountancy.recipient')}
                                         counterparties={counterparties}
                                         usersWithCashflow={usersWithCashflow}
+                                        cashflows={cashflows}
+                                        includeCashflows
                                         sx={{ minWidth: 200 }}
                                     />
-                                </TableCell>
-                                <TableCell>
-                                    <FormControl size="small" sx={{ minWidth: 140 }}>
-                                        <InputLabel>{t('accountancy.cashflow.title')}</InputLabel>
-                                        <Select
-                                            value={item.cashflowId || ''}
-                                            label={t('accountancy.cashflow.title')}
-                                            onChange={(e) =>
-                                                handleChangeItem(index, 'cashflowId', e.target.value as string)
-                                            }
-                                        >
-                                            <MenuItem value="">—</MenuItem>
-                                            {cashflows.map((cf) => (
-                                                <MenuItem key={cf._id} value={cf._id}>
-                                                    {cf.name}
-                                                </MenuItem>
-                                            ))}
-                                        </Select>
-                                    </FormControl>
                                 </TableCell>
                                 <TableCell>
                                     <TextField

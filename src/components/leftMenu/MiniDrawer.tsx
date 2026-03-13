@@ -21,7 +21,9 @@ import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { useSession } from 'next-auth/react';
 import { User } from '@/lib/types';
+import { useUser } from '@/providers/UserProvider';
 import HeaderMenu from '../headerMenu/HeaderMenu';
+import Typography from '@mui/material/Typography';
 import Drawer from '@mui/material/Drawer';
 import { useMediaQuery } from '@mui/material';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -253,6 +255,8 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
 export default function MiniDrawer({ children }: { children: React.ReactNode }) {
     const [open, setOpen] = React.useState(false);
     const isMobile = !useMediaQuery('(min-width:768px)');
+    const { user } = useUser();
+    const { t } = useTranslation();
 
     const handleDrawerOpen = () => {
         setOpen(true);
@@ -279,10 +283,13 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     >
                         <MenuIcon />
                     </IconButton>
-                    <Box sx={{ flexGrow: 1 }}>
+                    <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
                         <Link href="/dashboard" >
                             <Image src="/logo-new.svg" alt="HolyCow logo" width={90} height={40}></Image>
                         </Link>
+                        <Typography variant="body1" component="span" sx={{ color: 'white' }}>
+                            {user?.name ? `${t('header.greeting')}, ${user.name}` : t('header.greeting')}
+                        </Typography>
                     </Box>
                     <HeaderMenu></HeaderMenu>
                 </Toolbar>
