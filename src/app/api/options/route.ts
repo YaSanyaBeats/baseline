@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
+import { buildClientObjectRows } from '@/lib/server/getObjects';
 
 export async function GET() {
     try {
@@ -21,18 +22,7 @@ export async function GET() {
             id: { $in: result['excludeObjects'] },
         }).toArray();
 
-        const neededObjects = objects.map((object: any) => {
-            return {
-                id: object.id,
-                name: object.name,
-                roomTypes: object.roomTypes[0].units.map((room: any) => {
-                    return {
-                        id: room.id,
-                        name: room.name,
-                    };
-                })
-            };
-        });
+        const neededObjects = buildClientObjectRows(objects, [], {}, {});
 
         result['excludeObjects'] = neededObjects;
 

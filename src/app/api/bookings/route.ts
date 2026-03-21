@@ -26,16 +26,17 @@ export async function GET(request: NextRequest) {
         const db = await getDB();
         const searchParams = request.nextUrl.searchParams;
 
-        const objectID = searchParams.get('roomInfo[object][id]');
+        const propertyIdParam =
+            searchParams.get('roomInfo[object][propertyId]') ?? searchParams.get('roomInfo[object][id]');
         const roomID = searchParams.get('roomInfo[room][id]');
         const bookings = db.collection('bookings');
 
-        if (!objectID || !roomID) {
+        if (!propertyIdParam || !roomID) {
             return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
         }
 
         const neededBookings = await bookings.find({
-            propertyId: +objectID,
+            propertyId: +propertyIdParam,
             unitId: +roomID
         }).sort({
             arrival: -1

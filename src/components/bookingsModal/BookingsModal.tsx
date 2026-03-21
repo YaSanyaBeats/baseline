@@ -90,8 +90,9 @@ export default function BookingsModal(props: {
                 // Фильтруем отчёты по objectId и распределяем по группам
                 const reports = new Map<string, string>();
                 
+                const reportObjectId = roomInfo.object.propertyId ?? roomInfo.object.id;
                 allReports
-                    .filter(report => report.objectId === roomInfo.object.id && report.reportLink)
+                    .filter(report => report.objectId === reportObjectId && report.reportLink)
                     .forEach(report => {
                         const key = `${report.reportYear}-${report.reportMonth}`;
                         reports.set(key, report.reportLink);

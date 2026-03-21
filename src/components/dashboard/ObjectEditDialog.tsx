@@ -41,7 +41,7 @@ export default function ObjectEditDialog({ open, onClose, object, onSave }: Obje
         if (!object) return;
         setSaving(true);
         try {
-            await onSave(object.id, {
+            await onSave(object.propertyId ?? object.id, {
                 district: district.trim() || undefined,
                 objectType: objectType || undefined,
             });

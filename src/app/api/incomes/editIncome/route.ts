@@ -91,6 +91,7 @@ export async function POST(request: NextRequest) {
                 : 'draft');
 
         const updateData: any = {
+            recordType: 'income',
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,

@@ -42,6 +42,49 @@ import {
 } from '@/lib/commissionCalculation';
 import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
 
+const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
+
+function parseCommissionRoomId(v: unknown): number | 'all' {
+    if (v === 'all' || v === null || v === undefined || v === '') return 'all';
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 'all';
+}
+
+function loadCommissionFilters() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(COMMISSION_FILTERS_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        const oid = parsed.selectedObjectId;
+        let selectedObjectId: number | '' = '';
+        if (oid !== null && oid !== undefined && oid !== '') {
+            const n = Number(oid);
+            selectedObjectId = Number.isFinite(n) ? n : '';
+        }
+        return {
+            selectedObjectId,
+            selectedRoomId: parseCommissionRoomId(parsed.selectedRoomId),
+            selectedMonth: String(parsed.selectedMonth ?? ''),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveCommissionFilters(state: {
+    selectedObjectId: number | '';
+    selectedRoomId: number | 'all';
+    selectedMonth: string;
+}) {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(COMMISSION_FILTERS_KEY, JSON.stringify(state));
+    } catch {
+        // ignore
+    }
+}
+
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
 
 function formatAmount(value: number): string {
@@ -63,6 +106,7 @@ export default function Page() {
     const [loading, setLoading] = useState(true);
     const [calculating, setCalculating] = useState(false);
 
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedObjectId, setSelectedObjectId] = useState<number | ''>('');
     const [selectedRoomId, setSelectedRoomId] = useState<number | 'all'>('all');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
@@ -81,6 +125,25 @@ export default function Page() {
     } | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
+
+    useEffect(() => {
+        const s = loadCommissionFilters();
+        if (s) {
+            setSelectedObjectId(s.selectedObjectId);
+            setSelectedRoomId(s.selectedRoomId);
+            setSelectedMonth(s.selectedMonth);
+        }
+        setFiltersHydrated(true);
+    }, []);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        saveCommissionFilters({
+            selectedObjectId,
+            selectedRoomId,
+            selectedMonth,
+        });
+    }, [filtersHydrated, selectedObjectId, selectedRoomId, selectedMonth]);
 
     const selectedObject = selectedObjectId
         ? objects.find((o) => o.id === selectedObjectId)
@@ -148,6 +211,9 @@ export default function Page() {
 
         try {
             const roomFilter: number | 'all' = selectedRoomId;
+            const bookingPropertyId =
+                selectedObject?.propertyId ??
+                (typeof selectedObjectId === 'number' ? selectedObjectId : 0);
             const bookingIds = getBookingIdsFromExpensesAndIncomes(
                 selectedObjectId,
                 selectedMonth
@@ -155,7 +221,7 @@ export default function Page() {
             const bookingsList = await getBookingsByIds(bookingIds);
             const filteredBookings = bookingsList.filter(
                 (b) =>
-                    b.propertyId === selectedObjectId &&
+                    b.propertyId === bookingPropertyId &&
                     (roomFilter === 'all' || b.unitId === roomFilter)
             );
             setBookings(filteredBookings);
@@ -167,7 +233,8 @@ export default function Page() {
                 categories,
                 selectedObjectId,
                 roomFilter,
-                selectedMonth
+                selectedMonth,
+                bookingPropertyId
             );
 
             const getSchemeForBooking = (booking: Booking): CommissionSchemeId => {
@@ -320,7 +387,7 @@ export default function Page() {
                                 <em>{t('accountancy.commission.selectObject')}</em>
                             </MenuItem>
                             {objects.map((obj) => (
-                                <MenuItem key={obj.id} value={String(obj.id)}>
+                                <MenuItem key={`${obj.propertyName || 'obj'}-${obj.id}`} value={String(obj.id)}>
                                     {obj.name}
                                 </MenuItem>
                             ))}

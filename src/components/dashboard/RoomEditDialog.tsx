@@ -72,7 +72,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
         if (!object || !room) return;
         setSaving(true);
         try {
-            await onSave(object.id, room.id, {
+            await onSave(object.propertyId ?? object.id, room.id, {
                 bedrooms: bedrooms !== '' ? parseInt(bedrooms, 10) : undefined,
                 bathrooms: bathrooms !== '' ? parseInt(bathrooms, 10) : undefined,
                 livingRoomSofas: livingRoomSofas !== '' ? parseInt(livingRoomSofas, 10) : undefined,

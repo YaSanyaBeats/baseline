@@ -3,7 +3,13 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
-import { getAllObjects, getObjects } from '@/lib/server/getObjects';
+import {
+    buildClientObjectRows,
+    filterClientRowsByUserAssignments,
+    getAllObjects,
+    getObjects,
+} from '@/lib/server/getObjects';
+import { getAllObjectMetadata, getAllRoomMetadata } from '@/lib/server/objectRoomMetadata';
 
 function hasFullAccess(session: { user?: unknown } | null): boolean {
     if (!session?.user) return false;
@@ -87,45 +93,37 @@ export async function GET(request: NextRequest) {
             
             const objectInfo = user.objects;
             const idsNumbers = objectInfo.map((e: any) => +e.id);
-            
-            // Ищем в обеих коллекциях
-            const beds24Objects = await collection.find({
-                id: { $in: idsNumbers }
-            }).toArray();
-            
-            const internalObjects = await internalObjectsCollection.find({
-                id: { $in: idsNumbers }
-            }).toArray();
-            
-            const objects = [...internalObjects, ...beds24Objects];
-            
-            const neededObjects = objects.map((object: any) => {
-                let rooms = [];
-                
-                if (object?.roomTypes?.length) {
-                    rooms = object?.roomTypes[0]?.units.map((room: any) => {
-                        return {
-                            id: room?.id,
-                            name: room?.name,
-                        };
-                    });
+
+            const idQuery = {
+                $or: [{ id: { $in: idsNumbers } }, { 'roomTypes.id': { $in: idsNumbers } }],
+            };
+
+            const beds24Objects = await collection.find(idQuery).toArray();
+            const internalObjects = await internalObjectsCollection.find(idQuery).toArray();
+
+            const dedupeByPropertyId = (arr: any[]) => {
+                const m = new Map<number, any>();
+                for (const o of arr) {
+                    if (o?.id != null && !m.has(o.id)) m.set(o.id, o);
                 }
-                
-                rooms = rooms.filter((room: any) => {
-                    const neededObject = objectInfo.find((innerObject: any) => {
-                        return innerObject.id == object.id;
-                    });
-                    
-                    return neededObject?.rooms.includes(room.id);
-                });
-                
-                return {
-                    id: object.id,
-                    name: object.name,
-                    roomTypes: rooms
-                };
-            });
-            
+                return Array.from(m.values());
+            };
+
+            const rawObjects = [...dedupeByPropertyId(internalObjects), ...dedupeByPropertyId(beds24Objects)];
+
+            const allUsers = await db.collection('users').find(
+                {},
+                { projection: { name: 1, login: 1, objects: 1 } }
+            ).toArray();
+
+            const [objectMetadataMap, roomMetadataMap] = await Promise.all([
+                getAllObjectMetadata(),
+                getAllRoomMetadata(),
+            ]);
+
+            const rows = buildClientObjectRows(rawObjects, allUsers, objectMetadataMap, roomMetadataMap);
+            const neededObjects = filterClientRowsByUserAssignments(rows, objectInfo);
+
             return NextResponse.json(neededObjects);
         }
         

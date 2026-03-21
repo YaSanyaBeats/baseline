@@ -396,17 +396,25 @@ export default function AnalyticsTable(props: { analyticsData: AnalyticsResponse
                     <TableBody>
                         {filterAnalyticsData.data.map((objectAnaliticData) => {
                             const objectID = objectAnaliticData.objectID;
-                            const object = objects.find((object) => {
-                                return object.id == objectID;
-                            })
-
-                            if(!object) {
-                                return (<></>);
-                            }
+                            const fromContext = objects.find((o) => o.id === objectID);
+                            const object: Object =
+                                fromContext ??
+                                ({
+                                    id: objectID,
+                                    name: objectAnaliticData.objectName ?? `#${objectID}`,
+                                    propertyId: objectID,
+                                    roomTypes: [],
+                                } as Object);
 
                             return (
-                                <Row key={object.id} filterAnalyticsData={objectAnaliticData} object={object} handleClick={handleCellClick} t={t}></Row>
-                            )
+                                <Row
+                                    key={objectID}
+                                    filterAnalyticsData={objectAnaliticData}
+                                    object={object}
+                                    handleClick={handleCellClick}
+                                    t={t}
+                                />
+                            );
                         })}
                         
                     </TableBody>

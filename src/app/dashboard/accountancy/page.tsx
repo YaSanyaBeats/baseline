@@ -39,6 +39,53 @@ import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import { formatSourceRecipientLabel } from "@/components/accountancy/SourceRecipientSelect";
 
+const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
+
+function parseOverviewObjectId(v: unknown): number | 'all' {
+    if (v === 'all' || v === null || v === undefined || v === '') return 'all';
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 'all';
+}
+
+function parseOverviewRoomId(v: unknown): number | 'all' {
+    if (v === 'all' || v === null || v === undefined || v === '') return 'all';
+    const n = Number(v);
+    return Number.isFinite(n) ? n : 'all';
+}
+
+function loadOverviewFilters() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(OVERVIEW_FILTERS_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return {
+            selectedObjectId: parseOverviewObjectId(parsed.selectedObjectId),
+            selectedRoomId: parseOverviewRoomId(parsed.selectedRoomId),
+            dateFrom: String(parsed.dateFrom ?? ''),
+            dateTo: String(parsed.dateTo ?? ''),
+            selectedMonth: String(parsed.selectedMonth ?? ''),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveOverviewFilters(state: {
+    selectedObjectId: number | 'all';
+    selectedRoomId: number | 'all';
+    dateFrom: string;
+    dateTo: string;
+    selectedMonth: string;
+}) {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(OVERVIEW_FILTERS_KEY, JSON.stringify(state));
+    } catch {
+        // ignore
+    }
+}
+
 export default function Page() {
     const { t } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
@@ -61,9 +108,9 @@ export default function Page() {
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
 
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedObjectId, setSelectedObjectId] = useState<number | 'all'>('all');
     const [selectedRoomId, setSelectedRoomId] = useState<number | 'all'>('all');
-    const [roomStats, setRoomStats] = useState<Record<string, { expenses: number; incomes: number }>>({});
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
     // '' = кастомный период по dateFrom/dateTo; 'YYYY-MM' = выбранный месяц
@@ -71,6 +118,29 @@ export default function Page() {
     const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
     const [reportMonthUpdatingId, setReportMonthUpdatingId] = useState<string | null>(null);
     const [quantityUpdatingId, setQuantityUpdatingId] = useState<string | null>(null);
+
+    useEffect(() => {
+        const s = loadOverviewFilters();
+        if (s) {
+            setSelectedObjectId(s.selectedObjectId);
+            setSelectedRoomId(s.selectedRoomId);
+            setDateFrom(s.dateFrom);
+            setDateTo(s.dateTo);
+            setSelectedMonth(s.selectedMonth);
+        }
+        setFiltersHydrated(true);
+    }, []);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        saveOverviewFilters({
+            selectedObjectId,
+            selectedRoomId,
+            dateFrom,
+            dateTo,
+            selectedMonth,
+        });
+    }, [filtersHydrated, selectedObjectId, selectedRoomId, dateFrom, dateTo, selectedMonth]);
 
     const { hasAccess } = useMemo(() => {
         const hasAccess = isAdmin || isAccountant;
@@ -104,60 +174,12 @@ export default function Page() {
                     ),
                 );
 
-                const stats: Record<string, { expenses: number; incomes: number }> = {};
-
                 if (bookingIds.length) {
                     const bookingsList = await getBookingsByIds(bookingIds);
                     setBookings(bookingsList);
-                    const bookings = bookingsList;
-
-                    bookings.forEach((booking) => {
-                        const key = `${booking.propertyId ?? ''}-${booking.unitId ?? ''}`;
-                        if (!stats[key]) {
-                            stats[key] = { expenses: 0, incomes: 0 };
-                        }
-                    });
-
-                    exp.forEach((e) => {
-                        if (!e.bookingId) return;
-                        const booking = bookings.find((b) => b.id === e.bookingId);
-                        if (!booking) return;
-                        const key = `${booking.propertyId ?? ''}-${booking.unitId ?? ''}`;
-                        if (!stats[key]) {
-                            stats[key] = { expenses: 0, incomes: 0 };
-                        }
-                        stats[key].expenses += getExpenseSum(e);
-                    });
-
-                    inc.forEach((i) => {
-                        if (!i.bookingId) return;
-                        const booking = bookings.find((b) => b.id === i.bookingId);
-                        if (!booking) return;
-                        const key = `${booking.propertyId ?? ''}-${booking.unitId ?? ''}`;
-                        if (!stats[key]) {
-                            stats[key] = { expenses: 0, incomes: 0 };
-                        }
-                        stats[key].incomes += getIncomeSum(i);
-                    });
                 } else {
                     setBookings([]);
                 }
-
-                // Расходы и доходы с прямой привязкой к комнате (roomId)
-                exp.forEach((e) => {
-                    if (e.bookingId || !e.roomId) return;
-                    const key = `${e.objectId}-${e.roomId}`;
-                    if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                    stats[key].expenses += getExpenseSum(e);
-                });
-                inc.forEach((i) => {
-                    if (i.bookingId || !i.roomId) return;
-                    const key = `${i.objectId}-${i.roomId}`;
-                    if (!stats[key]) stats[key] = { expenses: 0, incomes: 0 };
-                    stats[key].incomes += getIncomeSum(i);
-                });
-
-                setRoomStats(stats);
             } finally {
                 setLoading(false);
             }
@@ -239,21 +261,65 @@ export default function Page() {
     const filteredRoomStats = useMemo(() => {
         if (!selectedObject) return [];
 
+        const objectId = selectedObject.id;
+        const objectPropertyId = selectedObject.propertyId;
+
+        /** Бронь относится к выбранному объекту: Beds24 propertyId или внутренний id; если propertyId нет — доверяем привязке записи к objectId */
+        const bookingBelongsToObject = (booking: Booking) => {
+            const bp = booking.propertyId;
+            if (bp === undefined || bp === null) return true;
+            return bp === objectPropertyId || bp === objectId;
+        };
+
+        /**
+         * Комната для строки в сводке: сначала unitId брони (если бронь найдена и сопоставлена с объектом),
+         * иначе roomId записи. Так строки совпадают со списком операций при «все комнаты», где matchRoom не отсекает записи без разрешённой брони.
+         */
+        const resolveRecordRoomId = (
+            recordObjectId: number,
+            recordRoomId?: number,
+            bookingId?: number,
+        ): number | null => {
+            if (recordObjectId !== objectId) return null;
+
+            if (bookingId) {
+                const booking = bookings.find((b) => b.id === bookingId);
+                if (booking && bookingBelongsToObject(booking) && booking.unitId != null) {
+                    return booking.unitId;
+                }
+            }
+
+            if (recordRoomId != null) return recordRoomId;
+            return null;
+        };
+
+        const expenseRoomId = (e: Expense) =>
+            resolveRecordRoomId(e.objectId, e.roomId, e.bookingId);
+
+        const incomeRoomId = (i: Income) =>
+            resolveRecordRoomId(i.objectId, i.roomId, i.bookingId);
+
         const roomRows = roomsForSelectedObject.map((room) => {
-            const key = `${selectedObject.id}-${room.id}`;
-            const stat = roomStats[key] || { expenses: 0, incomes: 0 };
+            let expenses = 0;
+            let incomes = 0;
+            filteredByDate.expenses.forEach((e) => {
+                if (expenseRoomId(e) === room.id) expenses += getExpenseSum(e);
+            });
+            filteredByDate.incomes.forEach((i) => {
+                if (incomeRoomId(i) === room.id) incomes += getIncomeSum(i);
+            });
             return {
                 roomId: room.id,
                 roomName: room.name || `Room ${room.id}`,
-                ...stat,
+                expenses,
+                incomes,
             };
         });
 
-        const allRows = roomRows;
         return selectedRoomId === 'all'
-            ? allRows
-            : allRows.filter((row) => row.roomId === selectedRoomId);
-    }, [selectedObject, roomsForSelectedObject, roomStats, selectedRoomId]);
+            ? roomRows
+            : roomRows.filter((row) => row.roomId === selectedRoomId);
+    }, [selectedObject, roomsForSelectedObject, filteredByDate, bookings, selectedRoomId]);
 
     type OperationRow = {
         id: string;
@@ -563,21 +629,9 @@ export default function Page() {
             
 
             <Stack spacing={2} direction={'row'} mb={3}>
-                <Link href="/dashboard/accountancy/expense">
-                    <Button
-                        fullWidth
-                        variant="contained"
-                    >
-                        Расходы
-                    </Button>
-                </Link>
-
-                <Link href="/dashboard/accountancy/income">
-                    <Button
-                        fullWidth
-                        variant="contained"
-                    >
-                        Приходы
+                <Link href="/dashboard/accountancy/transactions">
+                    <Button fullWidth variant="contained">
+                        {t('accountancy.transactionsTitle')}
                     </Button>
                 </Link>
 
@@ -673,14 +727,23 @@ export default function Page() {
                             {objects.map((obj) => {
                                 const stat = objectStats[obj.id] || { expenses: 0, incomes: 0 };
                                 const rowBalance = stat.incomes - stat.expenses;
+                                const isObjectRowSelected = selectedObjectId !== 'all' && selectedObjectId === obj.id;
                                 return (
                                     <TableRow
-                                        key={obj.id}
+                                        key={`${obj.propertyName || 'obj'}-${obj.id}`}
+                                        hover
+                                        selected={isObjectRowSelected}
                                         onClick={() => {
                                             setSelectedObjectId(obj.id);
                                             setSelectedRoomId('all');
                                         }}
-                                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                                        sx={{
+                                            cursor: 'pointer',
+                                            '&.Mui-selected': {
+                                                bgcolor: 'action.selected',
+                                                '&:hover': { bgcolor: 'action.selected' },
+                                            },
+                                        }}
                                     >
                                         <TableCell sx={{ py: 0.5, px: 1 }}>{obj.name}</TableCell>
                                     </TableRow>
@@ -771,7 +834,7 @@ export default function Page() {
                             >
                                 <MenuItem value="">{t('accountancy.all')}</MenuItem>
                                 {objects.map((obj) => (
-                                    <MenuItem key={obj.id} value={String(obj.id)}>
+                                    <MenuItem key={`${obj.propertyName || 'obj'}-${obj.id}`} value={String(obj.id)}>
                                         {obj.name}
                                     </MenuItem>
                                 ))}

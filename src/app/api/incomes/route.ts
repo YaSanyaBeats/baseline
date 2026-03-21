@@ -132,6 +132,7 @@ export async function POST(request: NextRequest) {
         const incomesCollection = db.collection('incomes');
 
         const incomeToInsert = {
+            recordType: 'income' as const,
             objectId: incomeData.objectId,
             roomId: incomeData.roomId ?? null,
             bookingId: incomeData.bookingId ?? null,

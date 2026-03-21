@@ -100,7 +100,7 @@ function Row(
                         </TableHead>
                         <TableBody>
                             {object.roomTypes.map((room: Room) => (
-                                <TableRow key={room.id}>
+                                <TableRow key={`${object.id}-${room.id}`}>
                                     <TableCell component="th">
                                         {room.name ? room.name : t('dashboard.unnamed')}
                                     </TableCell>
@@ -230,7 +230,7 @@ export default function Page() {
                     <TableBody>
                         {objects.map((object: Object) => (
                             <Row 
-                                key={object.id} 
+                                key={`${object.propertyName || 'obj'}-${object.id}`}
                                 object={object} 
                                 setSelectedRoom={setSelectedRoom} 
                                 setOpenBookingModal={setOpenBookingModal} 

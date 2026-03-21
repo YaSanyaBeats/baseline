@@ -83,23 +83,33 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Missing objectID parameter' }, { status: 400 });
         }
 
-        // Ищем объект в обеих коллекциях
-        let neededObject = await objects.find({
-            id: +objectID
-        }).toArray();
-
-        if (!neededObject || neededObject.length === 0) {
-            // Если не нашли в objects, ищем в internalObjects
-            neededObject = await internalObjectsCollection.find({
-                id: +objectID
-            }).toArray();
+        // Сначала ищем все объекты, содержащие roomType с указанным ID
+        let allObjects = await objects.find({}).toArray();
+        
+        if (!allObjects || allObjects.length === 0) {
+            allObjects = await internalObjectsCollection.find({}).toArray();
         }
 
-        if (!neededObject || neededObject.length === 0) {
-            return NextResponse.json({ error: 'Object not found' }, { status: 404 });
+        // Находим property, содержащий roomType с нужным ID
+        let propertyId: number | null = null;
+        let roomType: any = null;
+        
+        for (const obj of allObjects) {
+            const foundRoomType = obj.roomTypes?.find((rt: any) => rt.id === +objectID);
+            if (foundRoomType) {
+                propertyId = obj.id;
+                roomType = foundRoomType;
+                break;
+            }
+        }
+        
+        if (!roomType || propertyId === null) {
+            return NextResponse.json({ error: 'RoomType not found' }, { status: 404 });
         }
 
-        let rooms = neededObject[0].roomTypes[0].units;
+        // Собираем комнаты из найденного roomType
+        let rooms = roomType?.units || [];
+        
         if (userID) {
             const users = db.collection('users');
             const user = await users.findOne({
@@ -120,8 +130,9 @@ export async function GET(request: NextRequest) {
             }
         }
 
+        // Используем propertyId для поиска броней
         const result = await Promise.all(rooms.map((room: any) => {
-            return getBusynessPerRoom(+objectID, room);
+            return getBusynessPerRoom(propertyId!, room);
         }));
 
         return NextResponse.json(result);

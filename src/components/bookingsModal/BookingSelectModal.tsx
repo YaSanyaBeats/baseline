@@ -125,7 +125,7 @@ export default function BookingSelectModal({
                             >
                                 <MenuItem value="">{t("accountancy.all")}</MenuItem>
                                 {objects.map((obj) => (
-                                    <MenuItem key={obj.id} value={String(obj.id)}>
+                                    <MenuItem key={`${obj.propertyName || 'obj'}-${obj.id}`} value={String(obj.id)}>
                                         {obj.name}
                                     </MenuItem>
                                 ))}

@@ -8,16 +8,18 @@ export async function getAnalytics(filterData: AnalyticsFilterData): Promise<Ana
         return elem.id !== 1;
     })
 
-    const response = await axios.get(getApiUrl('analytics'), {
-        params: {
-            objects: filterData.objects.map((object: Object) => {return object.id}),
-            startMedian: filterData.startMedian,
-            endMedian: filterData.endMedian,
-            startDate: filterData.startDate,
-            endDate: filterData.endDate,
-            periodMode: filterData.periodMode,
-            step: filterData.step,
-        }
-    });
+    // Список id строк выбора (roomType или id property для развёртки на сервере) — API: roomTypeIds[].
+    const params = new URLSearchParams();
+    for (const object of filterData.objects) {
+        params.append('roomTypeIds[]', String(object.id));
+    }
+    params.set('startMedian', filterData.startMedian);
+    params.set('endMedian', filterData.endMedian);
+    params.set('startDate', filterData.startDate);
+    params.set('endDate', filterData.endDate);
+    params.set('periodMode', filterData.periodMode);
+    params.set('step', filterData.step);
+
+    const response = await axios.get(getApiUrl('analytics'), { params });
     return response.data;
 }

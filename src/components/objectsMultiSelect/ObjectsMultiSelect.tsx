@@ -33,6 +33,7 @@ export default function ObjectsMultiSelect(props: { id: string, error: boolean, 
             selectedObjects = objects.flatMap(obj => obj ?? []);
             selectedObjects.push({
                 id: 1,
+                propertyId: 1,
                 name: 'All',
                 roomTypes: []
             })
@@ -85,7 +86,7 @@ export default function ObjectsMultiSelect(props: { id: string, error: boolean, 
                 <MenuItem value={'All'}>{t('common.selectAll')}</MenuItem>
                 {objects.map((object) => (
                     <MenuItem
-                        key={object.id}
+                        key={`${object.propertyName || 'obj'}-${object.id}`}
                         value={object.name}
                     >
                         {object.name}

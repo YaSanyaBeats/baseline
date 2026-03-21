@@ -6,6 +6,10 @@
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import type { AutoAccountingRule, AutoAccountingAmountSource, AutoAccountingQuantitySource, CashflowRuleCompareOperator } from '@/lib/types';
+import {
+    buildPropertyIdToFirstRoomTypeIdMap,
+    buildRoomTypeIdToPropertyIdMap,
+} from '@/lib/migrations/migratePropertyObjectIdsToRoomTypeIds';
 
 type BookingDoc = {
     id: number;
@@ -120,6 +124,19 @@ export async function runRulesForBookings(
     }
 
     const rules = await rulesCollection.find({}).sort({ order: 1 }).toArray();
+
+    const [propertyToFirstRoomTypeId, roomTypeIdToPropertyId] = await Promise.all([
+        buildPropertyIdToFirstRoomTypeIdMap(db),
+        buildRoomTypeIdToPropertyIdMap(db),
+    ]);
+
+    /** Правило с objectId = roomType или legacy property должно совпасть с propertyId брони. */
+    const ruleObjectMatchesBooking = (ruleObjId: number | 'all', bookingPropertyId: number): boolean => {
+        if (ruleObjId === 'all') return true;
+        const prop = roomTypeIdToPropertyId.get(ruleObjId as number);
+        if (prop !== undefined) return prop === bookingPropertyId;
+        return ruleObjId === bookingPropertyId;
+    };
 
     const processedCollection = db.collection('autoAccountingProcessedBookings');
     const markBookingsAsProcessed = async (ids: number[]) => {
@@ -252,22 +269,24 @@ export async function runRulesForBookings(
             continue;
         }
 
-        const objectId = booking.propertyId ?? 0;
+        const bookingPropertyId = booking.propertyId ?? 0;
         const roomId = booking.unitId ?? undefined;
         const arrival = new Date(booking.arrival);
         const departure = new Date(booking.departure);
+        const accountingObjectId =
+            propertyToFirstRoomTypeId.get(bookingPropertyId) ?? bookingPropertyId;
 
         for (const rule of rules) {
             const ruleObjId = rule.objectId;
-            if (ruleObjId !== 'all' && ruleObjId !== objectId) continue;
-            if (!matchObjectMetadata(rule, objectId)) continue;
+            if (!ruleObjectMatchesBooking(ruleObjId, bookingPropertyId)) continue;
+            if (!matchObjectMetadata(rule, bookingPropertyId)) continue;
 
             const ruleRoomId = rule.roomId;
             if (ruleRoomId !== undefined && ruleRoomId !== 'all' && ruleRoomId !== roomId) continue;
-            if (!matchRoomMetadata(rule, objectId, roomId)) continue;
+            if (!matchRoomMetadata(rule, bookingPropertyId, roomId)) continue;
 
             const quantity = resolveQuantity(rule, booking);
-            const amount = await resolveAmount(rule, booking, objectId, roomId);
+            const amount = await resolveAmount(rule, booking, bookingPropertyId, roomId);
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
             const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;
 
@@ -275,7 +294,8 @@ export async function runRulesForBookings(
                 if (rule.period === 'per_booking') {
                     try {
                         await expensesCollection.insertOne({
-                            objectId,
+                            recordType: 'expense',
+                            objectId: accountingObjectId,
                             roomId: roomId ?? null,
                             bookingId: bid,
                             category: rule.category,
@@ -302,7 +322,8 @@ export async function runRulesForBookings(
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
                         try {
                             await expensesCollection.insertOne({
-                                objectId,
+                                recordType: 'expense',
+                                objectId: accountingObjectId,
                                 roomId: roomId ?? null,
                                 bookingId: bid,
                                 category: rule.category,
@@ -328,7 +349,8 @@ export async function runRulesForBookings(
                 if (rule.period === 'per_booking') {
                     try {
                         await incomesCollection.insertOne({
-                            objectId,
+                            recordType: 'income',
+                            objectId: accountingObjectId,
                             roomId: roomId ?? null,
                             bookingId: bid,
                             category: rule.category,
@@ -355,7 +377,8 @@ export async function runRulesForBookings(
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
                         try {
                             await incomesCollection.insertOne({
-                                objectId,
+                                recordType: 'income',
+                                objectId: accountingObjectId,
                                 roomId: roomId ?? null,
                                 bookingId: bid,
                                 category: rule.category,

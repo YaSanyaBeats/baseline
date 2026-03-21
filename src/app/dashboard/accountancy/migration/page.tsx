@@ -14,6 +14,11 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<{ expensesUpdated: number; incomesUpdated: number } | null>(null);
+    const [loadingRecordType, setLoadingRecordType] = useState(false);
+    const [resultRecordType, setResultRecordType] = useState<{
+        expensesUpdated: number;
+        incomesUpdated: number;
+    } | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
 
@@ -35,6 +40,30 @@ export default function Page() {
             setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleMigrateRecordType = async () => {
+        if (!hasAccess) return;
+        setLoadingRecordType(true);
+        setResultRecordType(null);
+        try {
+            const res = await fetch('/api/accountancy/migrate-transaction-record-type', { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                setResultRecordType({
+                    expensesUpdated: data.expensesUpdated,
+                    incomesUpdated: data.incomesUpdated,
+                });
+                setSnackbar({ open: true, message: data.message, severity: 'success' });
+            } else {
+                setSnackbar({ open: true, message: data.message || t('common.serverError'), severity: 'error' });
+            }
+        } catch (err) {
+            console.error(err);
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setLoadingRecordType(false);
         }
     };
 
@@ -82,6 +111,30 @@ export default function Page() {
             {result && (
                 <Alert severity="success" sx={{ mt: 2 }}>
                     Обновлено расходов: {result.expensesUpdated}, доходов: {result.incomesUpdated}.
+                </Alert>
+            )}
+
+            <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
+                {t('accountancy.migrateTransactionRecordTypeTitle')}
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                {t('accountancy.migrateTransactionRecordTypeDescription')}
+            </Alert>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={handleMigrateRecordType}
+                    disabled={loadingRecordType || loading}
+                    startIcon={loadingRecordType ? <CircularProgress size={20} color="inherit" /> : null}
+                >
+                    {loadingRecordType ? '…' : t('accountancy.migrateTransactionRecordTypeButton')}
+                </Button>
+            </Box>
+            {resultRecordType && (
+                <Alert severity="success" sx={{ mt: 2 }}>
+                    Обновлено расходов: {resultRecordType.expensesUpdated}, доходов:{' '}
+                    {resultRecordType.incomesUpdated}.
                 </Alert>
             )}
         </Box>

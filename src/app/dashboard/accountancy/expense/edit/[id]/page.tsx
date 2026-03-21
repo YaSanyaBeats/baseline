@@ -113,7 +113,7 @@ export default function Page() {
                             message: t('accountancy.expenseNotFound'),
                             severity: 'error',
                         });
-                        router.push('/dashboard/accountancy/expense');
+                        router.push('/dashboard/accountancy/transactions?kind=expense');
                     }
                 })
                 .catch((error) => {
@@ -123,7 +123,7 @@ export default function Page() {
                         message: t('common.serverError'),
                         severity: 'error',
                     });
-                    router.push('/dashboard/accountancy/expense');
+                    router.push('/dashboard/accountancy/transactions?kind=expense');
                 })
                 .finally(() => {
                     setLoadingData(false);
@@ -281,7 +281,7 @@ export default function Page() {
                     severity: res.success ? 'success' : 'error',
                 });
                 if (res.success) {
-                    router.push('/dashboard/accountancy/expense');
+                    router.push('/dashboard/accountancy/transactions?kind=expense');
                 }
             })
             .catch((error) => {
@@ -529,7 +529,7 @@ export default function Page() {
                     </Box>
                 </Stack>
                 <Stack direction={"row"} spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy/expense">
+                    <Link href="/dashboard/accountancy/transactions?kind=expense">
                         <Button variant="outlined" startIcon={<ArrowBackIcon />}>
                             {t('common.cancel')}
                         </Button>

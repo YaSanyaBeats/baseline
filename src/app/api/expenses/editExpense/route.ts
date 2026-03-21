@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
         }
 
         const updateData: any = {
+            recordType: 'expense',
             objectId: expenseData.objectId,
             roomId: expenseData.roomId ?? null,
             bookingId: expenseData.bookingId ?? null,

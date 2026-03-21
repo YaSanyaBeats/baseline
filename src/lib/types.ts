@@ -23,6 +23,9 @@ export interface Room {
 export interface Object {
     id: number;
     name: string;
+    /** ID property в Beds24 / внутреннего документа (для броней, метаданных, API). Для строки roomType совпадает с id документа в Mongo. */
+    propertyId: number;
+    propertyName?: string;  // Имя property для группировки (для развёрнутых roomTypes)
     roomTypes: Room[];
     // Метаданные из objectRoomMetadata (редактируемые)
     district?: string;
@@ -69,7 +72,9 @@ export interface AnalyticsBooking {
     departure: string,
     bookingTime: string,
     price: number,
-    referer?: string
+    referer?: string,
+    /** Комната / юнит (подпись с бэкенда аналитики) */
+    roomLabel?: string,
 }
 
 export interface AnalyticsResult {
@@ -99,6 +104,8 @@ export interface RoomAnalyticsResult {
 export interface FullAnalyticsResult {
     objectAnalytics: AnalyticsResult[],
     objectID: number,
+    /** Имя строки объекта/roomType на момент расчёта (для отображения, если нет в ObjectsProvider) */
+    objectName?: string,
     roomsAnalytics: RoomAnalyticsResult[],
     error: boolean,
     warning: boolean,
@@ -364,6 +371,14 @@ export interface Income {
     /** Запись создана автоучётом; при ручном редактировании сбрасывается */
     autoCreated?: AutoCreatedMeta | null;
 }
+
+/** Тип записи в едином списке «Транзакции» (расход / доход) */
+export type TransactionRecordType = 'expense' | 'income';
+
+/** Строка объединённого списка: те же поля, что у расхода или дохода, плюс recordType */
+export type TransactionListRow =
+    | (Expense & { recordType: 'expense' })
+    | (Income & { recordType: 'income' });
 
 /** Период применения правила: на бронь целиком или по одному на каждый месяц брони */
 export type AutoAccountingPeriod = 'per_booking' | 'per_month';

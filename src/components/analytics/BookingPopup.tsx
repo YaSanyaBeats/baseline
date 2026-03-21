@@ -36,6 +36,7 @@ export default function BookingPopup(props: { open: boolean, bookings: Analytics
                         <TableHead>
                             <TableRow>
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.name')}</TableCell>
+                                <TableCell sx={{fontWeight: 'bold'}}>{t('analytics.bookingRoom')}</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.status')}</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.period')}</TableCell>
                                 <TableCell sx={{fontWeight: 'bold'}}>{t('common.price')}</TableCell>
@@ -50,6 +51,11 @@ export default function BookingPopup(props: { open: boolean, bookings: Analytics
                                     key={booking.id}
                                 >
                                     <TableCell component="th" scope="row" sx={{whiteSpace: 'nowrap'}}>{formatTitle(booking.firstName, booking.lastName, booking.title)}</TableCell>
+                                    <TableCell sx={{whiteSpace: 'nowrap'}}>
+                                        {!booking.roomLabel || booking.roomLabel === '—'
+                                            ? t('analytics.roomNotSpecified')
+                                            : booking.roomLabel}
+                                    </TableCell>
                                     <TableCell sx={{whiteSpace: 'nowrap'}}>{booking.status}</TableCell>
                                     <TableCell sx={{whiteSpace: 'nowrap'}}>
                                         {formatDate(booking.arrival)} - {formatDate(booking.departure)}

@@ -1,5 +1,135 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { Db } from 'mongodb';
 import { getDB } from '@/lib/db/getDB';
+import { buildClientObjectRows, shouldExpandToRoomTypesPerRawObject } from '@/lib/server/getObjects';
+
+type AnalyticsTarget = { roomTypeId: number; rawObject: any };
+
+async function findRawDocContainingRoomType(db: Db, roomTypeId: number): Promise<any | null> {
+    for (const collName of ['objects', 'internalObjects'] as const) {
+        const doc = await db.collection(collName).findOne({ 'roomTypes.id': roomTypeId });
+        if (doc) {
+            return doc;
+        }
+    }
+    return null;
+}
+
+async function findRawDocByPropertyId(db: Db, propertyId: number): Promise<any | null> {
+    for (const collName of ['objects', 'internalObjects'] as const) {
+        const doc = await db.collection(collName).findOne({ id: propertyId });
+        if (doc) {
+            return doc;
+        }
+    }
+    return null;
+}
+
+/**
+ * Входные id → пары (roomTypeId, сырой документ objects/internalObjects).
+ * — совпало с roomTypes[].id → один тип номера;
+ * — совпало с id документа и развёртка по roomTypes → по target на каждый roomType.id;
+ * — иначе одна строка (внутренний / неразвёрнутый объект).
+ */
+async function resolveAnalyticsTargets(db: Db, inputIds: number[]): Promise<AnalyticsTarget[]> {
+    const targets: AnalyticsTarget[] = [];
+    const seen = new Set<number>();
+
+    const add = (roomTypeId: number, raw: any) => {
+        if (seen.has(roomTypeId) || Number.isNaN(roomTypeId)) {
+            return;
+        }
+        seen.add(roomTypeId);
+        targets.push({ roomTypeId, rawObject: raw });
+    };
+
+    for (const raw of inputIds) {
+        const id = Number(raw);
+        if (Number.isNaN(id)) {
+            continue;
+        }
+
+        const byRoomType = await findRawDocContainingRoomType(db, id);
+        if (byRoomType) {
+            add(id, byRoomType);
+            continue;
+        }
+
+        const byProperty = await findRawDocByPropertyId(db, id);
+        if (byProperty && shouldExpandToRoomTypesPerRawObject(byProperty)) {
+            for (const rt of byProperty.roomTypes || []) {
+                if (rt != null && typeof rt.id === 'number') {
+                    add(rt.id, byProperty);
+                }
+            }
+            continue;
+        }
+
+        if (byProperty) {
+            add(id, byProperty);
+        }
+    }
+
+    return targets;
+}
+
+/** Брони для одного roomType: в Mongo Beds24 — поле roomID или roomId. */
+async function fetchBookingsByRoomTypeId(collection: any, roomTypeId: number): Promise<any[]> {
+    return collection
+        .find({
+            $or: [{ roomID: roomTypeId }, { roomId: roomTypeId }],
+        })
+        .sort({ bookingTime: 1 })
+        .toArray();
+}
+
+function normalizeAnalyticsBookings(raw: any[]): any[] {
+    return raw.map((booking: any) => ({
+        ...booking,
+        arrival: new Date(booking.arrival),
+        departure: new Date(booking.departure),
+        bookingTime: new Date(booking.bookingTime),
+        roomId: booking.roomId ?? booking.roomID,
+        propertyId:
+            booking.propertyId ??
+            booking.propId ??
+            booking.propertyID ??
+            (typeof booking.property === 'number' ? booking.property : undefined),
+    }));
+}
+
+/** Первая ночь по unitId; для броней только с roomId (roomType) — размазываем на все юниты строки. */
+function getFirstNightsForRow(
+    bookings: any[],
+    isRoomTypeUiRow: boolean,
+    rowId: number,
+    unitIds: number[]
+): Record<number, Date> {
+    return bookings.reduce((acc: Record<number, Date>, booking: any) => {
+        const arrival = booking.arrival instanceof Date ? booking.arrival : new Date(booking.arrival);
+        const uid = booking.unitId;
+        if (uid != null && !Number.isNaN(Number(uid))) {
+            const k = Number(uid);
+            if (!acc[k] || arrival < acc[k]) {
+                acc[k] = arrival;
+            }
+            return acc;
+        }
+        if (
+            isRoomTypeUiRow &&
+            booking.roomId != null &&
+            Number(booking.roomId) === rowId &&
+            unitIds.length > 0
+        ) {
+            for (const id of unitIds) {
+                if (!acc[id] || arrival < acc[id]) {
+                    acc[id] = arrival;
+                }
+            }
+        }
+        return acc;
+    }, {});
+}
 
 function splitDateRange(
     startString: string,
@@ -51,6 +181,42 @@ function checkRoomDisable(options: any, object: any, room: any, period: any) {
     return period.lastNight < minDate;
 }
 
+/**
+ * Название комнаты для попапа броней: строка юнита при детализации по комнате;
+ * иначе по unitId в object.roomTypes (юниты) или по roomId (тип номера / listing).
+ */
+function resolveAnalyticsBookingRoomLabel(
+    booking: any,
+    object: any,
+    room: { id?: number; name?: string } | null
+): string {
+    if (room?.name) {
+        return String(room.name);
+    }
+    const units = object?.roomTypes;
+    const uid = booking.unitId != null ? Number(booking.unitId) : null;
+    const bRoomRaw = booking.roomId ?? booking.roomID;
+    const bRoom = bRoomRaw != null ? Number(bRoomRaw) : null;
+    const rowId = Number(object?.id);
+    const propertyIdNum = Number(object?.propertyId ?? object?.id);
+    if (bRoom != null && !Number.isNaN(bRoom) && rowId === bRoom && rowId !== propertyIdNum && object?.name) {
+        return String(object.name);
+    }
+    if (uid != null && !Number.isNaN(uid)) {
+        if (Array.isArray(units)) {
+            const unit = units.find((r: any) => Number(r?.id) === uid);
+            if (unit?.name) {
+                return String(unit.name);
+            }
+        }
+        return String(uid);
+    }
+    if (bRoom != null && !Number.isNaN(bRoom)) {
+        return String(bRoom);
+    }
+    return '—';
+}
+
 async function getAnalyticsForPeriod(options: any, object: any, period: any, room: any = null, bookings: any[]) {
     const bookingPerPeriod = {
         firstNight: new Date(period.firstNight),
@@ -89,7 +255,8 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
             bookingTime: booking.bookingTime,
             price: price,
             invoiceItems: booking.invoiceItems,
-            referer: booking.referer
+            referer: booking.referer,
+            roomLabel: resolveAnalyticsBookingRoomLabel(booking, object, room),
         };
 
         bookingPerPeriod.bookings.push(newBooking);
@@ -101,21 +268,39 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         }
     });
 
-    if (!object?.roomTypes || !object.roomTypes.length || !object.roomTypes[0].units.length) {
+    // Примечание: object здесь - это уже roomType из развёрнутой структуры
+    // (после преобразования в API один roomType = один объект)
+    if (!object?.roomTypes || !object.roomTypes.length) {
         return;
     }
 
-    let unitsCount = object.roomTypes[0].units.length;
+    // object.roomTypes здесь содержит units (комнаты), а не roomTypes
+    let unitsCount = object.roomTypes.length;
+    
     if (room) {
         unitsCount = 1;
     } else {
-        const promises = object.roomTypes[0].units.map((room: any) => {
+        const promises = object.roomTypes.map((room: any) => {
             return checkRoomDisable(options, object, room, period);
         });
         const results = await Promise.all(promises);
         unitsCount = results.filter(value => !value).length;
     }
-    const totalTime = (bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()) * unitsCount - blackTime;
+
+    /** Длина интервала анализа (мс). При нулевой длине ёмкость = 0. */
+    const periodMs = Math.max(
+        0,
+        bookingPerPeriod.lastNight.getTime() - bookingPerPeriod.firstNight.getTime()
+    );
+    /**
+     * Чёрные брони вычитаются из ёмкости. Перекрывающиеся/дубли black по одному юниту
+     * давали blackTime > periodMs * unitsCount → отрицательный totalTime и заполняемость < 0.
+     * Ограничиваем black сверху ёмкостью периода по активным юнитам.
+     */
+    const capacityMs = periodMs * unitsCount;
+    const effectiveBlackTime =
+        unitsCount > 0 && capacityMs > 0 ? Math.min(blackTime, capacityMs) : 0;
+    const totalTime = Math.max(0, capacityMs - effectiveBlackTime);
 
     const startMedian = options.startMedian * 0.01;
     const endMedian = options.endMedian * 0.01;
@@ -150,7 +335,8 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         }
     });
 
-    bookingPerPeriod.busyness = totalTime ? sumTime / totalTime : 0;
+    const rawBusyness = totalTime > 0 ? sumTime / totalTime : 0;
+    bookingPerPeriod.busyness = Math.min(1, Math.max(0, rawBusyness));
     bookingPerPeriod.middlePrice = sumBookingDays ? sumPrice / sumBookingDays : 0;
 
     if (bookingPerPeriod.busyness && !bookingPerPeriod.middlePrice) {
@@ -165,11 +351,21 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
 }
 
 async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: any, room: any, bookings: any[]) {
+    const propertyIdNum = Number(object.propertyId ?? object.id);
+    const rowId = Number(object.id);
+    const isRoomTypeUiRow = rowId !== propertyIdNum;
+
     const result = await Promise.all(periods.map(async (period: any) => {
-        const filterBookings = bookings.filter(booking => {
-            return booking.arrival <= period.lastNight &&
-                booking.departure > period.firstNight &&
-                booking.unitId == room.id;
+        const filterBookings = bookings.filter((booking) => {
+            const inPeriod =
+                booking.arrival <= period.lastNight && booking.departure > period.firstNight;
+            const byUnit = booking.unitId == room.id;
+            const byRoomTypeOnly =
+                isRoomTypeUiRow &&
+                booking.unitId == null &&
+                booking.roomId != null &&
+                Number(booking.roomId) === rowId;
+            return inPeriod && (byUnit || byRoomTypeOnly);
         });
 
         return await getAnalyticsForPeriod(options, object, period, room, filterBookings);
@@ -185,29 +381,21 @@ async function getRoomsAnalyticsForPeriod(options: any, object: any, periods: an
     };
 }
 
-function getFirstNigts(bookings: any) {
-    return bookings.reduce((acc: any, booking: any) => {
-        const unitId = booking.unitId;
-
-        if (unitId == null) {
-            return acc;
-        }
-
-        const currentMin = acc[unitId];
-        if (!currentMin || booking.arrival < currentMin) {
-            acc[unitId] = booking.arrival;
-        }
-
-        return acc;
-    }, {} as any);
-}
-
-async function getAnalyticsForObject(options: any, object: any) {
+async function getAnalyticsForObject(
+    sharedOptions: any,
+    object: any,
+    /** Уже отфильтрованные по roomTypeId (roomID / roomId) брони из коллекции bookings */
+    rawBookingsForRoomType: any[]
+) {
+    // Копия на каждый объект: иначе Promise.all параллельно перезаписывает
+    // sharedOptions.firstNights — все строки получают расчёт по последнему объекту.
+    const options = { ...sharedOptions };
     const periods = options.periods;
 
-    const rooms: { id: number, name: string }[] = [];
+    // object.roomTypes — юниты (комнаты) строки ClientObjectRow
+    const rooms: { id: number; name: string }[] = [];
     if (object.roomTypes) {
-        object.roomTypes[0].units.forEach((room: { id: number, name: string }) => {
+        object.roomTypes.forEach((room: { id: number; name: string }) => {
             rooms.push({
                 id: room.id,
                 name: room.name
@@ -215,30 +403,32 @@ async function getAnalyticsForObject(options: any, object: any) {
         });
     }
 
-    const db = await getDB();
-    const bookingCollection = db.collection('bookings');
+    const propertyIdNum = Number(object.propertyId ?? object.id);
+    const rowId = Number(object.id);
+    const isRoomTypeUiRow = rowId !== propertyIdNum;
+    const unitIdsForFirstNights = rooms.map((r) => r.id);
 
-    const rawBookings = await bookingCollection.find({
-        propertyId: object.id,
-    })
-        .sort({ bookingTime: 1 })
-        .toArray();
+    const bookings = normalizeAnalyticsBookings(rawBookingsForRoomType);
 
-    const bookings = (rawBookings.map(booking => ({
-        ...booking,
-        arrival: new Date(booking.arrival),
-        departure: new Date(booking.departure),
-        bookingTime: new Date(booking.bookingTime),
-    })));
-
-    options.firstNights = getFirstNigts(bookings);
+    options.firstNights = getFirstNightsForRow(
+        bookings,
+        isRoomTypeUiRow,
+        rowId,
+        unitIdsForFirstNights
+    );
 
     return Promise.all([
         Promise.all(periods.map(async (period: any) => {
             const filterBookings = bookings.filter((booking: any) => {
-                return booking.arrival <= period.lastNight &&
-                    booking.departure > period.firstNight &&
-                    rooms.some((room: any) => room.id === booking.unitId);
+                const inPeriod =
+                    booking.arrival <= period.lastNight && booking.departure > period.firstNight;
+                const byUnit = rooms.some((room: any) => room.id === booking.unitId);
+                const byRoomTypeOnly =
+                    isRoomTypeUiRow &&
+                    booking.unitId == null &&
+                    booking.roomId != null &&
+                    Number(booking.roomId) === rowId;
+                return inPeriod && (byUnit || byRoomTypeOnly);
             });
 
             return await getAnalyticsForPeriod(options, object, period, null, filterBookings);
@@ -252,6 +442,7 @@ async function getAnalyticsForObject(options: any, object: any) {
             objectAnalytics: objectResult,
             roomsAnalytics: roomsResult,
             objectID: object.id,
+            objectName: object.name,
             error: hasError,
         };
     });
@@ -290,8 +481,16 @@ function getHeaderValues(periods: any, data: any) {
             });
         });
 
-        resultPerPeriod.middleBusyness /= notDisableRoomsCount;
-        resultPerPeriod.middlePrice /= notZeroPriceRoomsCount;
+        if (notDisableRoomsCount > 0) {
+            resultPerPeriod.middleBusyness /= notDisableRoomsCount;
+        } else {
+            resultPerPeriod.middleBusyness = 0;
+        }
+        if (notZeroPriceRoomsCount > 0) {
+            resultPerPeriod.middlePrice /= notZeroPriceRoomsCount;
+        } else {
+            resultPerPeriod.middlePrice = 0;
+        }
 
         result.push(resultPerPeriod);
     });
@@ -431,8 +630,11 @@ export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams;
 
-        if (!searchParams.has('objects[]')) {
-            return NextResponse.json({ error: 'Не переданы объекты' }, { status: 400 });
+        if (!searchParams.has('roomTypeIds[]') && !searchParams.has('objects[]')) {
+            return NextResponse.json(
+                { error: 'Не переданы roomTypeIds[] (или устаревший objects[])' },
+                { status: 400 }
+            );
         }
         if (!searchParams.has('startMedian')) {
             return NextResponse.json({ error: 'Нет параметра "медиана от"' }, { status: 400 });
@@ -450,12 +652,11 @@ export async function GET(request: NextRequest) {
             return NextResponse.json({ error: 'Нет параметра step' }, { status: 400 });
         }
 
-        let objectFilterData = searchParams.getAll('objects[]');
-        if (typeof objectFilterData === "string") {
-            objectFilterData = [objectFilterData];
-        }
+        const roomTypeIdParams = searchParams.has('roomTypeIds[]')
+            ? searchParams.getAll('roomTypeIds[]')
+            : searchParams.getAll('objects[]');
 
-        const objectIDs = objectFilterData.map((e) => { return +e });
+        const inputIds = roomTypeIdParams.map((e) => +e).filter((n) => !Number.isNaN(n));
 
         const periods = getPeriods(
             searchParams.get('periodMode') as string,
@@ -465,43 +666,54 @@ export async function GET(request: NextRequest) {
         );
 
         const db = await getDB();
-        const objectCollection = db.collection('objects');
-        const internalObjectsCollection = db.collection('internalObjects');
-        
-        // Ищем объекты в обеих коллекциях
-        const beds24Objects = await objectCollection.find({
-            id: { $in: objectIDs }
-        }).sort({
-            name: 1
-        }).toArray();
-        
-        const internalObjects = await internalObjectsCollection.find({
-            id: { $in: objectIDs }
-        }).sort({
-            name: 1
-        }).toArray();
-        
-        const objects = [...internalObjects, ...beds24Objects];
+        const bookingCollection = db.collection('bookings');
 
-        const objectsResult = await Promise.all(objects.map(async (object) => {
-            const start = performance.now();
-            const result = await getAnalyticsForObject({
-                startMedian: +searchParams.get('startMedian')!,
-                endMedian: +searchParams.get('endMedian')!,
-                startDate: searchParams.get('startDate'),
-                endDate: searchParams.get('endDate'),
-                periods: periods,
-                periodMode: searchParams.get('periodMode'),
-                step: searchParams.get('step')
-            }, object);
-            const end = performance.now();
-            console.log(end - start, `mc, for object: ${object.name}`);
-            return result;
-        }));
+        const targets = await resolveAnalyticsTargets(db, inputIds);
+        if (targets.length === 0) {
+            return NextResponse.json(
+                { error: 'Не найдены объекты по переданным id roomTypes / property' },
+                { status: 400 }
+            );
+        }
+
+        const optionsPayload = {
+            startMedian: +searchParams.get('startMedian')!,
+            endMedian: +searchParams.get('endMedian')!,
+            startDate: searchParams.get('startDate'),
+            endDate: searchParams.get('endDate'),
+            periods: periods,
+            periodMode: searchParams.get('periodMode'),
+            step: searchParams.get('step'),
+        };
+
+        const objectsResult = await Promise.all(
+            targets.map(async ({ roomTypeId, rawObject }) => {
+                const start = performance.now();
+                const rows = buildClientObjectRows([rawObject], [], {}, {});
+                const objectRow = rows.find((r) => r.id === roomTypeId);
+                if (!objectRow) {
+                    console.warn(`analytics: нет строки UI для roomTypeId=${roomTypeId}`);
+                    return null;
+                }
+                const rawBookings = await fetchBookingsByRoomTypeId(bookingCollection, roomTypeId);
+                const result = await getAnalyticsForObject(optionsPayload, objectRow, rawBookings);
+                const end = performance.now();
+                console.log(end - start, `mc, roomTypeId: ${roomTypeId} (${objectRow.name})`);
+                return result;
+            })
+        );
+
+        const filteredResults = objectsResult.filter((r): r is NonNullable<typeof r> => r != null);
+        if (filteredResults.length === 0) {
+            return NextResponse.json(
+                { error: 'Не удалось сопоставить переданные id со строками аналитики' },
+                { status: 400 }
+            );
+        }
 
         let result = {
-            header: getHeaderValues(periods, objectsResult),
-            data: objectsResult
+            header: getHeaderValues(periods, filteredResults),
+            data: filteredResults
         } as any;
         result = fillAverageCompareResult(result);
         result = fillWarnings(result);

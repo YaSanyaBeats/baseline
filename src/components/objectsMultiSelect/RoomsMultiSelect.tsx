@@ -56,7 +56,7 @@ export default function RoomsMultiSelect(props: {value: UserObject[], onChange: 
                     title: `${object.name}: ${room.name ? room.name : 'Room ' + room.id}`,
                     value: room.id,
                     objectValue: object.id,
-                    objectName: object.name
+                    objectName: object.propertyName || object.name  // Используем propertyName для группировки
                 })
             })
         })

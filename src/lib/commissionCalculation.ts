@@ -339,14 +339,19 @@ function buildCategoryDivisibilityMap(categories: AccountancyCategory[]): Catego
  * Собирает данные для расчёта комиссии: бронирования, доходы и расходы за месяц.
  * @param categories — категории расходов (type='expense') для определения divisibility
  */
+/**
+ * @param accountingObjectId — id «объекта» в учёте (после миграции — roomType id): фильтр доходов/расходов.
+ * @param propertyIdForBookings — id property в Beds24 для фильтра броней; если не задан, используется accountingObjectId (legacy).
+ */
 export function prepareCommissionData(
     bookings: Booking[],
     incomes: Income[],
     expenses: Expense[],
     categories: AccountancyCategory[],
-    objectId: number,
+    accountingObjectId: number,
     roomId: number | 'all',
-    monthKey: string
+    monthKey: string,
+    propertyIdForBookings?: number
 ): BookingCommissionInput[] {
     const categoryDivisibilityMap = buildCategoryDivisibilityMap(
         categories.filter((c) => c.type === 'expense')
@@ -355,8 +360,10 @@ export function prepareCommissionData(
     const monthStart = new Date(y, m - 1, 1);
     const monthEnd = new Date(y, m, 0, 23, 59, 59);
 
+    const bookingPropertyId = propertyIdForBookings ?? accountingObjectId;
+
     const filteredBookings = bookings.filter((b) => {
-        if (b.propertyId !== objectId) return false;
+        if (b.propertyId !== bookingPropertyId) return false;
         if (roomId !== 'all' && b.unitId !== roomId) return false;
         return true;
     });
@@ -365,13 +372,13 @@ export function prepareCommissionData(
         const bookingIncomes = incomes.filter(
             (i) =>
                 i.bookingId === booking.id &&
-                i.objectId === objectId &&
+                i.objectId === accountingObjectId &&
                 dateInMonth(i.date, monthKey)
         );
         const bookingExpenses = expenses.filter(
             (e) =>
                 e.bookingId === booking.id &&
-                e.objectId === objectId &&
+                e.objectId === accountingObjectId &&
                 dateInMonth(e.date, monthKey)
         );
 

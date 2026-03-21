@@ -397,7 +397,7 @@ export default function AutoAccountingPage() {
                             >
                                 <MenuItem value="all">{t('accountancy.autoAccounting.objectAll')}</MenuItem>
                                 {objects.map((o) => (
-                                    <MenuItem key={o.id} value={String(o.id)}>{o.name}</MenuItem>
+                                    <MenuItem key={`${o.propertyName || 'obj'}-${o.id}`} value={String(o.id)}>{o.name}</MenuItem>
                                 ))}
                             </Select>
                         </FormControl>

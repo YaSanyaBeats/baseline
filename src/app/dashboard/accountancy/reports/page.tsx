@@ -18,6 +18,41 @@ import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+const REPORTS_FILTERS_KEY = 'accountancy-reports-filters';
+
+function loadReportsFilters() {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = localStorage.getItem(REPORTS_FILTERS_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return {
+            filterMonth: String(parsed.filterMonth ?? ''),
+            filterYear: String(parsed.filterYear ?? ''),
+            filterAccountant: String(parsed.filterAccountant ?? ''),
+            sortAscending: typeof parsed.sortAscending === 'boolean' ? parsed.sortAscending : false,
+            filtersExpanded: Boolean(parsed.filtersExpanded ?? false),
+        };
+    } catch {
+        return null;
+    }
+}
+
+function saveReportsFilters(state: {
+    filterMonth: string;
+    filterYear: string;
+    filterAccountant: string;
+    sortAscending: boolean;
+    filtersExpanded: boolean;
+}) {
+    if (typeof window === 'undefined') return;
+    try {
+        localStorage.setItem(REPORTS_FILTERS_KEY, JSON.stringify(state));
+    } catch {
+        // ignore
+    }
+}
+
 export default function Page() {
     const { t } = useTranslation();
     const router = useRouter();
@@ -30,18 +65,42 @@ export default function Page() {
     const [reportToDelete, setReportToDelete] = useState<Report | null>(null);
 
     // Фильтры
+    const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [filterMonth, setFilterMonth] = useState<string>('');
     const [filterYear, setFilterYear] = useState<string>('');
     const [filterAccountant, setFilterAccountant] = useState<string>('');
-    
+
     // Сортировка (true = по возрастанию, false = по убыванию)
     const [sortAscending, setSortAscending] = useState<boolean>(false);
-    
+
     // Состояние аккордеона фильтров
     const [filtersExpanded, setFiltersExpanded] = useState<boolean>(false);
 
     // Проверка доступа
     const hasAccess = isAdmin || isAccountant;
+
+    useEffect(() => {
+        const s = loadReportsFilters();
+        if (s) {
+            setFilterMonth(s.filterMonth);
+            setFilterYear(s.filterYear);
+            setFilterAccountant(s.filterAccountant);
+            setSortAscending(s.sortAscending);
+            setFiltersExpanded(s.filtersExpanded);
+        }
+        setFiltersHydrated(true);
+    }, []);
+
+    useEffect(() => {
+        if (!filtersHydrated) return;
+        saveReportsFilters({
+            filterMonth,
+            filterYear,
+            filterAccountant,
+            sortAscending,
+            filtersExpanded,
+        });
+    }, [filtersHydrated, filterMonth, filterYear, filterAccountant, sortAscending, filtersExpanded]);
 
     // Загрузка списка отчётов
     useEffect(() => {
