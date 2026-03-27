@@ -3,9 +3,11 @@ import { Booking, Object, Room } from './types';
 import { getApiUrl } from './api-client';
 
 export async function getBookingsPerRoom(roomInfo: { object: Object; room: Room }) {
+    const propertyId = roomInfo.object.propertyId ?? roomInfo.object.id;
     const response = await axios.get(getApiUrl('bookings'), {
         params: {
-            roomInfo: roomInfo,
+            'roomInfo[object][propertyId]': propertyId,
+            'roomInfo[room][id]': roomInfo.room.id,
         },
     });
     return response.data;

@@ -42,6 +42,13 @@ import {
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 import type { AutoAccountingRule as AutoRule, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
+import { getCounterparties } from '@/lib/counterparties';
+import { getCashflows } from '@/lib/cashflows';
+import { getUsersWithCashflow } from '@/lib/users';
+import SourceRecipientSelect, {
+    type SourceRecipientOptionValue,
+    formatSourceRecipientLabel,
+} from '@/components/accountancy/SourceRecipientSelect';
 
 const PERIOD_OPTIONS: { value: AutoRule['period']; labelKey: string }[] = [
     { value: 'per_booking', labelKey: 'accountancy.autoAccounting.periodPerBooking' },
@@ -57,6 +64,9 @@ export default function AutoAccountingPage() {
     const [expenseCategories, setExpenseCategories] = useState<{ id: string; name: string; depth: number }[]>([]);
     const [incomeCategories, setIncomeCategories] = useState<{ id: string; name: string; depth: number }[]>([]);
     const [unprocessedCount, setUnprocessedCount] = useState<number>(0);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [running, setRunning] = useState(false);
     const [formOpen, setFormOpen] = useState(false);
@@ -78,6 +88,8 @@ export default function AutoAccountingPage() {
         amountSource: 'manual' as AutoAccountingAmountSource,
         period: 'per_booking' as AutoRule['period'],
         order: 0,
+        source: '' as SourceRecipientOptionValue | '',
+        recipient: '' as SourceRecipientOptionValue | '',
     });
 
     const hasAccess = isAdmin || isAccountant;
@@ -113,13 +125,19 @@ export default function AutoAccountingPage() {
         setLoading(true);
         Promise.all([
             getAccountancyCategories(),
+            getCounterparties(),
+            getCashflows(),
+            getUsersWithCashflow(),
             loadRules(),
             loadStatus(),
-        ]).then(([categories]) => {
+        ]).then(([categories, cps, cfs, usersCf]) => {
             const expense = buildCategoriesForSelect(categories, 'expense');
             const income = buildCategoriesForSelect(categories, 'income');
             setExpenseCategories(expense);
             setIncomeCategories(income);
+            setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+            setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+            setUsersWithCashflow(usersCf);
         }).catch(console.error).finally(() => setLoading(false));
     }, [hasAccess]);
 
@@ -155,6 +173,12 @@ export default function AutoAccountingPage() {
             amountSource: form.amountSource,
             period: form.period,
             order: form.order,
+            ...(editingId
+                ? { source: form.source.trim(), recipient: form.recipient.trim() }
+                : {
+                      ...(form.source.trim() ? { source: form.source.trim() } : {}),
+                      ...(form.recipient.trim() ? { recipient: form.recipient.trim() } : {}),
+                  }),
         };
         if (editingId) {
             const res = await updateAutoAccountingRule(editingId, payload as Partial<AutoRule>);
@@ -254,6 +278,8 @@ export default function AutoAccountingPage() {
             amountSource: 'manual',
             period: 'per_booking',
             order: rules.length,
+            source: '',
+            recipient: '',
         });
         setFormOpen(true);
     };
@@ -278,6 +304,8 @@ export default function AutoAccountingPage() {
             amountSource: r.amountSource ?? 'manual',
             period: r.period,
             order: r.order,
+            source: (r.source as SourceRecipientOptionValue | undefined) ?? '',
+            recipient: (r.recipient as SourceRecipientOptionValue | undefined) ?? '',
         });
         setFormOpen(true);
     };
@@ -557,6 +585,26 @@ export default function AutoAccountingPage() {
                                 ))}
                             </Select>
                         </FormControl>
+                        <SourceRecipientSelect
+                            label={t('accountancy.source')}
+                            value={form.source}
+                            onChange={(v) => setForm((f) => ({ ...f, source: v }))}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            size="medium"
+                            sx={{ minWidth: 260 }}
+                        />
+                        <SourceRecipientSelect
+                            label={t('accountancy.recipient')}
+                            value={form.recipient}
+                            onChange={(v) => setForm((f) => ({ ...f, recipient: v }))}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            cashflows={cashflows}
+                            includeCashflows
+                            size="medium"
+                            sx={{ minWidth: 260 }}
+                        />
                         <FormControl sx={{ minWidth: 220 }}>
                             <InputLabel>{t('accountancy.autoAccounting.quantitySourceLabel')}</InputLabel>
                             <Select
@@ -641,6 +689,8 @@ export default function AutoAccountingPage() {
                                 <TableCell>{t('accountancy.autoAccounting.ruleType')}</TableCell>
                                 <TableCell>{t('accountancy.autoAccounting.objectFilter')}</TableCell>
                                 <TableCell>{t('accountancy.autoAccounting.roomFilter')}</TableCell>
+                                <TableCell>{t('accountancy.source')}</TableCell>
+                                <TableCell>{t('accountancy.recipient')}</TableCell>
                                 <TableCell>{t('accountancy.autoAccounting.categoryLabel')}</TableCell>
                                 <TableCell align="right">{t('accountancy.autoAccounting.quantityLabel')}</TableCell>
                                 <TableCell>{t('accountancy.autoAccounting.amountSourceLabel')}</TableCell>
@@ -653,7 +703,7 @@ export default function AutoAccountingPage() {
                         <TableBody>
                             {rules.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={11} align="center" color="text.secondary">
+                                    <TableCell colSpan={13} align="center" color="text.secondary">
                                         {t('accountancy.autoAccounting.noRules')}
                                     </TableCell>
                                 </TableRow>
@@ -664,6 +714,8 @@ export default function AutoAccountingPage() {
                                         <TableCell>{r.ruleType === 'expense' ? t('accountancy.autoAccounting.ruleTypeExpense') : t('accountancy.autoAccounting.ruleTypeIncome')}</TableCell>
                                         <TableCell>{objectLabel(r)}</TableCell>
                                         <TableCell>{roomLabel(r)}</TableCell>
+                                        <TableCell>{formatSourceRecipientLabel(r.source, objects, counterparties, usersWithCashflow, cashflows)}</TableCell>
+                                        <TableCell>{formatSourceRecipientLabel(r.recipient, objects, counterparties, usersWithCashflow, cashflows)}</TableCell>
                                         <TableCell>{r.category}</TableCell>
                                         <TableCell align="right">{quantitySourceLabel(r)}</TableCell>
                                         <TableCell>{amountSourceLabel(r.amountSource)}</TableCell>

@@ -289,6 +289,13 @@ export async function runRulesForBookings(
             const amount = await resolveAmount(rule, booking, bookingPropertyId, roomId);
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
             const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;
+            const sourceRecipientFields =
+                rule.source || rule.recipient
+                    ? {
+                          ...(rule.source ? { source: rule.source } : {}),
+                          ...(rule.recipient ? { recipient: rule.recipient } : {}),
+                      }
+                    : {};
 
             if (rule.ruleType === 'expense') {
                 if (rule.period === 'per_booking') {
@@ -298,6 +305,7 @@ export async function runRulesForBookings(
                             objectId: accountingObjectId,
                             roomId: roomId ?? null,
                             bookingId: bid,
+                            ...sourceRecipientFields,
                             category: rule.category,
                             amount,
                             quantity,
@@ -326,6 +334,7 @@ export async function runRulesForBookings(
                                 objectId: accountingObjectId,
                                 roomId: roomId ?? null,
                                 bookingId: bid,
+                                ...sourceRecipientFields,
                                 category: rule.category,
                                 amount,
                                 quantity,
@@ -353,6 +362,7 @@ export async function runRulesForBookings(
                             objectId: accountingObjectId,
                             roomId: roomId ?? null,
                             bookingId: bid,
+                            ...sourceRecipientFields,
                             category: rule.category,
                             amount,
                             quantity,
@@ -381,6 +391,7 @@ export async function runRulesForBookings(
                                 objectId: accountingObjectId,
                                 roomId: roomId ?? null,
                                 bookingId: bid,
+                                ...sourceRecipientFields,
                                 category: rule.category,
                                 amount,
                                 quantity,

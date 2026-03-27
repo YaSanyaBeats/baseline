@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { AutoAccountingRule, AutoAccountingPeriod, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
+import { parseSourceRecipientValue } from '@/lib/sourceRecipientParse';
 import { ObjectId } from 'mongodb';
 
 type RuleDb = AutoAccountingRule & { _id?: ObjectId };
@@ -84,6 +85,8 @@ type ParsedRule = {
     amountSource?: AutoAccountingAmountSource;
     period: AutoAccountingPeriod;
     order: number;
+    source?: string;
+    recipient?: string;
 };
 
 function parseRuleBody(body: unknown): ParsedRule | null {
@@ -115,6 +118,25 @@ function parseRuleBody(body: unknown): ParsedRule | null {
 
     if (!ruleType || !category) return null;
     const result: ParsedRule = { ruleType, objectId, category, quantity, amount, period, order };
+
+    if ('source' in b) {
+        if (b.source === null || b.source === '') {
+            /* не сохраняем пустым при создании */
+        } else if (typeof b.source === 'string') {
+            const s = b.source.trim();
+            if (!parseSourceRecipientValue(s)) return null;
+            result.source = s;
+        } else return null;
+    }
+    if ('recipient' in b) {
+        if (b.recipient === null || b.recipient === '') {
+            /* omit */
+        } else if (typeof b.recipient === 'string') {
+            const s = b.recipient.trim();
+            if (!parseSourceRecipientValue(s)) return null;
+            result.recipient = s;
+        } else return null;
+    }
     if (name !== undefined) result.name = name;
     if (roomId !== undefined) result.roomId = roomId;
     if (amountSource !== undefined) result.amountSource = amountSource;
@@ -176,6 +198,8 @@ export async function POST(request: NextRequest) {
             ...(parsed.roomMetadataField !== undefined && { roomMetadataField: parsed.roomMetadataField }),
             ...(parsed.roomMetadataOperator !== undefined && { roomMetadataOperator: parsed.roomMetadataOperator }),
             ...(parsed.roomMetadataValue !== undefined && { roomMetadataValue: parsed.roomMetadataValue }),
+            ...(parsed.source !== undefined && { source: parsed.source }),
+            ...(parsed.recipient !== undefined && { recipient: parsed.recipient }),
             createdAt: new Date(),
         };
 

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { getDB } from '@/lib/db/getDB';
 import { AutoAccountingRule, AutoAccountingPeriod, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
+import { parseSourceRecipientValue } from '@/lib/sourceRecipientParse';
 import { ObjectId, Filter } from 'mongodb';
 
 type RuleDb = AutoAccountingRule & { _id?: ObjectId };
@@ -97,12 +98,6 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
         const body = await request.json() as Record<string, unknown>;
         const parsed = parseRuleBody(body);
-        if (!parsed || Object.keys(parsed).length === 0) {
-            return NextResponse.json(
-                { success: false, message: 'Нет полей для обновления' },
-                { status: 400 },
-            );
-        }
 
         const db = await getDB();
         const collection = db.collection<RuleDb>('autoAccountingRules');
@@ -117,7 +112,7 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             );
         }
 
-        const updateData: Partial<RuleDb> = { ...parsed };
+        const updateData: Partial<RuleDb> = parsed ? { ...parsed } : {};
         const unsetKeys: string[] = [];
         if (body.objectMetadataField === '' || body.objectMetadataField === null) {
             unsetKeys.push('objectMetadataField', 'objectMetadataValue');
@@ -131,9 +126,57 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
             delete updateData.roomMetadataValue;
             delete (updateData as Record<string, unknown>).roomMetadataValueTo;
         }
-        const updateOp: Record<string, unknown> = updateData && Object.keys(updateData).length > 0 ? { $set: updateData } : {};
+        if ('source' in body) {
+            if (body.source === null || body.source === '') {
+                unsetKeys.push('source');
+            } else if (typeof body.source === 'string') {
+                const s = body.source.trim();
+                if (!parseSourceRecipientValue(s)) {
+                    return NextResponse.json(
+                        { success: false, message: 'Некорректное значение «От кого»' },
+                        { status: 400 },
+                    );
+                }
+                updateData.source = s;
+            } else {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректное значение «От кого»' },
+                    { status: 400 },
+                );
+            }
+        }
+        if ('recipient' in body) {
+            if (body.recipient === null || body.recipient === '') {
+                unsetKeys.push('recipient');
+            } else if (typeof body.recipient === 'string') {
+                const s = body.recipient.trim();
+                if (!parseSourceRecipientValue(s)) {
+                    return NextResponse.json(
+                        { success: false, message: 'Некорректное значение «Кому»' },
+                        { status: 400 },
+                    );
+                }
+                updateData.recipient = s;
+            } else {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректное значение «Кому»' },
+                    { status: 400 },
+                );
+            }
+        }
+
+        const setKeys = Object.keys(updateData);
+        const hasUpdates = setKeys.length > 0 || unsetKeys.length > 0;
+        if (!hasUpdates) {
+            return NextResponse.json(
+                { success: false, message: 'Нет полей для обновления' },
+                { status: 400 },
+            );
+        }
+
+        const updateOp: Record<string, unknown> = setKeys.length > 0 ? { $set: updateData } : {};
         if (unsetKeys.length) updateOp.$unset = Object.fromEntries(unsetKeys.map((k) => [k, 1]));
-        await collection.updateOne({ _id: oid } as Filter<RuleDb>, Object.keys(updateOp).length ? updateOp as any : { $set: {} });
+        await collection.updateOne({ _id: oid } as Filter<RuleDb>, updateOp as any);
 
         return NextResponse.json({
             success: true,

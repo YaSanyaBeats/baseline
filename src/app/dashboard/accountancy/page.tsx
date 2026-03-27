@@ -22,8 +22,13 @@ import {
     IconButton,
     Chip,
     Tooltip,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions,
 } from "@mui/material";
-import { Visibility } from "@mui/icons-material";
+import { Visibility, Delete as DeleteIcon } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -31,8 +36,8 @@ import Link from 'next/link';
 import { useObjects } from "@/providers/ObjectsProvider";
 import { Booking, Expense, Income } from "@/lib/types";
 import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
-import { getExpenses, updateExpense } from "@/lib/expenses";
-import { getIncomes, updateIncome } from "@/lib/incomes";
+import { getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
+import { getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
 import { getBookingsByIds } from "@/lib/bookings";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
@@ -86,6 +91,55 @@ function saveOverviewFilters(state: {
     }
 }
 
+/** Месяцы YYYY-MM, попадающие в интервал дат (локальные), или null — период не задан, без отбора по «Месяцу отчёта». */
+function reportMonthsInDateRange(fromStr: string, toStr: string): Set<string> | null {
+    if (!fromStr && !toStr) return null;
+    const start = fromStr ? new Date(fromStr) : new Date(toStr);
+    const end = toStr ? new Date(toStr) : new Date(fromStr);
+    let y = start.getFullYear();
+    let m = start.getMonth();
+    const endY = end.getFullYear();
+    const endM = end.getMonth();
+    const set = new Set<string>();
+    while (y < endY || (y === endY && m <= endM)) {
+        set.add(`${y}-${String(m + 1).padStart(2, '0')}`);
+        m++;
+        if (m > 11) {
+            m = 0;
+            y++;
+        }
+    }
+    return set;
+}
+
+function recordMatchesReportPeriod(
+    date: Date | string | undefined,
+    reportMonth: string | undefined | null,
+    reportMonthsInFilter: Set<string> | null,
+    isDateInRange: (d: Date | string | undefined) => boolean,
+): boolean {
+    if (reportMonthsInFilter === null) return isDateInRange(date);
+    const rm = (reportMonth ?? '').trim();
+    if (rm) return reportMonthsInFilter.has(rm);
+    return isDateInRange(date);
+}
+
+type OperationRow = {
+    id: string;
+    type: 'expense' | 'income';
+    entityId: string;
+    status: 'draft' | 'confirmed';
+    date: Date | string;
+    category: string;
+    commentShort: string;
+    quantity: number;
+    amount: number;
+    reportMonth: string;
+    source?: string;
+    recipient?: string;
+    autoCreated?: boolean;
+};
+
 export default function Page() {
     const { t } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
@@ -118,6 +172,9 @@ export default function Page() {
     const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
     const [reportMonthUpdatingId, setReportMonthUpdatingId] = useState<string | null>(null);
     const [quantityUpdatingId, setQuantityUpdatingId] = useState<string | null>(null);
+    const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
+    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+    const [operationDeletingId, setOperationDeletingId] = useState<string | null>(null);
 
     useEffect(() => {
         const s = loadOverviewFilters();
@@ -228,26 +285,35 @@ export default function Page() {
         };
     }, [effectiveDateRange]);
 
-    const filteredByDate = useMemo(
+    const reportMonthsInFilter = useMemo(
+        () => reportMonthsInDateRange(effectiveDateRange.from, effectiveDateRange.to),
+        [effectiveDateRange],
+    );
+
+    const filteredByReportPeriod = useMemo(
         () => ({
-            expenses: expenses.filter((e) => isDateInRange(e.date)),
-            incomes: incomes.filter((i) => isDateInRange(i.date)),
+            expenses: expenses.filter((e) =>
+                recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
+            ),
+            incomes: incomes.filter((i) =>
+                recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
+            ),
         }),
-        [expenses, incomes, isDateInRange],
+        [expenses, incomes, reportMonthsInFilter, isDateInRange],
     );
 
     const objectStats = useMemo(() => {
         const map: Record<number, { expenses: number; incomes: number }> = {};
-        filteredByDate.expenses.forEach((e) => {
+        filteredByReportPeriod.expenses.forEach((e) => {
             if (!map[e.objectId]) map[e.objectId] = { expenses: 0, incomes: 0 };
             map[e.objectId].expenses += getExpenseSum(e);
         });
-        filteredByDate.incomes.forEach((i) => {
+        filteredByReportPeriod.incomes.forEach((i) => {
             if (!map[i.objectId]) map[i.objectId] = { expenses: 0, incomes: 0 };
             map[i.objectId].incomes += getIncomeSum(i);
         });
         return map;
-    }, [filteredByDate]);
+    }, [filteredByReportPeriod]);
 
     const selectedObject = selectedObjectId === 'all'
         ? null
@@ -302,10 +368,10 @@ export default function Page() {
         const roomRows = roomsForSelectedObject.map((room) => {
             let expenses = 0;
             let incomes = 0;
-            filteredByDate.expenses.forEach((e) => {
+            filteredByReportPeriod.expenses.forEach((e) => {
                 if (expenseRoomId(e) === room.id) expenses += getExpenseSum(e);
             });
-            filteredByDate.incomes.forEach((i) => {
+            filteredByReportPeriod.incomes.forEach((i) => {
                 if (incomeRoomId(i) === room.id) incomes += getIncomeSum(i);
             });
             return {
@@ -319,23 +385,7 @@ export default function Page() {
         return selectedRoomId === 'all'
             ? roomRows
             : roomRows.filter((row) => row.roomId === selectedRoomId);
-    }, [selectedObject, roomsForSelectedObject, filteredByDate, bookings, selectedRoomId]);
-
-    type OperationRow = {
-        id: string;
-        type: 'expense' | 'income';
-        entityId: string;
-        status: 'draft' | 'confirmed';
-        date: Date | string;
-        category: string;
-        commentShort: string;
-        quantity: number;
-        amount: number;
-        reportMonth: string;
-        source?: string;
-        recipient?: string;
-        autoCreated?: boolean;
-    };
+    }, [selectedObject, roomsForSelectedObject, filteredByReportPeriod, bookings, selectedRoomId]);
 
     // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
     const reportMonthOptions = useMemo(() => {
@@ -374,7 +424,12 @@ export default function Page() {
         const rows: OperationRow[] = [];
 
         expenses
-            .filter((e) => e.objectId === selectedObjectId && matchRoom(e.roomId, e.bookingId) && isDateInRange(e.date))
+            .filter(
+                (e) =>
+                    e.objectId === selectedObjectId &&
+                    matchRoom(e.roomId, e.bookingId) &&
+                    recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
+            )
             .forEach((e) => {
                 rows.push({
                     id: `exp-${e._id ?? ''}`,
@@ -394,7 +449,12 @@ export default function Page() {
             });
 
         incomes
-            .filter((i) => i.objectId === selectedObjectId && matchRoom(i.roomId, i.bookingId) && isDateInRange(i.date))
+            .filter(
+                (i) =>
+                    i.objectId === selectedObjectId &&
+                    matchRoom(i.roomId, i.bookingId) &&
+                    recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
+            )
             .forEach((i) => {
                 rows.push({
                     id: `inc-${i._id ?? ''}`,
@@ -423,6 +483,7 @@ export default function Page() {
         incomes,
         bookings,
         isDateInRange,
+        reportMonthsInFilter,
     ]);
 
     const handleStatusToggle = async (row: OperationRow) => {
@@ -600,6 +661,54 @@ export default function Page() {
             });
         } finally {
             setQuantityUpdatingId(null);
+        }
+    };
+
+    const handleOperationDeleteClick = (row: OperationRow) => {
+        setOperationToDelete(row);
+        setDeleteDialogOpen(true);
+    };
+
+    const handleOperationDeleteCancel = () => {
+        setDeleteDialogOpen(false);
+        setOperationToDelete(null);
+    };
+
+    const handleOperationDeleteConfirm = async () => {
+        if (!operationToDelete?.entityId) return;
+        setOperationDeletingId(operationToDelete.id);
+        try {
+            const res =
+                operationToDelete.type === 'expense'
+                    ? await deleteExpense(operationToDelete.entityId)
+                    : await deleteIncome(operationToDelete.entityId);
+            setSnackbar({
+                open: true,
+                message:
+                    res.message ||
+                    (operationToDelete.type === 'expense'
+                        ? t('accountancy.expenseDeleted')
+                        : t('accountancy.incomeDeleted')),
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                if (operationToDelete.type === 'expense') {
+                    setExpenses((prev) => prev.filter((e) => e._id !== operationToDelete.entityId));
+                } else {
+                    setIncomes((prev) => prev.filter((i) => i._id !== operationToDelete.entityId));
+                }
+            }
+        } catch (error) {
+            console.error('Error deleting operation:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setOperationDeletingId(null);
+            setDeleteDialogOpen(false);
+            setOperationToDelete(null);
         }
     };
 
@@ -922,7 +1031,7 @@ export default function Page() {
                                                     <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')}</TableCell>
                                                     <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.source')}</TableCell>
                                                     <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.recipient')}</TableCell>
-                                                    <TableCell sx={{ width: 36, py: 0.5, px: 0.5 }} />
+                                                    <TableCell sx={{ width: 72, py: 0.5, px: 0.5 }} />
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
@@ -1012,23 +1121,44 @@ export default function Page() {
                                                             {formatSourceRecipientLabel(row.recipient, objects, counterparties, usersWithCashflow, cashflows)}
                                                         </TableCell>
                                                         <TableCell sx={{ py: 0.5, px: 0.5 }}>
-                                                            <Link
-                                                                href={
-                                                                    row.type === 'expense'
-                                                                        ? `/dashboard/accountancy/expense/edit/${row.entityId}`
-                                                                        : `/dashboard/accountancy/income/edit/${row.entityId}`
-                                                                }
-                                                                aria-label={t('common.view')}
-                                                                style={{ display: 'inline-flex' }}
-                                                            >
-                                                                <IconButton
-                                                                    size="small"
-                                                                    color="primary"
-                                                                    component="span"
+                                                            <Stack direction="row" alignItems="center" spacing={0}>
+                                                                <Link
+                                                                    href={
+                                                                        row.type === 'expense'
+                                                                            ? `/dashboard/accountancy/expense/edit/${row.entityId}`
+                                                                            : `/dashboard/accountancy/income/edit/${row.entityId}`
+                                                                    }
+                                                                    aria-label={t('common.view')}
+                                                                    style={{ display: 'inline-flex' }}
                                                                 >
-                                                                    <Visibility fontSize="small" />
-                                                                </IconButton>
-                                                            </Link>
+                                                                    <IconButton
+                                                                        size="small"
+                                                                        color="primary"
+                                                                        component="span"
+                                                                    >
+                                                                        <Visibility fontSize="small" />
+                                                                    </IconButton>
+                                                                </Link>
+                                                                <Tooltip
+                                                                    title={
+                                                                        row.type === 'expense'
+                                                                            ? t('accountancy.deleteExpenseTitle')
+                                                                            : t('accountancy.deleteIncomeTitle')
+                                                                    }
+                                                                >
+                                                                    <span>
+                                                                        <IconButton
+                                                                            size="small"
+                                                                            color="error"
+                                                                            onClick={() => handleOperationDeleteClick(row)}
+                                                                            disabled={operationDeletingId === row.id}
+                                                                            aria-label={t('common.delete')}
+                                                                        >
+                                                                            <DeleteIcon fontSize="small" />
+                                                                        </IconButton>
+                                                                    </span>
+                                                                </Tooltip>
+                                                            </Stack>
                                                         </TableCell>
                                                     </TableRow>
                                                 ))}
@@ -1041,6 +1171,27 @@ export default function Page() {
                     )}
                 </Paper>
             </Stack>
+
+            <Dialog open={deleteDialogOpen} onClose={handleOperationDeleteCancel}>
+                <DialogTitle>
+                    {operationToDelete?.type === 'expense'
+                        ? t('accountancy.deleteExpenseTitle')
+                        : t('accountancy.deleteIncomeTitle')}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {operationToDelete?.type === 'expense'
+                            ? t('accountancy.deleteExpenseMessage')
+                            : t('accountancy.deleteIncomeMessage')}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleOperationDeleteCancel}>{t('common.cancel')}</Button>
+                    <Button onClick={handleOperationDeleteConfirm} color="error" variant="contained">
+                        {t('common.delete')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }

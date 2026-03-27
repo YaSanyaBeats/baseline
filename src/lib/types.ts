@@ -426,6 +426,10 @@ export interface AutoAccountingRule {
     period: AutoAccountingPeriod;
     /** Порядок применения правил */
     order: number;
+    /** От кого: подставляется в создаваемую транзакцию */
+    source?: SourceRecipientValue;
+    /** Кому: подставляется в создаваемую транзакцию */
+    recipient?: SourceRecipientValue;
     createdAt?: Date;
 }
 

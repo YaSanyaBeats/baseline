@@ -9,45 +9,22 @@ import {
 } from '@mui/material';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
+import {
+    PREFIX_CF,
+    PREFIX_CP,
+    PREFIX_ROOM,
+    PREFIX_USER,
+    type ParsedSourceRecipient,
+    parseSourceRecipientValue,
+    type SourceRecipientOptionValue,
+} from '@/lib/sourceRecipientParse';
 
-/** Значение: "room:objectId:roomId", "cp:counterpartyId", "user:userId" или "cf:cashflowId" */
-export type SourceRecipientOptionValue = string;
+export type {
+    ParsedSourceRecipient,
+    SourceRecipientOptionValue,
+};
 
-export const PREFIX_ROOM = 'room:';
-export const PREFIX_CP = 'cp:';
-export const PREFIX_USER = 'user:';
-export const PREFIX_CF = 'cf:';
-
-export type ParsedSourceRecipient =
-    | { type: 'room'; objectId: number; roomId: number }
-    | { type: 'counterparty'; id: string }
-    | { type: 'user'; id: string }
-    | { type: 'cashflow'; id: string };
-
-export function parseSourceRecipientValue(
-    value: SourceRecipientOptionValue | undefined
-): ParsedSourceRecipient | null {
-    if (!value) return null;
-    if (value.startsWith(PREFIX_ROOM)) {
-        const parts = value.slice(PREFIX_ROOM.length).split(':');
-        const objectId = parseInt(parts[0], 10);
-        const roomId = parseInt(parts[1], 10);
-        if (!isNaN(objectId) && !isNaN(roomId)) return { type: 'room', objectId, roomId };
-    }
-    if (value.startsWith(PREFIX_CP)) {
-        const id = value.slice(PREFIX_CP.length);
-        if (id) return { type: 'counterparty', id };
-    }
-    if (value.startsWith(PREFIX_USER)) {
-        const id = value.slice(PREFIX_USER.length);
-        if (id) return { type: 'user', id };
-    }
-    if (value.startsWith(PREFIX_CF)) {
-        const id = value.slice(PREFIX_CF.length);
-        if (id) return { type: 'cashflow', id };
-    }
-    return null;
-}
+export { PREFIX_CF, PREFIX_CP, PREFIX_ROOM, PREFIX_USER, parseSourceRecipientValue };
 
 export function formatSourceRecipientLabel(
     value: SourceRecipientOptionValue | undefined,
