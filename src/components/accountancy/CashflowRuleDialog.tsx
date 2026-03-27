@@ -43,6 +43,7 @@ const ROOM_METADATA_FIELDS = [
     { value: 'level', labelKey: 'roomMetaLevel' },
     { value: 'commissionSchemeId', labelKey: 'roomMetaCommissionScheme' },
     { value: 'internetCostPerMonth', labelKey: 'roomMetaInternetCost' },
+    { value: 'internetProviderCounterpartyId', labelKey: 'roomMetaInternetProvider' },
 ] as const;
 
 const COMPARE_OPERATORS = [
@@ -588,6 +589,28 @@ export default function CashflowRuleDialog({
                                                 {[0, 500, 1000, 1500, 2000, 2500, 3000].map((n) => (
                                                     <MenuItem key={n} value={n}>
                                                         {n}
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                    )}
+                                    {filter.roomMetadataField === 'internetProviderCounterpartyId' && (
+                                        <FormControl size="small" sx={{ minWidth: 200 }}>
+                                            <InputLabel>{t('accountancy.cashflow.value')}</InputLabel>
+                                            <Select
+                                                value={filter.roomMetadataValue ?? ''}
+                                                onChange={(e) =>
+                                                    handleFilterChange(filter.id, {
+                                                        roomMetadataValue:
+                                                            e.target.value === '' ? undefined : String(e.target.value),
+                                                    })
+                                                }
+                                                label={t('accountancy.cashflow.value')}
+                                            >
+                                                <MenuItem value="">—</MenuItem>
+                                                {counterparties.map((c) => (
+                                                    <MenuItem key={c._id} value={c._id}>
+                                                        {c.name}
                                                     </MenuItem>
                                                 ))}
                                             </Select>

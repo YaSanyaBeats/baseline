@@ -26,6 +26,7 @@ export interface RoomWithMeta {
     kitchen?: string;
     level?: string;
     commissionSchemeId?: number;
+    internetProviderCounterpartyId?: string;
     internetCostPerMonth?: number;
 }
 
@@ -180,7 +181,9 @@ function expenseMatchesFilter(
                               ? room.commissionSchemeId
                               : filter.roomMetadataField === 'internetCostPerMonth'
                                 ? room.internetCostPerMonth
-                                : undefined;
+                                : filter.roomMetadataField === 'internetProviderCounterpartyId'
+                                  ? room.internetProviderCounterpartyId
+                                  : undefined;
             const actual = typeof raw === 'number' ? raw : typeof raw === 'string' ? raw : undefined;
             if (actual === undefined) return false;
             if (typeof actual === 'number')
@@ -317,7 +320,9 @@ function incomeMatchesFilter(
                               ? room.commissionSchemeId
                               : filter.roomMetadataField === 'internetCostPerMonth'
                                 ? room.internetCostPerMonth
-                                : undefined;
+                                : filter.roomMetadataField === 'internetProviderCounterpartyId'
+                                  ? room.internetProviderCounterpartyId
+                                  : undefined;
             const actual = typeof raw === 'number' ? raw : typeof raw === 'string' ? raw : undefined;
             if (actual === undefined) return false;
             if (typeof actual === 'number')

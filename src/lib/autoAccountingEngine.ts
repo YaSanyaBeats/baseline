@@ -10,6 +10,23 @@ import {
     buildPropertyIdToFirstRoomTypeIdMap,
     buildRoomTypeIdToPropertyIdMap,
 } from '@/lib/migrations/migratePropertyObjectIdsToRoomTypeIds';
+import { parseSourceRecipientValue, PREFIX_ROOM } from '@/lib/sourceRecipientParse';
+import { parseAutoAccountingDistrictsStored } from '@/lib/autoAccountingDistricts';
+
+/** Подставляет «комнату из брони» в значение room:objectId:roomId для создаваемой транзакции */
+function resolveAutoRuleSourceRecipient(
+    raw: string | undefined,
+    accountingObjectId: number,
+    bookingRoomId: number | undefined | null
+): string | undefined {
+    if (!raw) return undefined;
+    const parsed = parseSourceRecipientValue(raw);
+    if (parsed?.type === 'room_from_booking') {
+        if (bookingRoomId == null || Number.isNaN(Number(bookingRoomId))) return undefined;
+        return `${PREFIX_ROOM}${accountingObjectId}:${bookingRoomId}`;
+    }
+    return raw;
+}
 
 type BookingDoc = {
     id: number;
@@ -206,9 +223,18 @@ export async function runRulesForBookings(
         rule: AutoAccountingRule & { _id?: ObjectId },
         objectId: number
     ): boolean => {
-        if (!rule.objectMetadataField || rule.objectMetadataValue === undefined) return true;
+        if (!rule.objectMetadataField) return true;
         const meta = objectMetaMap.get(objectId);
-        const value = rule.objectMetadataField === 'district' ? (meta?.district ?? '') : (meta?.objectType ?? '');
+        if (rule.objectMetadataField === 'district') {
+            if (rule.objectMetadataValue === undefined || rule.objectMetadataValue === null) return true;
+            const raw = String(rule.objectMetadataValue).trim();
+            if (!raw) return true;
+            const actual = String(meta?.district ?? '').toLowerCase();
+            const parts = parseAutoAccountingDistrictsStored(raw).map((p) => p.toLowerCase());
+            return parts.includes(actual);
+        }
+        if (rule.objectMetadataValue === undefined) return true;
+        const value = meta?.objectType ?? '';
         return String(value).toLowerCase() === String(rule.objectMetadataValue ?? '').toLowerCase();
     };
 
@@ -228,7 +254,12 @@ export async function runRulesForBookings(
         else if (field === 'kitchen') actual = (meta?.kitchen as string) ?? undefined;
         else if (field === 'commissionSchemeId') actual = (meta?.commissionSchemeId as number) ?? undefined;
         else if (field === 'internetCostPerMonth') actual = (meta?.internetCostPerMonth as number) ?? undefined;
-        else return true;
+        else if (field === 'internetProviderCounterpartyId') {
+            const a =
+                meta?.internetProviderCounterpartyId != null ? String(meta.internetProviderCounterpartyId) : '';
+            const r = String(rule.roomMetadataValue ?? '');
+            return r.toLowerCase() === a.toLowerCase();
+        } else return true;
         if (typeof actual === 'string') {
             return String(rule.roomMetadataValue).toLowerCase() === actual.toLowerCase();
         }
@@ -289,11 +320,13 @@ export async function runRulesForBookings(
             const amount = await resolveAmount(rule, booking, bookingPropertyId, roomId);
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
             const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;
+            const resolvedSource = resolveAutoRuleSourceRecipient(rule.source, accountingObjectId, roomId);
+            const resolvedRecipient = resolveAutoRuleSourceRecipient(rule.recipient, accountingObjectId, roomId);
             const sourceRecipientFields =
-                rule.source || rule.recipient
+                resolvedSource || resolvedRecipient
                     ? {
-                          ...(rule.source ? { source: rule.source } : {}),
-                          ...(rule.recipient ? { recipient: rule.recipient } : {}),
+                          ...(resolvedSource ? { source: resolvedSource } : {}),
+                          ...(resolvedRecipient ? { recipient: resolvedRecipient } : {}),
                       }
                     : {};
 

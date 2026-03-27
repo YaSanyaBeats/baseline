@@ -23,6 +23,7 @@ export interface RoomMetadataDoc {
     kitchen?: 'yes' | 'no';
     level?: RoomLevel;
     commissionSchemeId?: CommissionSchemeId;
+    internetProviderCounterpartyId?: string;
     internetCostPerMonth?: number;
 }
 
@@ -74,14 +75,17 @@ export async function upsertObjectMetadata(
 export async function upsertRoomMetadata(
     objectId: number,
     roomId: number,
-    data: Partial<Omit<RoomMetadataDoc, 'objectId' | 'roomId'>>
+    data: Partial<Omit<RoomMetadataDoc, 'objectId' | 'roomId'>>,
+    options?: { unset?: (keyof RoomMetadataDoc)[] }
 ): Promise<void> {
     const db = await getDB();
     const collection = db.collection<RoomMetadataDoc>(ROOMS_COLLECTION);
     const toSet = filterUndefined({ objectId, roomId, ...data });
-    await collection.updateOne(
-        { objectId, roomId },
-        { $set: toSet },
-        { upsert: true }
-    );
+    const update: Record<string, unknown> = {};
+    if (Object.keys(toSet).length > 0) update.$set = toSet;
+    if (options?.unset?.length) {
+        update.$unset = Object.fromEntries(options.unset.map((k) => [String(k), '']));
+    }
+    if (Object.keys(update).length === 0) return;
+    await collection.updateOne({ objectId, roomId }, update, { upsert: true });
 }

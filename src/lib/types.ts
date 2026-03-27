@@ -16,6 +16,8 @@ export interface Room {
     kitchen?: 'yes' | 'no';
     level?: RoomLevel;
     commissionSchemeId?: 1 | 2 | 3 | 4;
+    /** MongoDB _id контрагента — провайдер интернета для комнаты */
+    internetProviderCounterpartyId?: string;
     /** Стоимость за интернет в месяц (число) */
     internetCostPerMonth?: number;
 }
@@ -318,7 +320,7 @@ export interface AutoCreatedMeta {
     ruleId?: string;               // ID правила из конструктора
 }
 
-/** Значение поля «От кого»/«Кому»: "room:objectId:roomId", "cp:counterpartyId" или "user:userId" */
+/** Значение поля «От кого»/«Кому»: "room:objectId:roomId", "room:from_booking" (только в правилах автоучёта), "cp:…", "user:…", "cf:…" */
 export type SourceRecipientValue = string;
 
 export interface Expense {

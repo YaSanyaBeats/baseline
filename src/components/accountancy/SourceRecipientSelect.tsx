@@ -14,6 +14,7 @@ import {
     PREFIX_CP,
     PREFIX_ROOM,
     PREFIX_USER,
+    ROOM_FROM_BOOKING_VALUE,
     type ParsedSourceRecipient,
     parseSourceRecipientValue,
     type SourceRecipientOptionValue,
@@ -24,17 +25,22 @@ export type {
     SourceRecipientOptionValue,
 };
 
-export { PREFIX_CF, PREFIX_CP, PREFIX_ROOM, PREFIX_USER, parseSourceRecipientValue };
+export { PREFIX_CF, PREFIX_CP, PREFIX_ROOM, PREFIX_USER, ROOM_FROM_BOOKING_VALUE, parseSourceRecipientValue };
 
 export function formatSourceRecipientLabel(
     value: SourceRecipientOptionValue | undefined,
     objects: { id: number; name: string; roomTypes: { id: number; name: string }[] }[],
     counterparties: { _id: string; name: string }[],
     usersWithCashflow?: { _id: string; name: string }[],
-    cashflows?: { _id: string; name: string }[]
+    cashflows?: { _id: string; name: string }[],
+    /** Подпись для «room:from_booking» (правила автоучёта); иначе запасной текст на англ. */
+    roomFromBookingLabel?: string
 ): string {
     const parsed = parseSourceRecipientValue(value);
     if (!parsed) return '—';
+    if (parsed.type === 'room_from_booking') {
+        return roomFromBookingLabel ?? 'Room from booking';
+    }
     if (parsed.type === 'room') {
         const obj = objects.find((o) => o.id === parsed.objectId);
         const room = obj?.roomTypes?.find((r) => r.id === parsed.roomId);
@@ -72,6 +78,8 @@ interface SourceRecipientSelectProps {
     cashflows?: { _id: string; name: string }[];
     /** Показывать кэшфлоу в списке (для поля «Кому») */
     includeCashflows?: boolean;
+    /** Опция «комната из брони» — для правил автоучёта */
+    includeBookingRoomOption?: boolean;
     size?: 'small' | 'medium';
     sx?: object;
     error?: boolean;
@@ -86,6 +94,7 @@ export default function SourceRecipientSelect({
     usersWithCashflow = [],
     cashflows = [],
     includeCashflows = false,
+    includeBookingRoomOption = false,
     size = 'small',
     sx,
     error,
@@ -134,6 +143,11 @@ export default function SourceRecipientSelect({
                 }}
             >
                 <MenuItem value="">—</MenuItem>
+                {includeBookingRoomOption && (
+                    <MenuItem value={ROOM_FROM_BOOKING_VALUE}>
+                        {t('accountancy.sourceRecipientRoomFromBooking')}
+                    </MenuItem>
+                )}
                 {roomOptions.length > 0 && [
                     <ListSubheader key="room-header" sx={{ lineHeight: 2 }}>
                         {t('accountancy.sourceRecipientObjectsRooms')}

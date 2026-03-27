@@ -1,7 +1,9 @@
+import { ObjectId } from 'mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth';
 import { upsertRoomMetadata } from '@/lib/server/objectRoomMetadata';
+import type { RoomMetadataDoc } from '@/lib/server/objectRoomMetadata';
 import type { RoomLevel } from '@/lib/types';
 import type { CommissionSchemeId } from '@/lib/commissionCalculation';
 
@@ -47,6 +49,7 @@ export async function PUT(
         const validSchemes: CommissionSchemeId[] = [1, 2, 3, 4];
 
         const data: Record<string, unknown> = {};
+        const unsetFields: (keyof RoomMetadataDoc)[] = [];
         if (body.bedrooms !== undefined) {
             const v = Number(body.bedrooms);
             if (!Number.isInteger(v) || v < 0) {
@@ -105,6 +108,20 @@ export async function PUT(
             }
             data.commissionSchemeId = v;
         }
+        if (body.internetProviderCounterpartyId !== undefined) {
+            if (body.internetProviderCounterpartyId === null || body.internetProviderCounterpartyId === '') {
+                unsetFields.push('internetProviderCounterpartyId');
+            } else {
+                const idStr = String(body.internetProviderCounterpartyId);
+                if (!ObjectId.isValid(idStr)) {
+                    return NextResponse.json(
+                        { success: false, message: 'Некорректный ID контрагента' },
+                        { status: 400 }
+                    );
+                }
+                data.internetProviderCounterpartyId = idStr;
+            }
+        }
         if (body.internetCostPerMonth !== undefined) {
             const v = Number(body.internetCostPerMonth);
             if (Number.isNaN(v) || v < 0) {
@@ -116,7 +133,12 @@ export async function PUT(
             data.internetCostPerMonth = v;
         }
 
-        await upsertRoomMetadata(objectIdNum, roomIdNum, data as any);
+        await upsertRoomMetadata(
+            objectIdNum,
+            roomIdNum,
+            data as any,
+            unsetFields.length ? { unset: unsetFields } : undefined
+        );
         return NextResponse.json({ success: true });
     } catch (error) {
         console.error('Error in PUT /api/objectRoomMetadata/room/[objectId]/[roomId]:', error);

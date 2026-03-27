@@ -3,10 +3,12 @@
 import {
     Box,
     Button,
+    Chip,
     FormControl,
     IconButton,
     InputLabel,
     MenuItem,
+    OutlinedInput,
     Paper,
     Select,
     Stack,
@@ -49,6 +51,10 @@ import SourceRecipientSelect, {
     type SourceRecipientOptionValue,
     formatSourceRecipientLabel,
 } from '@/components/accountancy/SourceRecipientSelect';
+import {
+    parseAutoAccountingDistrictsStored,
+    serializeAutoAccountingDistricts,
+} from '@/lib/autoAccountingDistricts';
 
 const PERIOD_OPTIONS: { value: AutoRule['period']; labelKey: string }[] = [
     { value: 'per_booking', labelKey: 'accountancy.autoAccounting.periodPerBooking' },
@@ -77,6 +83,7 @@ export default function AutoAccountingPage() {
         objectId: 'all' as number | 'all',
         roomId: 'all' as number | 'all',
         objectMetadataField: '' as '' | 'district' | 'objectType',
+        objectMetadataDistricts: [] as string[],
         objectMetadataValue: '',
         roomMetadataField: '',
         roomMetadataOperator: 'eq' as 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between',
@@ -156,6 +163,14 @@ export default function AutoAccountingPage() {
             setSnackbar({ open: true, message: t('accountancy.autoAccounting.categoryLabel') + ' — обязательное поле', severity: 'warning' });
             return;
         }
+        if (form.objectMetadataField === 'district' && form.objectMetadataDistricts.length === 0) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.autoAccounting.districtMultiRequired'),
+                severity: 'warning',
+            });
+            return;
+        }
         const objectId = form.objectId === 'all' ? 'all' : Number(form.objectId);
         const roomId = form.objectId === 'all' ? undefined : (form.roomId === 'all' ? 'all' : Number(form.roomId));
         const amount = form.amountSource === 'manual' && form.amount !== '' ? Number(form.amount) : undefined;
@@ -164,7 +179,15 @@ export default function AutoAccountingPage() {
             ruleType: form.ruleType,
             objectId: objectId === 'all' ? 'all' : objectId,
             ...(roomId !== undefined && { roomId }),
-            ...(form.objectMetadataField ? { objectMetadataField: form.objectMetadataField, objectMetadataValue: form.objectMetadataValue.trim() } : { objectMetadataField: '', objectMetadataValue: '' }),
+            ...(form.objectMetadataField
+                ? {
+                      objectMetadataField: form.objectMetadataField,
+                      objectMetadataValue:
+                          form.objectMetadataField === 'district'
+                              ? serializeAutoAccountingDistricts(form.objectMetadataDistricts)
+                              : form.objectMetadataValue.trim(),
+                  }
+                : { objectMetadataField: '', objectMetadataValue: '' }),
             ...(form.roomMetadataField ? { roomMetadataField: form.roomMetadataField, roomMetadataOperator: form.roomMetadataOperator, roomMetadataValue: form.roomMetadataValue === '' ? undefined : form.roomMetadataValue } : { roomMetadataField: '' }),
             category: form.category.trim(),
             quantity: form.quantity,
@@ -247,7 +270,9 @@ export default function AutoAccountingPage() {
         { value: 'level', labelKey: 'accountancy.autoAccounting.roomMetaLevel' },
         { value: 'bedrooms', labelKey: 'accountancy.autoAccounting.roomMetaBedrooms' },
         { value: 'bathrooms', labelKey: 'accountancy.autoAccounting.roomMetaBathrooms' },
+        { value: 'livingRoomSofas', labelKey: 'accountancy.autoAccounting.roomMetaLivingRoomSofas' },
         { value: 'kitchen', labelKey: 'accountancy.autoAccounting.roomMetaKitchen' },
+        { value: 'internetProviderCounterpartyId', labelKey: 'accountancy.autoAccounting.roomMetaInternetProvider' },
     ];
 
     const ROOM_LEVEL_VALUES = [
@@ -267,6 +292,7 @@ export default function AutoAccountingPage() {
             objectId: 'all',
             roomId: 'all',
             objectMetadataField: '',
+            objectMetadataDistricts: [],
             objectMetadataValue: '',
             roomMetadataField: '',
             roomMetadataOperator: 'eq',
@@ -293,7 +319,11 @@ export default function AutoAccountingPage() {
             objectId: r.objectId,
             roomId: r.roomId ?? 'all',
             objectMetadataField: (r.objectMetadataField ?? '') as '' | 'district' | 'objectType',
-            objectMetadataValue: r.objectMetadataValue ?? '',
+            objectMetadataDistricts:
+                r.objectMetadataField === 'district'
+                    ? parseAutoAccountingDistrictsStored(r.objectMetadataValue ?? '')
+                    : [],
+            objectMetadataValue: r.objectMetadataField === 'objectType' ? (r.objectMetadataValue ?? '') : '',
             roomMetadataField: r.roomMetadataField ?? '',
             roomMetadataOperator: (r.roomMetadataOperator ?? 'eq') as 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between',
             roomMetadataValue: r.roomMetadataValue ?? '',
@@ -313,11 +343,12 @@ export default function AutoAccountingPage() {
     const objectLabel = (rule: AutoRule) => {
         const base = rule.objectId === 'all' ? t('accountancy.autoAccounting.objectAll') : (objects.find((o) => o.id === rule.objectId)?.name ?? String(rule.objectId));
         if (rule.objectMetadataField && rule.objectMetadataValue) {
-            const metaLabel = rule.objectMetadataField === 'district'
-                ? rule.objectMetadataValue
-                : rule.objectMetadataValue === 'apartments'
-                  ? t('accountancy.autoAccounting.objectTypeApartments')
-                  : t('accountancy.autoAccounting.objectTypeVilla');
+            const metaLabel =
+                rule.objectMetadataField === 'district'
+                    ? parseAutoAccountingDistrictsStored(rule.objectMetadataValue).join(', ')
+                    : rule.objectMetadataValue === 'apartments'
+                      ? t('accountancy.autoAccounting.objectTypeApartments')
+                      : t('accountancy.autoAccounting.objectTypeVilla');
             return `${base} (${rule.objectMetadataField === 'district' ? t('accountancy.autoAccounting.objectMetaDistrict') : t('accountancy.autoAccounting.objectMetaObjectType')}=${metaLabel})`;
         }
         return base;
@@ -333,7 +364,16 @@ export default function AutoAccountingPage() {
             base = room?.name ?? String(rule.roomId);
         }
         if (rule.roomMetadataField && rule.roomMetadataValue !== undefined) {
-            const v = rule.roomMetadataField === 'level' ? (ROOM_LEVEL_VALUES.find((o) => o.value === rule.roomMetadataValue) ? t(ROOM_LEVEL_VALUES.find((o) => o.value === rule.roomMetadataValue)!.labelKey) : String(rule.roomMetadataValue)) : String(rule.roomMetadataValue);
+            let v: string;
+            if (rule.roomMetadataField === 'level') {
+                const opt = ROOM_LEVEL_VALUES.find((o) => o.value === rule.roomMetadataValue);
+                v = opt ? t(opt.labelKey) : String(rule.roomMetadataValue);
+            } else if (rule.roomMetadataField === 'internetProviderCounterpartyId') {
+                const cp = counterparties.find((c) => c._id === String(rule.roomMetadataValue));
+                v = cp?.name ?? String(rule.roomMetadataValue);
+            } else {
+                v = String(rule.roomMetadataValue);
+            }
             return `${base} (${rule.roomMetadataField}=${v})`;
         }
         return base;
@@ -457,6 +497,7 @@ export default function AutoAccountingPage() {
                                     setForm((f) => ({
                                         ...f,
                                         objectMetadataField: v === 'none' ? '' : (v as 'district' | 'objectType'),
+                                        objectMetadataDistricts: [],
                                         objectMetadataValue: '',
                                     }));
                                 }}
@@ -469,17 +510,38 @@ export default function AutoAccountingPage() {
                         </FormControl>
                         {form.objectMetadataField && (
                             form.objectMetadataField === 'district' ? (
-                                <FormControl sx={{ minWidth: 140 }}>
-                                    <InputLabel>{t('accountancy.autoAccounting.objectMetaValue')}</InputLabel>
+                                <FormControl sx={{ minWidth: 200, maxWidth: 400 }}>
+                                    <InputLabel id="auto-acct-district-multi-label">
+                                        {t('accountancy.autoAccounting.objectMetaValue')}
+                                    </InputLabel>
                                     <Select
-                                        value={form.objectMetadataValue}
-                                        label={t('accountancy.autoAccounting.objectMetaValue')}
-                                        onChange={(e) => setForm((f) => ({ ...f, objectMetadataValue: e.target.value }))}
-                                        displayEmpty
+                                        labelId="auto-acct-district-multi-label"
+                                        multiple
+                                        value={form.objectMetadataDistricts}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            setForm((f) => ({
+                                                ...f,
+                                                objectMetadataDistricts:
+                                                    typeof v === 'string' ? v.split(',') : [...v],
+                                            }));
+                                        }}
+                                        input={
+                                            <OutlinedInput label={t('accountancy.autoAccounting.objectMetaValue')} />
+                                        }
+                                        renderValue={(selected) => (
+                                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                                                {(selected as string[]).map((value) => (
+                                                    <Chip key={value} label={value} size="small" />
+                                                ))}
+                                            </Box>
+                                        )}
+                                        MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
                                     >
-                                        <MenuItem value="">{t('accountancy.autoAccounting.objectMetaValueAny')}</MenuItem>
                                         {uniqueDistricts.map((d) => (
-                                            <MenuItem key={d} value={d}>{d}</MenuItem>
+                                            <MenuItem key={d} value={d}>
+                                                {d}
+                                            </MenuItem>
                                         ))}
                                     </Select>
                                 </FormControl>
@@ -507,7 +569,8 @@ export default function AutoAccountingPage() {
                                     setForm((f) => ({
                                         ...f,
                                         roomMetadataField: v === 'none' ? '' : v,
-                                        roomMetadataValue: v === 'level' ? 'economy' : v === 'kitchen' ? 'yes' : '',
+                                        roomMetadataValue:
+                                            v === 'level' ? 'economy' : v === 'kitchen' ? 'yes' : v === 'none' ? '' : '',
                                     }));
                                 }}
                             >
@@ -559,6 +622,22 @@ export default function AutoAccountingPage() {
                                             <MenuItem value="no">{t('accountancy.autoAccounting.kitchenNo')}</MenuItem>
                                         </Select>
                                     </FormControl>
+                                ) : form.roomMetadataField === 'internetProviderCounterpartyId' ? (
+                                    <FormControl sx={{ minWidth: 200 }}>
+                                        <InputLabel>{t('accountancy.autoAccounting.roomMetaValue')}</InputLabel>
+                                        <Select
+                                            value={String(form.roomMetadataValue ?? '')}
+                                            label={t('accountancy.autoAccounting.roomMetaValue')}
+                                            onChange={(e) => setForm((f) => ({ ...f, roomMetadataValue: e.target.value }))}
+                                        >
+                                            <MenuItem value="">—</MenuItem>
+                                            {counterparties.map((c) => (
+                                                <MenuItem key={c._id} value={c._id}>
+                                                    {c.name}
+                                                </MenuItem>
+                                            ))}
+                                        </Select>
+                                    </FormControl>
                                 ) : (
                                     <TextField
                                         label={t('accountancy.autoAccounting.roomMetaValue')}
@@ -591,6 +670,7 @@ export default function AutoAccountingPage() {
                             onChange={(v) => setForm((f) => ({ ...f, source: v }))}
                             counterparties={counterparties}
                             usersWithCashflow={usersWithCashflow}
+                            includeBookingRoomOption
                             size="medium"
                             sx={{ minWidth: 260 }}
                         />
@@ -602,6 +682,7 @@ export default function AutoAccountingPage() {
                             usersWithCashflow={usersWithCashflow}
                             cashflows={cashflows}
                             includeCashflows
+                            includeBookingRoomOption
                             size="medium"
                             sx={{ minWidth: 260 }}
                         />
@@ -714,8 +795,26 @@ export default function AutoAccountingPage() {
                                         <TableCell>{r.ruleType === 'expense' ? t('accountancy.autoAccounting.ruleTypeExpense') : t('accountancy.autoAccounting.ruleTypeIncome')}</TableCell>
                                         <TableCell>{objectLabel(r)}</TableCell>
                                         <TableCell>{roomLabel(r)}</TableCell>
-                                        <TableCell>{formatSourceRecipientLabel(r.source, objects, counterparties, usersWithCashflow, cashflows)}</TableCell>
-                                        <TableCell>{formatSourceRecipientLabel(r.recipient, objects, counterparties, usersWithCashflow, cashflows)}</TableCell>
+                                        <TableCell>
+                                            {formatSourceRecipientLabel(
+                                                r.source,
+                                                objects,
+                                                counterparties,
+                                                usersWithCashflow,
+                                                cashflows,
+                                                t('accountancy.sourceRecipientRoomFromBooking'),
+                                            )}
+                                        </TableCell>
+                                        <TableCell>
+                                            {formatSourceRecipientLabel(
+                                                r.recipient,
+                                                objects,
+                                                counterparties,
+                                                usersWithCashflow,
+                                                cashflows,
+                                                t('accountancy.sourceRecipientRoomFromBooking'),
+                                            )}
+                                        </TableCell>
                                         <TableCell>{r.category}</TableCell>
                                         <TableCell align="right">{quantitySourceLabel(r)}</TableCell>
                                         <TableCell>{amountSourceLabel(r.amountSource)}</TableCell>

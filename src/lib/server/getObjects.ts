@@ -76,6 +76,7 @@ function mapRoomsForProperty(
                 kitchen: roomMeta.kitchen,
                 level: roomMeta.level,
                 commissionSchemeId: roomMeta.commissionSchemeId,
+                internetProviderCounterpartyId: roomMeta.internetProviderCounterpartyId,
                 internetCostPerMonth: roomMeta.internetCostPerMonth,
             }),
         };

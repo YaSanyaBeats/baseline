@@ -207,6 +207,7 @@ export default function Page() {
             kitchen: rt.kitchen,
             level: rt.level,
             commissionSchemeId: rt.commissionSchemeId,
+            internetProviderCounterpartyId: rt.internetProviderCounterpartyId,
             internetCostPerMonth: rt.internetCostPerMonth,
         })),
     }));

@@ -1,4 +1,4 @@
-/** Значение: "room:objectId:roomId", "cp:counterpartyId", "user:userId" или "cf:cashflowId" */
+/** Значение: "room:objectId:roomId", "room:from_booking" (только правила автоучёта), "cp:…", "user:…" или "cf:…" */
 export type SourceRecipientOptionValue = string;
 
 export const PREFIX_ROOM = 'room:';
@@ -6,8 +6,12 @@ export const PREFIX_CP = 'cp:';
 export const PREFIX_USER = 'user:';
 export const PREFIX_CF = 'cf:';
 
+/** В правиле автоучёта: при создании записи подставить объект+комнату из обрабатываемой брони */
+export const ROOM_FROM_BOOKING_VALUE = 'room:from_booking' as const;
+
 export type ParsedSourceRecipient =
     | { type: 'room'; objectId: number; roomId: number }
+    | { type: 'room_from_booking' }
     | { type: 'counterparty'; id: string }
     | { type: 'user'; id: string }
     | { type: 'cashflow'; id: string };
@@ -16,6 +20,7 @@ export function parseSourceRecipientValue(
     value: SourceRecipientOptionValue | undefined
 ): ParsedSourceRecipient | null {
     if (!value) return null;
+    if (value === ROOM_FROM_BOOKING_VALUE) return { type: 'room_from_booking' };
     if (value.startsWith(PREFIX_ROOM)) {
         const parts = value.slice(PREFIX_ROOM.length).split(':');
         const objectId = parseInt(parts[0], 10);

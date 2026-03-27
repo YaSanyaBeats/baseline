@@ -22,6 +22,7 @@ export interface RoomMetadata {
     kitchen?: 'yes' | 'no';
     level?: RoomLevel;
     commissionSchemeId?: CommissionSchemeId;
+    internetProviderCounterpartyId?: string;
     internetCostPerMonth?: number;
 }
 
@@ -50,10 +51,15 @@ export async function updateObjectMetadata(objectId: number, data: Partial<Objec
     }
 }
 
+/** null в internetProviderCounterpartyId сбрасывает поле на сервере */
+export type RoomMetadataPatch = Omit<Partial<RoomMetadata>, 'internetProviderCounterpartyId'> & {
+    internetProviderCounterpartyId?: string | null;
+};
+
 export async function updateRoomMetadata(
     objectId: number,
     roomId: number,
-    data: Partial<RoomMetadata>
+    data: RoomMetadataPatch
 ): Promise<void> {
     const res = await fetch(`/api/objectRoomMetadata/room/${objectId}/${roomId}`, {
         method: 'PUT',

@@ -17,6 +17,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Object as ObjectType, Room, RoomLevel } from '@/lib/types';
 import type { CommissionSchemeId } from '@/lib/commissionCalculation';
+import { getCounterparties } from '@/lib/counterparties';
 
 const SCHEMES: { id: CommissionSchemeId; labelKey: string }[] = [
     { id: 1, labelKey: 'accountancy.commission.scheme1' },
@@ -40,6 +41,7 @@ interface RoomEditDialogProps {
             kitchen?: 'yes' | 'no';
             level?: RoomLevel;
             commissionSchemeId?: CommissionSchemeId;
+            internetProviderCounterpartyId?: string | null;
             internetCostPerMonth?: number;
         }
     ) => Promise<void>;
@@ -53,8 +55,24 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
     const [kitchen, setKitchen] = useState<'yes' | 'no' | ''>('');
     const [level, setLevel] = useState<RoomLevel | ''>('');
     const [commissionSchemeId, setCommissionSchemeId] = useState<CommissionSchemeId | ''>('');
+    const [internetProviderCounterpartyId, setInternetProviderCounterpartyId] = useState<string>('');
     const [internetCostPerMonth, setInternetCostPerMonth] = useState<string>('');
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        if (!open) return;
+        getCounterparties()
+            .then((list) =>
+                setCounterparties(
+                    list
+                        .filter((c): c is typeof c & { _id: string } => Boolean(c._id))
+                        .map((c) => ({ _id: c._id, name: c.name }))
+                        .sort((a, b) => a.name.localeCompare(b.name, 'ru'))
+                )
+            )
+            .catch(() => setCounterparties([]));
+    }, [open]);
 
     useEffect(() => {
         if (room) {
@@ -64,6 +82,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
             setKitchen(room.kitchen ?? '');
             setLevel(room.level ?? '');
             setCommissionSchemeId(room.commissionSchemeId ?? '');
+            setInternetProviderCounterpartyId(room.internetProviderCounterpartyId ?? '');
             setInternetCostPerMonth(room.internetCostPerMonth !== undefined ? String(room.internetCostPerMonth) : '');
         }
     }, [room]);
@@ -79,6 +98,8 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
                 kitchen: kitchen || undefined,
                 level: level || undefined,
                 commissionSchemeId: commissionSchemeId || undefined,
+                internetProviderCounterpartyId:
+                    internetProviderCounterpartyId === '' ? null : internetProviderCounterpartyId,
                 internetCostPerMonth: internetCostPerMonth !== '' ? Number(internetCostPerMonth) : undefined,
             });
             onClose();
@@ -155,6 +176,21 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
                             {SCHEMES.map((s) => (
                                 <MenuItem key={s.id} value={s.id}>
                                     {t(s.labelKey)}
+                                </MenuItem>
+                            ))}
+                        </Select>
+                    </FormControl>
+                    <FormControl fullWidth>
+                        <InputLabel>{t('dashboard.internetProvider')}</InputLabel>
+                        <Select
+                            value={internetProviderCounterpartyId}
+                            label={t('dashboard.internetProvider')}
+                            onChange={(e) => setInternetProviderCounterpartyId(e.target.value)}
+                        >
+                            <MenuItem value="">—</MenuItem>
+                            {counterparties.map((c) => (
+                                <MenuItem key={c._id} value={c._id}>
+                                    {c.name}
                                 </MenuItem>
                             ))}
                         </Select>
