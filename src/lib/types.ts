@@ -43,7 +43,8 @@ export interface Booking {
     arrival: string,
     departure: string,
     bookingTime: string,
-    invoiceItems: InvoiceItem[],
+    /** Может отсутствовать в ответе Beds24/API для части броней. */
+    invoiceItems?: InvoiceItem[],
     propertyId?: number,
     unitId?: number
 }

@@ -14,9 +14,9 @@ import { getReports } from "@/lib/reports";
 import { runAutoAccountingForBookings, getProcessedBookingIds } from "@/lib/autoAccounting";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
-const getMaxInvoice = (invoiceItems: InvoiceItem[]) => {
+const getMaxInvoice = (invoiceItems: InvoiceItem[] | undefined | null) => {
     let maxInvoice: InvoiceItem | undefined;
-    invoiceItems.forEach((invoiceItem) => {
+    (invoiceItems ?? []).forEach((invoiceItem) => {
         if(invoiceItem.type != 'charge') {
             return;
         }
