@@ -1,12 +1,9 @@
 'use client';
 
-import {
-    FormControl,
-    InputLabel,
-    ListSubheader,
-    MenuItem,
-    Select,
-} from '@mui/material';
+import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete';
+import ListSubheader from '@mui/material/ListSubheader';
+import TextField from '@mui/material/TextField';
+import { useMemo } from 'react';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
@@ -26,6 +23,23 @@ export type {
 };
 
 export { PREFIX_CF, PREFIX_CP, PREFIX_ROOM, PREFIX_USER, ROOM_FROM_BOOKING_VALUE, parseSourceRecipientValue };
+
+const GROUP_BASE = '0';
+const GROUP_OBJECTS = '2';
+const GROUP_COUNTERPARTIES = '3';
+const GROUP_USERS = '4';
+const GROUP_CASHFLOWS = '5';
+
+type SourceRecipientAutocompleteOption = {
+    value: SourceRecipientOptionValue | '';
+    label: string;
+    searchText: string;
+    groupKey: string;
+};
+
+const filterOptions = createFilterOptions<SourceRecipientAutocompleteOption>({
+    stringify: (option) => option.searchText,
+});
 
 export function formatSourceRecipientLabel(
     value: SourceRecipientOptionValue | undefined,
@@ -51,7 +65,7 @@ export function formatSourceRecipientLabel(
         const cp = counterparties.find((c) => c._id === parsed.id);
         return cp ? cp.name : parsed.id;
     }
-    
+
     if (parsed.type === 'user' && usersWithCashflow) {
         const idStr = String(parsed.id);
         const u = usersWithCashflow.find((x) => {
@@ -103,92 +117,127 @@ export default function SourceRecipientSelect({
     const { objects } = useObjects();
     const { t } = useTranslation();
 
-    const roomOptions: { value: SourceRecipientOptionValue; label: string }[] = [];
-    objects.forEach((obj) => {
-        obj.roomTypes?.forEach((room) => {
-            roomOptions.push({
-                value: `${PREFIX_ROOM}${obj.id}:${room.id}`,
-                label: `${obj.name} — ${room.name || `Room ${room.id}`}`,
+    const options = useMemo((): SourceRecipientAutocompleteOption[] => {
+        const list: SourceRecipientAutocompleteOption[] = [];
+
+        list.push({
+            value: '',
+            label: '—',
+            searchText: '—',
+            groupKey: GROUP_BASE,
+        });
+
+        if (includeBookingRoomOption) {
+            const bookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
+            list.push({
+                value: ROOM_FROM_BOOKING_VALUE,
+                label: bookingLabel,
+                searchText: bookingLabel,
+                groupKey: GROUP_BASE,
+            });
+        }
+
+        objects.forEach((obj) => {
+            obj.roomTypes?.forEach((room) => {
+                const roomLabel = `${obj.name} — ${room.name || `Room ${room.id}`}`;
+                list.push({
+                    value: `${PREFIX_ROOM}${obj.id}:${room.id}`,
+                    label: roomLabel,
+                    searchText: `${obj.name} ${room.name || ''} ${room.id}`.trim(),
+                    groupKey: GROUP_OBJECTS,
+                });
             });
         });
-    });
 
-    const cpOptions = counterparties.map((c) => ({
-        value: `${PREFIX_CP}${c._id}` as SourceRecipientOptionValue,
-        label: c.name,
-    }));
+        const cpPrefix = t('accountancy.sourceRecipientCounterpartyPrefix');
+        counterparties.forEach((c) => {
+            const labelText = `${cpPrefix} ${c.name}`.trim();
+            list.push({
+                value: `${PREFIX_CP}${c._id}` as SourceRecipientOptionValue,
+                label: labelText,
+                searchText: `${c.name} ${cpPrefix}`,
+                groupKey: GROUP_COUNTERPARTIES,
+            });
+        });
 
-    const userOptions = usersWithCashflow.map((u) => ({
-        value: `${PREFIX_USER}${u._id}` as SourceRecipientOptionValue,
-        label: u.name,
-    }));
+        const userPrefix = t('accountancy.sourceRecipientUserPrefix');
+        usersWithCashflow.forEach((u) => {
+            const idStr = typeof u._id === 'string' ? u._id : String(u._id);
+            const labelText = `${userPrefix} ${u.name}`.trim();
+            list.push({
+                value: `${PREFIX_USER}${idStr}` as SourceRecipientOptionValue,
+                label: labelText,
+                searchText: `${u.name} ${userPrefix}`,
+                groupKey: GROUP_USERS,
+            });
+        });
 
-    const cfOptions = includeCashflows
-        ? cashflows.map((c) => ({
-              value: `${PREFIX_CF}${c._id}` as SourceRecipientOptionValue,
-              label: c.name,
-          }))
-        : [];
+        if (includeCashflows) {
+            const cfPrefix = t('accountancy.sourceRecipientCashflowPrefix');
+            cashflows.forEach((c) => {
+                const labelText = `${cfPrefix} ${c.name}`.trim();
+                list.push({
+                    value: `${PREFIX_CF}${c._id}` as SourceRecipientOptionValue,
+                    label: labelText,
+                    searchText: `${c.name} ${cfPrefix}`,
+                    groupKey: GROUP_CASHFLOWS,
+                });
+            });
+        }
+
+        return list;
+    }, [objects, counterparties, usersWithCashflow, cashflows, includeCashflows, includeBookingRoomOption, t]);
+
+    const selectedOption = useMemo(() => options.find((o) => o.value === value), [options, value]);
+
+    const groupHeaders = useMemo(
+        () => ({
+            [GROUP_OBJECTS]: t('accountancy.sourceRecipientObjectsRooms'),
+            [GROUP_COUNTERPARTIES]: t('accountancy.sourceRecipientCounterparties'),
+            [GROUP_USERS]: t('accountancy.sourceRecipientUsersWithCashflow'),
+            [GROUP_CASHFLOWS]: t('accountancy.cashflow.title'),
+        }),
+        [t]
+    );
 
     return (
-        <FormControl size={size} sx={{ minWidth: 200, ...sx }} error={error} disabled={disabled}>
-            <InputLabel>{label}</InputLabel>
-            <Select
-                value={value || ''}
-                label={label}
-                disabled={disabled}
-                onChange={(e) => {
-                    const v = e.target.value as string;
-                    onChange(v === '' ? '' : (v as SourceRecipientOptionValue));
-                }}
-            >
-                <MenuItem value="">—</MenuItem>
-                {includeBookingRoomOption && (
-                    <MenuItem value={ROOM_FROM_BOOKING_VALUE}>
-                        {t('accountancy.sourceRecipientRoomFromBooking')}
-                    </MenuItem>
-                )}
-                {roomOptions.length > 0 && [
-                    <ListSubheader key="room-header" sx={{ lineHeight: 2 }}>
-                        {t('accountancy.sourceRecipientObjectsRooms')}
-                    </ListSubheader>,
-                    ...roomOptions.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                            {opt.label}
-                        </MenuItem>
-                    )),
-                ]}
-                {cpOptions.length > 0 && [
-                    <ListSubheader key="cp-header" sx={{ lineHeight: 2 }}>
-                        {t('accountancy.sourceRecipientCounterparties')}
-                    </ListSubheader>,
-                    ...cpOptions.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                            {t('accountancy.sourceRecipientCounterpartyPrefix')} {opt.label}
-                        </MenuItem>
-                    )),
-                ]}
-                {userOptions.length > 0 && [
-                    <ListSubheader key="user-header" sx={{ lineHeight: 2 }}>
-                        {t('accountancy.sourceRecipientUsersWithCashflow')}
-                    </ListSubheader>,
-                    ...userOptions.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                            {t('accountancy.sourceRecipientUserPrefix')} {opt.label}
-                        </MenuItem>
-                    )),
-                ]}
-                {cfOptions.length > 0 && [
-                    <ListSubheader key="cf-header" sx={{ lineHeight: 2 }}>
-                        {t('accountancy.cashflow.title')}
-                    </ListSubheader>,
-                    ...cfOptions.map((opt) => (
-                        <MenuItem key={opt.value} value={opt.value}>
-                            {t('accountancy.sourceRecipientCashflowPrefix')} {opt.label}
-                        </MenuItem>
-                    )),
-                ]}
-            </Select>
-        </FormControl>
+        <Autocomplete<SourceRecipientAutocompleteOption, false, true, false>
+            disabled={disabled}
+            options={options}
+            value={selectedOption}
+            onChange={(_, newValue) => {
+                onChange(newValue?.value ?? '');
+            }}
+            filterOptions={filterOptions}
+            groupBy={(option) => option.groupKey}
+            getOptionLabel={(option) => option.label}
+            isOptionEqualToValue={(a, b) => a.value === b.value}
+            disableClearable
+            selectOnFocus
+            handleHomeEndKeys
+            size={size}
+            sx={{ minWidth: 200, ...sx }}
+            slotProps={{
+                listbox: {
+                    sx: { maxHeight: 360, p: 0 },
+                },
+            }}
+            renderGroup={(params) => {
+                const header = groupHeaders[params.group as keyof typeof groupHeaders];
+                return (
+                    <li key={params.key}>
+                        {header ? (
+                            <ListSubheader component="div" sx={{ lineHeight: 2 }}>
+                                {header}
+                            </ListSubheader>
+                        ) : null}
+                        <ul className="MuiAutocomplete-groupUl">{params.children}</ul>
+                    </li>
+                );
+            }}
+            renderInput={(params) => (
+                <TextField {...params} label={label} error={error} placeholder={t('common.search')} />
+            )}
+        />
     );
 }

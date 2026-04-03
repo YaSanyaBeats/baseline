@@ -32,6 +32,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
                         font-weight: 700;
                         src: local('Inter'), local('Inter-Bold'), url(/fonts/Inter-Bold.ttf) format('woff2');
                     }
+                    input[type='number']::-webkit-outer-spin-button,
+                    input[type='number']::-webkit-inner-spin-button {
+                        -webkit-appearance: none;
+                        margin: 0;
+                    }
+                    input[type='number'] {
+                        -moz-appearance: textfield;
+                        appearance: textfield;
+                    }
                 `,
                 },
             },

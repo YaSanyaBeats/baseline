@@ -23,7 +23,7 @@ export default function GlobalSnackbar() {
                 onClose={handleClose}
                 severity={snackbar.severity}
                 variant="filled"
-                sx={{ width: '100%' }}
+                sx={{ width: '100%', whiteSpace: 'pre-line' }}
             >
                 {snackbar.message}
             </Alert>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
@@ -112,6 +112,15 @@ function reportMonthsInDateRange(fromStr: string, toStr: string): Set<string> | 
     return set;
 }
 
+/** Парсинг суммы из поля ввода (пробелы, запятая или точка как разделитель дробной части). */
+function parseLocalizedTotalAmount(raw: string): number | null {
+    const t = raw.trim().replace(/\s/g, '').replace(',', '.');
+    if (t === '') return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+}
+
 function recordMatchesReportPeriod(
     date: Date | string | undefined,
     reportMonth: string | undefined | null,
@@ -172,6 +181,10 @@ export default function Page() {
     const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
     const [reportMonthUpdatingId, setReportMonthUpdatingId] = useState<string | null>(null);
     const [quantityUpdatingId, setQuantityUpdatingId] = useState<string | null>(null);
+    const [amountEditingId, setAmountEditingId] = useState<string | null>(null);
+    const [amountDraft, setAmountDraft] = useState('');
+    const [amountUpdatingId, setAmountUpdatingId] = useState<string | null>(null);
+    const amountEditEscapeRef = useRef(false);
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [operationDeletingId, setOperationDeletingId] = useState<string | null>(null);
@@ -664,6 +677,93 @@ export default function Page() {
         }
     };
 
+    const handleOperationAmountCommit = async (row: OperationRow, draft: string) => {
+        if (amountEditEscapeRef.current) {
+            amountEditEscapeRef.current = false;
+            return;
+        }
+        if (!row.entityId) {
+            setAmountEditingId(null);
+            setAmountDraft('');
+            return;
+        }
+        const parsed = parseLocalizedTotalAmount(draft);
+        if (parsed === null) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.invalidTotalAmount'),
+                severity: 'error',
+            });
+            return;
+        }
+        const q = row.quantity || 1;
+        const currentAbs = Math.abs(row.amount);
+        if (Math.abs(parsed - currentAbs) < 1e-6) {
+            setAmountEditingId(null);
+            setAmountDraft('');
+            return;
+        }
+        const newUnitAmount = parsed / q;
+
+        setAmountUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    amount: newUnitAmount,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, amount: newUnitAmount } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    amount: newUnitAmount,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, amount: newUnitAmount } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating amount:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setAmountUpdatingId(null);
+            setAmountEditingId(null);
+            setAmountDraft('');
+        }
+    };
+
     const handleOperationDeleteClick = (row: OperationRow) => {
         setOperationToDelete(row);
         setDeleteDialogOpen(true);
@@ -1111,8 +1211,73 @@ export default function Page() {
                                                                 </Select>
                                                             </FormControl>
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1, color: row.amount >= 0 ? 'success.main' : 'error.main' }}>
-                                                            {row.amount >= 0 ? '+' : ''}{formatAmount(row.amount)}
+                                                        <TableCell
+                                                            sx={{
+                                                                py: 0.5,
+                                                                px: 1,
+                                                                color: row.amount >= 0 ? 'success.main' : 'error.main',
+                                                                minWidth: 100,
+                                                                verticalAlign: 'middle',
+                                                            }}
+                                                        >
+                                                            {amountEditingId === row.id ? (
+                                                                <TextField
+                                                                    size="small"
+                                                                    value={amountDraft}
+                                                                    onChange={(e) => setAmountDraft(e.target.value)}
+                                                                    onBlur={(e) => void handleOperationAmountCommit(row, e.target.value)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            e.preventDefault();
+                                                                            (e.target as HTMLInputElement).blur();
+                                                                        } else if (e.key === 'Escape') {
+                                                                            e.preventDefault();
+                                                                            amountEditEscapeRef.current = true;
+                                                                            setAmountEditingId(null);
+                                                                            setAmountDraft('');
+                                                                        }
+                                                                    }}
+                                                                    disabled={amountUpdatingId === row.id}
+                                                                    autoFocus
+                                                                    slotProps={{
+                                                                        htmlInput: {
+                                                                            inputMode: 'decimal',
+                                                                            'aria-label': t('accountancy.amountColumn'),
+                                                                        },
+                                                                    }}
+                                                                    sx={{
+                                                                        width: 100,
+                                                                        '& .MuiInputBase-input': {
+                                                                            fontSize: '0.75rem',
+                                                                            py: 0.5,
+                                                                        },
+                                                                    }}
+                                                                />
+                                                            ) : (
+                                                                <Tooltip title={t('accountancy.inlineAmountEditHint')}>
+                                                                    <Box
+                                                                        component="span"
+                                                                        onClick={() => {
+                                                                            if (amountUpdatingId === row.id) return;
+                                                                            setAmountEditingId(row.id);
+                                                                            setAmountDraft(
+                                                                                Math.abs(row.amount).toLocaleString('ru-RU', {
+                                                                                    minimumFractionDigits: 2,
+                                                                                    maximumFractionDigits: 2,
+                                                                                }),
+                                                                            );
+                                                                        }}
+                                                                        sx={{
+                                                                            cursor:
+                                                                                amountUpdatingId === row.id ? 'default' : 'pointer',
+                                                                            display: 'inline-block',
+                                                                        }}
+                                                                    >
+                                                                        {row.amount >= 0 ? '+' : ''}
+                                                                        {formatAmount(row.amount)}
+                                                                    </Box>
+                                                                </Tooltip>
+                                                            )}
                                                         </TableCell>
                                                         <TableCell sx={{ py: 0.5, px: 1, whiteSpace: 'nowrap' }}>
                                                             {formatSourceRecipientLabel(row.source, objects, counterparties, usersWithCashflow, cashflows)}

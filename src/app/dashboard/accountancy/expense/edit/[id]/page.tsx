@@ -17,7 +17,6 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
-import Link from 'next/link';
 import { useEffect, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from "@/lib/types";
 import { getExpenses, updateExpense } from "@/lib/expenses";
@@ -280,9 +279,9 @@ export default function Page() {
                     message: res.message || t('accountancy.expenseUpdated'),
                     severity: res.success ? 'success' : 'error',
                 });
-                if (res.success) {
-                    router.push('/dashboard/accountancy/transactions?kind=expense');
-                }
+            if (res.success) {
+                router.back();
+            }
             })
             .catch((error) => {
                 console.error('Error updating expense:', error);
@@ -529,11 +528,14 @@ export default function Page() {
                     </Box>
                 </Stack>
                 <Stack direction={"row"} spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy/transactions?kind=expense">
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />}>
-                            {t('common.cancel')}
-                        </Button>
-                    </Link>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
                     <Button
                         variant="contained"
                         endIcon={<SendIcon />}

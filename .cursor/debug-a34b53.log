@@ -1,0 +1,4 @@
+{"sessionId":"a34b53","runId":"post-fix","location":"BookingSelectModal.tsx:handleSearch:entry","message":"booking search start","data":{"internalObjectId":249809,"apiPropertyId":110075,"queryLen":0,"hasFrom":false,"hasTo":false},"timestamp":1775190389157,"hypothesisId":"D,E"}
+{"sessionId":"a34b53","location":"bookings/search/route.ts:preFind","message":"search filter built","data":{"hasPropertyId":true,"hasArrivalFilter":false,"hasTextOr":false,"queryLen":0},"timestamp":1775190389465,"hypothesisId":"B,D"}
+{"sessionId":"a34b53","location":"bookings/search/route.ts:postFind","message":"search results count","data":{"count":200},"timestamp":1775190389480,"hypothesisId":"D"}
+{"sessionId":"a34b53","runId":"post-fix","location":"BookingSelectModal.tsx:handleSearch:success","message":"booking search response","data":{"isArray":true,"length":200,"sampleType":"array"},"timestamp":1775190389490,"hypothesisId":"C"}

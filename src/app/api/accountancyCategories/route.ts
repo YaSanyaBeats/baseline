@@ -200,6 +200,8 @@ export async function PUT(request: NextRequest) {
         const checkInOut: CategoryCheckInOut | undefined =
             body.checkInOut === 'checkin' || body.checkInOut === 'checkout' ? body.checkInOut : undefined;
         const reportingPeriod: string | undefined = body.reportingPeriod;
+        const forbidDuplicates: boolean | undefined =
+            typeof body.forbidDuplicates === 'boolean' ? body.forbidDuplicates : undefined;
 
         if (!id) {
             return NextResponse.json(
@@ -253,6 +255,7 @@ export async function PUT(request: NextRequest) {
         if (isAuto !== undefined) updateData.isAuto = isAuto;
         if (checkInOut !== undefined) updateData.checkInOut = checkInOut;
         if (reportingPeriod !== undefined) updateData.reportingPeriod = reportingPeriod;
+        if (forbidDuplicates !== undefined) updateData.forbidDuplicates = forbidDuplicates;
 
         if (Object.keys(updateData).length === 0) {
             return NextResponse.json({

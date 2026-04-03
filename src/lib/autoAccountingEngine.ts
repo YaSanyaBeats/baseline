@@ -12,6 +12,7 @@ import {
 } from '@/lib/migrations/migratePropertyObjectIdsToRoomTypeIds';
 import { parseSourceRecipientValue, PREFIX_ROOM } from '@/lib/sourceRecipientParse';
 import { parseAutoAccountingDistrictsStored } from '@/lib/autoAccountingDistricts';
+import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 
 /** Подставляет «комнату из брони» в значение room:objectId:roomId для создаваемой транзакции */
 function resolveAutoRuleSourceRecipient(
@@ -332,6 +333,17 @@ export async function runRulesForBookings(
 
             if (rule.ruleType === 'expense') {
                 if (rule.period === 'per_booking') {
+                    const reportMonthBooking = `${arrival.getFullYear()}-${String(arrival.getMonth() + 1).padStart(2, '0')}`;
+                    if (
+                        await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
+                            objectId: accountingObjectId,
+                            category: rule.category,
+                            roomId: roomId ?? null,
+                            reportMonth: reportMonthBooking,
+                        })
+                    ) {
+                        continue;
+                    }
                     try {
                         await expensesCollection.insertOne({
                             recordType: 'expense',
@@ -345,7 +357,7 @@ export async function runRulesForBookings(
                             date: arrival,
                             comment: '',
                             status: 'draft',
-                            reportMonth: `${arrival.getFullYear()}-${String(arrival.getMonth() + 1).padStart(2, '0')}`,
+                            reportMonth: reportMonthBooking,
                             attachments: [],
                             accountantId: effectiveAccountantId,
                             accountantName,
@@ -361,6 +373,16 @@ export async function runRulesForBookings(
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
+                        if (
+                            await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
+                                objectId: accountingObjectId,
+                                category: rule.category,
+                                roomId: roomId ?? null,
+                                reportMonth,
+                            })
+                        ) {
+                            continue;
+                        }
                         try {
                             await expensesCollection.insertOne({
                                 recordType: 'expense',
@@ -389,6 +411,17 @@ export async function runRulesForBookings(
                 }
             } else {
                 if (rule.period === 'per_booking') {
+                    const reportMonthBookingInc = `${arrival.getFullYear()}-${String(arrival.getMonth() + 1).padStart(2, '0')}`;
+                    if (
+                        await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
+                            objectId: accountingObjectId,
+                            category: rule.category,
+                            roomId: roomId ?? null,
+                            reportMonth: reportMonthBookingInc,
+                        })
+                    ) {
+                        continue;
+                    }
                     try {
                         await incomesCollection.insertOne({
                             recordType: 'income',
@@ -402,7 +435,7 @@ export async function runRulesForBookings(
                             date: arrival,
                             comment: '',
                             status: 'draft',
-                            reportMonth: `${arrival.getFullYear()}-${String(arrival.getMonth() + 1).padStart(2, '0')}`,
+                            reportMonth: reportMonthBookingInc,
                             attachments: [],
                             accountantId: effectiveAccountantId,
                             accountantName,
@@ -418,6 +451,16 @@ export async function runRulesForBookings(
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
+                        if (
+                            await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
+                                objectId: accountingObjectId,
+                                category: rule.category,
+                                roomId: roomId ?? null,
+                                reportMonth,
+                            })
+                        ) {
+                            continue;
+                        }
                         try {
                             await incomesCollection.insertOne({
                                 recordType: 'income',

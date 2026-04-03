@@ -5,6 +5,7 @@ import { getDB } from '@/lib/db/getDB';
 import { Income, IncomeStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
+import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 
 export async function GET() {
     try {
@@ -126,6 +127,25 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 { success: false, message: 'Пользователь-бухгалтер не найден' },
                 { status: 404 },
+            );
+        }
+
+        if (
+            await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
+                objectId: incomeData.objectId,
+                category: incomeData.category,
+                roomId: incomeData.roomId ?? null,
+                reportMonth: incomeData.reportMonth,
+            })
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    code: 'FORBID_DUPLICATES',
+                    message:
+                        'Для этой категории включён запрет дублей: уже есть запись с тем же объектом, комнатой, категорией и отчётным месяцем.',
+                },
+                { status: 400 },
             );
         }
 

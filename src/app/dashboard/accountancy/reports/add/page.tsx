@@ -141,7 +141,7 @@ export default function Page() {
             });
             setLoading(false);
             if (res.success) {
-                router.push('/dashboard/accountancy');
+                router.back();
             }
         }).catch((error) => {
             console.error('Error adding report:', error);
@@ -248,11 +248,14 @@ export default function Page() {
                     </Box>
                 </Stack>
                 <Stack direction={"row"} spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy">
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />}>
-                            {t('common.cancel')}
-                        </Button>
-                    </Link>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
                     <Button 
                         variant="contained" 
                         endIcon={<SendIcon />} 

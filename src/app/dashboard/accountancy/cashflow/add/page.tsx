@@ -102,7 +102,7 @@ export default function Page() {
                 severity: res.success ? 'success' : 'error',
             });
             if (res.success) {
-                router.push('/dashboard/accountancy/cashflow');
+                router.back();
             }
         } catch (error) {
             console.error('Error adding cashflow:', error);
@@ -223,11 +223,14 @@ export default function Page() {
                     fullWidth
                 />
                 <Stack direction="row" spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy/cashflow">
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />}>
-                            {t('common.cancel')}
-                        </Button>
-                    </Link>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
                     <Button
                         variant="contained"
                         endIcon={<SendIcon />}

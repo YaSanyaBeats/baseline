@@ -17,7 +17,6 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
-import Link from 'next/link';
 import { useEffect, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomes, updateIncome } from "@/lib/incomes";
@@ -257,9 +256,9 @@ export default function Page() {
                     message: res.message || t('accountancy.incomeUpdated'),
                     severity: res.success ? 'success' : 'error',
                 });
-                if (res.success) {
-                    router.push('/dashboard/accountancy/transactions?kind=income');
-                }
+            if (res.success) {
+                router.back();
+            }
             })
             .catch((error) => {
                 console.error('Error updating income:', error);
@@ -503,11 +502,14 @@ export default function Page() {
                     </Box>
                 </Stack>
                 <Stack direction={"row"} spacing={2} mt={2}>
-                    <Link href="/dashboard/accountancy/transactions?kind=income">
-                        <Button variant="outlined" startIcon={<ArrowBackIcon />}>
-                            {t('common.cancel')}
-                        </Button>
-                    </Link>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
                     <Button
                         variant="contained"
                         endIcon={<SendIcon />}

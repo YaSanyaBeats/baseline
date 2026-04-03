@@ -155,6 +155,8 @@ export interface UserObject {
 export interface CommonResponse {
     success: boolean;
     message: string;
+    /** Код ошибки для клиента (например запрет дублей по категории) */
+    code?: string;
 }
 
 export interface BusynessRow {
@@ -456,6 +458,8 @@ export interface AccountancyCategory {
     isAuto?: boolean;                   // Авто / не авто
     checkInOut?: CategoryCheckInOut;    // Чекин / чекаут
     reportingPeriod?: string;           // Отчётный период (дата, ISO)
+    /** Не допускать вторую запись с тем же объектом, комнатой, категорией и отчётным месяцем (бронь не учитывается) */
+    forbidDuplicates?: boolean;
     createdAt?: Date;
 }
 

@@ -5,6 +5,7 @@ import { getDB } from '@/lib/db/getDB';
 import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
+import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 
 export async function POST(request: NextRequest) {
     try {
@@ -88,6 +89,25 @@ export async function POST(request: NextRequest) {
         if (isOwnDraft && expenseData.status !== 'draft') {
             return NextResponse.json(
                 { success: false, message: 'Пользователи с кешфлоу не могут менять статус на «Подтверждён».' },
+                { status: 400 },
+            );
+        }
+
+        if (
+            await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
+                objectId: expenseData.objectId,
+                category: expenseData.category,
+                roomId: expenseData.roomId ?? null,
+                reportMonth: expenseData.reportMonth,
+                excludeObjectId: new ObjectId(expenseData._id),
+            })
+        ) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    message:
+                        'Для этой категории включён запрет дублей: уже есть запись с тем же объектом, комнатой, категорией и отчётным месяцем.',
+                },
                 { status: 400 },
             );
         }

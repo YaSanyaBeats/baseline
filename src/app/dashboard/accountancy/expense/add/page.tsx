@@ -28,11 +28,13 @@ import { useEffect, useMemo, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Booking, Expense, ExpenseStatus, UserObject } from "@/lib/types";
 import { formatTitle } from "@/lib/format";
 import { addExpense } from "@/lib/expenses";
+import { getApiErrorMessage } from "@/lib/axiosResponseMessage";
+import { formatPartialTransactionAddWarning } from "@/lib/accountancyPartialAddMessage";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import FileAttachments from "@/components/accountancy/FileAttachments";
-import SourceRecipientSelect, { type SourceRecipientOptionValue, PREFIX_USER } from "@/components/accountancy/SourceRecipientSelect";
+import SourceRecipientSelect, { type SourceRecipientOptionValue, PREFIX_ROOM, PREFIX_USER } from "@/components/accountancy/SourceRecipientSelect";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -118,6 +120,16 @@ export default function Page() {
         const rId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
         setObjectId(objId);
         setRoomId(rId);
+        if (!sourceLockedForCashflow) {
+            const roomSource: SourceRecipientOptionValue | '' =
+                objId != null && rId != null ? `${PREFIX_ROOM}${objId}:${rId}` : '';
+            setItems((prev) =>
+                prev.map((item) => ({
+                    ...item,
+                    source: roomSource,
+                }))
+            );
+        }
         setErrors((prev) => {
             const newErrors = { ...prev };
             if (objId) delete newErrors.objectId;
@@ -128,6 +140,7 @@ export default function Page() {
     const handleAddItem = () => {
         const newItem = { ...defaultExpenseItem };
         if (sourceLockedForCashflow && currentUserSourceValue) newItem.source = currentUserSourceValue;
+        else if (objectId != null && roomId != null) newItem.source = `${PREFIX_ROOM}${objectId}:${roomId}`;
         setItems((prev) => [...prev, newItem]);
     };
 
@@ -234,7 +247,7 @@ export default function Page() {
 
         setLoading(true);
         let successCount = 0;
-        let failCount = 0;
+        const failures: { category: string; message: string }[] = [];
 
         try {
             for (const item of items) {
@@ -259,16 +272,25 @@ export default function Page() {
                 try {
                     const res = await addExpense(payload);
                     if (res.success) successCount++;
-                    else failCount++;
-                } catch {
-                    failCount++;
+                    else {
+                        failures.push({
+                            category: item.category,
+                            message: res.message || t('common.serverError'),
+                        });
+                    }
+                } catch (err) {
+                    failures.push({
+                        category: item.category,
+                        message: getApiErrorMessage(err, t('common.serverError')),
+                    });
                 }
             }
 
+            const failCount = failures.length;
             const message =
                 failCount === 0
                     ? `${t('accountancy.expensesAdded')}: ${successCount}`
-                    : `${t('accountancy.expensesAddedPartial')} (${successCount}/${successCount + failCount})`;
+                    : formatPartialTransactionAddWarning(t, 'expense', successCount, failures);
 
             setSnackbar({
                 open: true,

@@ -39,6 +39,7 @@ import {
     calculateBookingCommission,
     isOtaCommission,
     isCoAgentCommission,
+    type CommissionStep,
 } from '@/lib/commissionCalculation';
 import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
 
@@ -94,8 +95,149 @@ function formatAmount(value: number): string {
     });
 }
 
+function CommissionCalculationStepBlock({
+    step,
+    stepIndex,
+    t,
+    language,
+    formatAmount: fmt,
+}: {
+    step: CommissionStep;
+    stepIndex: number;
+    t: (key: string) => string;
+    language: string;
+    formatAmount: (n: number) => string;
+}) {
+    const locale = language === 'en' ? 'en-US' : 'ru-RU';
+    const hasTransactionBreakdown = step.lineItems !== undefined;
+    const hasNightBreakdown = Boolean(step.nightBooking);
+    const showExpandable = hasTransactionBreakdown || hasNightBreakdown;
+
+    const valueNode =
+        step.value !== undefined ? (
+            <Typography variant="body2" fontWeight={500} component="span">
+                {typeof step.value === 'number' ? fmt(step.value) : step.value}
+            </Typography>
+        ) : null;
+
+    if (!showExpandable) {
+        return (
+            <Box
+                key={stepIndex}
+                sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    flexWrap: 'wrap',
+                    gap: 1,
+                }}
+            >
+                <Typography variant="body2">{step.description}</Typography>
+                {valueNode}
+                {step.formula && (
+                    <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
+                        {step.formula}
+                    </Typography>
+                )}
+            </Box>
+        );
+    }
+
+    return (
+        <Accordion
+            key={stepIndex}
+            elevation={0}
+            variant="outlined"
+            disableGutters
+            sx={{ '&:before': { display: 'none' } }}
+        >
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <Box
+                    sx={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center',
+                        width: '100%',
+                        pr: 1,
+                        gap: 1,
+                    }}
+                >
+                    <Typography variant="body2">{step.description}</Typography>
+                    {valueNode}
+                </Box>
+            </AccordionSummary>
+            <AccordionDetails>
+                <Stack spacing={1.5}>
+                    {step.formula && (
+                        <Typography variant="caption" color="text.secondary">
+                            {step.formula}
+                        </Typography>
+                    )}
+                    {step.nightBooking && (
+                        <>
+                            <Table size="small">
+                                <TableBody>
+                                    <TableRow>
+                                        <TableCell sx={{ borderBottom: 'none', pl: 0, py: 0.5 }}>
+                                            {t('accountancy.cashflow.bookingArrival')}
+                                        </TableCell>
+                                        <TableCell align="right" sx={{ borderBottom: 'none', py: 0.5 }}>
+                                            {new Date(step.nightBooking.arrival).toLocaleDateString(locale)}
+                                        </TableCell>
+                                    </TableRow>
+                                    <TableRow>
+                                        <TableCell sx={{ borderBottom: 'none', pl: 0, py: 0.5 }}>
+                                            {t('accountancy.cashflow.bookingDeparture')}
+                                        </TableCell>
+                                        <TableCell align="right" sx={{ borderBottom: 'none', py: 0.5 }}>
+                                            {new Date(step.nightBooking.departure).toLocaleDateString(locale)}
+                                        </TableCell>
+                                    </TableRow>
+                                </TableBody>
+                            </Table>
+                            <Typography variant="caption" color="text.secondary">
+                                {t('accountancy.commission.nightsBookingNote')}
+                            </Typography>
+                        </>
+                    )}
+                    {step.lineItems !== undefined &&
+                        (step.lineItems.length === 0 ? (
+                            <Typography variant="body2" color="text.secondary">
+                                {t('accountancy.commission.stepNoTransactions')}
+                            </Typography>
+                        ) : (
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                        <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                        <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {step.lineItems.map((row) => {
+                                        const key = row.id ?? `${row.kind}-${row.date}-${row.category}-${row.amount}`;
+                                        return (
+                                            <TableRow key={key}>
+                                                <TableCell>
+                                                    {new Date(row.date).toLocaleDateString(locale)}
+                                                </TableCell>
+                                                <TableCell>{row.category}</TableCell>
+                                                <TableCell align="right">{fmt(row.amount)}</TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
+                                </TableBody>
+                            </Table>
+                        ))}
+                </Stack>
+            </AccordionDetails>
+        </Accordion>
+    );
+}
+
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
     const { objects } = useObjects();
 
@@ -680,34 +822,14 @@ export default function Page() {
                                         <AccordionDetails>
                                             <Stack spacing={1}>
                                                 {r.steps.map((step, idx) => (
-                                                    <Box
+                                                    <CommissionCalculationStepBlock
                                                         key={idx}
-                                                        sx={{
-                                                            display: 'flex',
-                                                            justifyContent: 'space-between',
-                                                            alignItems: 'center',
-                                                            flexWrap: 'wrap',
-                                                            gap: 1,
-                                                        }}
-                                                    >
-                                                        <Typography variant="body2">{step.description}</Typography>
-                                                        {step.value !== undefined && (
-                                                            <Typography variant="body2" fontWeight={500}>
-                                                                {typeof step.value === 'number'
-                                                                    ? formatAmount(step.value)
-                                                                    : step.value}
-                                                            </Typography>
-                                                        )}
-                                                        {step.formula && (
-                                                            <Typography
-                                                                variant="caption"
-                                                                color="text.secondary"
-                                                                sx={{ width: '100%' }}
-                                                            >
-                                                                {step.formula}
-                                                            </Typography>
-                                                        )}
-                                                    </Box>
+                                                        step={step}
+                                                        stepIndex={idx}
+                                                        t={t}
+                                                        language={language}
+                                                        formatAmount={formatAmount}
+                                                    />
                                                 ))}
                                             </Stack>
                                         </AccordionDetails>

@@ -548,6 +548,11 @@ export default function Page() {
                             {t('accountancy.addIncome')}
                         </Button>
                     </Link>
+                    <Link href="/dashboard/accountancy/transactions/bulk-add">
+                        <Button variant="outlined" startIcon={<AddIcon />}>
+                            {t('accountancy.bulkAddTransactions')}
+                        </Button>
+                    </Link>
                 </Stack>
             </Box>
 

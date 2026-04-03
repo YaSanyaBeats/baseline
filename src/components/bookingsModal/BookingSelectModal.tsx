@@ -61,10 +61,22 @@ export default function BookingSelectModal({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [open, initialObjectId]);
 
+    /** В коллекции bookings поле propertyId совпадает с object.propertyId (Beds24), а не всегда с object.id из списка объектов. */
+    const bookingPropertyIdForApi = (internalObjectId?: number): number | undefined => {
+        if (internalObjectId == null) return undefined;
+        const o = objects.find((x) => x.id === internalObjectId);
+        if (o) return o.propertyId ?? o.id;
+        return internalObjectId;
+    };
+
     const handleSearch = async () => {
+        const apiParams: BookingSearchParams = {
+            ...filters,
+            objectId: bookingPropertyIdForApi(filters.objectId),
+        };
         setLoading(true);
         try {
-            const data = await searchBookings(filters);
+            const data = await searchBookings(apiParams);
             setResults(data);
         } catch (error) {
             console.error("Error searching bookings:", error);

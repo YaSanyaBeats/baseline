@@ -3,7 +3,9 @@
 import {
     Box,
     Button,
+    Checkbox,
     FormControl,
+    FormControlLabel,
     InputLabel,
     MenuItem,
     Select,
@@ -17,11 +19,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SendIcon from '@mui/icons-material/Send';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import {
-    AccountancyCategory,
-    CategoryDivisibility,
-    CategoryCheckInOut,
-} from '@/lib/types';
+import { AccountancyCategory, CategoryDivisibility } from '@/lib/types';
 import {
     getAccountancyCategories,
     getAccountancyCategoryById,
@@ -34,10 +32,6 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { useRouter, useParams } from 'next/navigation';
 
 const DIVISIBILITY_OPTIONS: CategoryDivisibility[] = ['/2', '/3', 'неделимый'];
-const CHECK_IN_OUT_OPTIONS: { value: CategoryCheckInOut; labelKey: string }[] = [
-    { value: 'checkin', labelKey: 'checkin' },
-    { value: 'checkout', labelKey: 'checkout' },
-];
 
 export default function Page() {
     const { t } = useTranslation();
@@ -123,10 +117,7 @@ export default function Page() {
                 unit: category.unit,
                 divisibility: category.divisibility,
                 pricePerUnit: category.pricePerUnit,
-                attributionDate: category.attributionDate || undefined,
-                isAuto: category.isAuto,
-                checkInOut: category.checkInOut,
-                reportingPeriod: category.reportingPeriod || undefined,
+                forbidDuplicates: Boolean(category.forbidDuplicates),
             });
             setSnackbar({
                 open: true,
@@ -134,7 +125,7 @@ export default function Page() {
                 severity: res.success ? 'success' : 'error',
             });
             if (res.success) {
-                router.push('/dashboard/accountancy/categories');
+                router.back();
             }
         } catch (error) {
             console.error('Error saving category:', error);
@@ -256,77 +247,36 @@ export default function Page() {
                     inputProps={{ min: 0, step: 0.01 }}
                 />
 
-                <TextField
-                    label={t('accountancy.attributionDate')}
-                    type="date"
-                    value={category.attributionDate ?? ''}
-                    onChange={(e) =>
-                        setCategory((p) => ({ ...p, attributionDate: e.target.value || undefined }))
+                <FormControlLabel
+                    control={
+                        <Checkbox
+                            checked={Boolean(category.forbidDuplicates)}
+                            onChange={(e) =>
+                                setCategory((p) => ({ ...p, forbidDuplicates: e.target.checked }))
+                            }
+                        />
                     }
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
+                    label={t('accountancy.forbidDuplicates')}
                 />
 
-                <FormControl fullWidth>
-                    <InputLabel>{t('accountancy.isAuto')}</InputLabel>
-                    <Select
-                        value={category.isAuto === true ? 'auto' : 'notAuto'}
-                        label={t('accountancy.isAuto')}
-                        onChange={(e) =>
-                            setCategory((p) => ({
-                                ...p,
-                                isAuto: e.target.value === 'auto',
-                            }))
-                        }
+                <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
                     >
-                        <MenuItem value="auto">{t('accountancy.isAuto')}</MenuItem>
-                        <MenuItem value="notAuto">{t('accountancy.isNotAuto')}</MenuItem>
-                    </Select>
-                </FormControl>
-
-                <FormControl fullWidth>
-                    <InputLabel>{t('accountancy.checkInOut')}</InputLabel>
-                    <Select
-                        value={category.checkInOut ?? ''}
-                        label={t('accountancy.checkInOut')}
-                        onChange={(e) =>
-                            setCategory((p) => ({
-                                ...p,
-                                checkInOut: (e.target.value as CategoryCheckInOut) || undefined,
-                            }))
-                        }
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        endIcon={<SendIcon />}
+                        onClick={handleSubmit}
+                        disabled={saving}
                     >
-                        <MenuItem value="">—</MenuItem>
-                        {CHECK_IN_OUT_OPTIONS.map((opt) => (
-                            <MenuItem key={opt.value} value={opt.value}>
-                                {t(`accountancy.${opt.labelKey}`)}
-                            </MenuItem>
-                        ))}
-                    </Select>
-                </FormControl>
-
-                <TextField
-                    label={t('accountancy.reportingPeriod')}
-                    type="date"
-                    value={category.reportingPeriod ?? ''}
-                    onChange={(e) =>
-                        setCategory((p) => ({
-                            ...p,
-                            reportingPeriod: e.target.value || undefined,
-                        }))
-                    }
-                    fullWidth
-                    InputLabelProps={{ shrink: true }}
-                />
-
-                <Button
-                    variant="contained"
-                    endIcon={<SendIcon />}
-                    onClick={handleSubmit}
-                    disabled={saving}
-                >
-                    {saving ? t('common.saving') : t('common.save')}
-                </Button>
+                        {saving ? t('common.saving') : t('common.save')}
+                    </Button>
+                </Stack>
             </Stack>
         </Box>
     );

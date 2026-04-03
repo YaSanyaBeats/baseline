@@ -101,12 +101,33 @@ export interface BookingCommissionInput {
     expensesByCategory: Array<{ category: string; amount: number }>;
     /** Маппинг категория → divisibility для определения делимых расходов */
     categoryDivisibilityMap: CategoryDivisibilityMap;
+    /** Доходы по брони за выбранный месяц (для детализации шага «Доход за месяц») */
+    bookingIncomes: Income[];
+    /** Расходы по брони за выбранный месяц (для детализации шагов с расходами) */
+    bookingExpenses: Expense[];
+}
+
+/** Строка детализации шага расчёта (транзакция учёта) */
+export interface CommissionStepLineItem {
+    kind: 'income' | 'expense';
+    id?: string;
+    date: string;
+    category: string;
+    amount: number;
+    comment?: string;
 }
 
 export interface CommissionStep {
     description: string;
     value?: number;
     formula?: string;
+    /** Транзакции, из которых сложилась сумма шага (если применимо) */
+    lineItems?: CommissionStepLineItem[];
+    /** Период брони для шага «Количество ночей» */
+    nightBooking?: {
+        arrival: string;
+        departure: string;
+    };
 }
 
 export interface BookingCommissionResult {
@@ -147,6 +168,34 @@ function getIndivisibleAmount(
         .reduce((s, e) => s + e.amount, 0);
 }
 
+function toIsoDate(d: Date | string): string {
+    if (d instanceof Date) return d.toISOString();
+    const parsed = new Date(d);
+    return Number.isNaN(parsed.getTime()) ? String(d) : parsed.toISOString();
+}
+
+function mapIncomeLineItems(incomes: Income[]): CommissionStepLineItem[] {
+    return incomes.map((i) => ({
+        kind: 'income' as const,
+        id: i._id,
+        date: toIsoDate(i.date as Date | string),
+        category: i.category,
+        amount: (i.quantity ?? 1) * (i.amount ?? 0),
+        comment: i.comment,
+    }));
+}
+
+function mapExpenseLineItems(expenses: Expense[]): CommissionStepLineItem[] {
+    return expenses.map((e) => ({
+        kind: 'expense' as const,
+        id: e._id,
+        date: toIsoDate(e.date as Date | string),
+        category: e.category,
+        amount: (e.quantity ?? 1) * (e.amount ?? 0),
+        comment: e.comment,
+    }));
+}
+
 /**
  * Расчёт комиссии для одного бронирования по выбранной схеме.
  */
@@ -154,7 +203,16 @@ export function calculateBookingCommission(
     input: BookingCommissionInput,
     schemeId: CommissionSchemeId
 ): BookingCommissionResult {
-    const { booking, totalNights, incomesInMonth, expensesInMonth, expensesByCategory, categoryDivisibilityMap } = input;
+    const {
+        booking,
+        totalNights,
+        incomesInMonth,
+        expensesInMonth,
+        expensesByCategory,
+        categoryDivisibilityMap,
+        bookingIncomes,
+        bookingExpenses,
+    } = input;
     const steps: CommissionStep[] = [];
     let commission = 0;
 
@@ -166,15 +224,21 @@ export function calculateBookingCommission(
         description: 'Доход за месяц',
         value: incomesInMonth,
         formula: `Σ доходов`,
+        lineItems: mapIncomeLineItems(bookingIncomes),
     });
     steps.push({
         description: 'Расходы за месяц',
         value: expensesInMonth,
         formula: `Σ расходов`,
+        lineItems: mapExpenseLineItems(bookingExpenses),
     });
     steps.push({
         description: 'Количество ночей',
         value: totalNights,
+        nightBooking: {
+            arrival: booking.arrival,
+            departure: booking.departure,
+        },
     });
 
     if (schemeId === 1) {
@@ -183,6 +247,9 @@ export function calculateBookingCommission(
             steps.push({
                 description: 'Делимые расходы (категории с divisibility /2 или /3)',
                 value: divisible,
+                lineItems: mapExpenseLineItems(
+                    bookingExpenses.filter((e) => isDivisibleByCategory(categoryDivisibilityMap[e.category]))
+                ),
             });
             const base = Math.max(0, incomesInMonth - divisible);
             steps.push({
@@ -410,6 +477,8 @@ export function prepareCommissionData(
             expensesInMonth,
             expensesByCategory,
             categoryDivisibilityMap,
+            bookingIncomes,
+            bookingExpenses,
         };
     });
 }
