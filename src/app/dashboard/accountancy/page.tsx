@@ -15,6 +15,7 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableContainer,
     TableHead,
     TableRow,
     TextField,
@@ -34,7 +35,7 @@ import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useObjects } from "@/providers/ObjectsProvider";
-import { Booking, Expense, Income } from "@/lib/types";
+import { AccountancyCategory, Booking, Expense, Income } from "@/lib/types";
 import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
 import { getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
 import { getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
@@ -42,9 +43,73 @@ import { getBookingsByIds } from "@/lib/bookings";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
-import { formatSourceRecipientLabel } from "@/components/accountancy/SourceRecipientSelect";
+import { getAccountancyCategories } from "@/lib/accountancyCategories";
+import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+import SourceRecipientSelect, {
+    type SourceRecipientOptionValue,
+} from "@/components/accountancy/SourceRecipientSelect";
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
+
+/** Ширина Select «Месяц отчёта» и «От кого»/«Кому» в таблице операций */
+const OP_TABLE_SELECT_WIDTH_PX = 104;
+/** Ширина Select «Категория» — чуть шире */
+const OP_TABLE_CAT_SELECT_WIDTH_PX = 130;
+/** Колонка «Категория»: селект + чип «Авто» в одну строку */
+const OP_TABLE_CATEGORY_COL_WIDTH_PX = OP_TABLE_CAT_SELECT_WIDTH_PX + 48;
+/** Колонка «Количество»: только 1-2 цифры */
+const OP_TABLE_QTY_COL_WIDTH_PX = 58;
+
+const opTableSelectFormSx = {
+    width: OP_TABLE_SELECT_WIDTH_PX,
+    minWidth: OP_TABLE_SELECT_WIDTH_PX,
+    maxWidth: OP_TABLE_SELECT_WIDTH_PX,
+} as const;
+
+const opTableCatSelectFormSx = {
+    width: OP_TABLE_CAT_SELECT_WIDTH_PX,
+    minWidth: OP_TABLE_CAT_SELECT_WIDTH_PX,
+    maxWidth: OP_TABLE_CAT_SELECT_WIDTH_PX,
+} as const;
+
+const opTableQtySelectFormSx = {
+    width: OP_TABLE_QTY_COL_WIDTH_PX,
+    minWidth: OP_TABLE_QTY_COL_WIDTH_PX,
+    maxWidth: OP_TABLE_QTY_COL_WIDTH_PX,
+} as const;
+
+const opTableSelectSx = {
+    width: '100%',
+    maxWidth: '100%',
+    '& .MuiSelect-select': {
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        display: 'block',
+        py: '4px',
+        pr: '22px',
+        fontSize: '0.6875rem',
+        lineHeight: 1.25,
+        minHeight: 26,
+        boxSizing: 'border-box',
+    },
+} as const;
+
+const opTableSourceRecipientSx = {
+    width: OP_TABLE_SELECT_WIDTH_PX,
+    minWidth: OP_TABLE_SELECT_WIDTH_PX,
+    maxWidth: OP_TABLE_SELECT_WIDTH_PX,
+    '& .MuiOutlinedInput-root': {
+        minHeight: 30,
+        fontSize: '0.6875rem',
+        py: 0.25,
+        boxSizing: 'border-box',
+    },
+    '& .MuiOutlinedInput-input': {
+        py: '5px',
+        fontSize: '0.6875rem',
+    },
+} as const;
 
 function parseOverviewObjectId(v: unknown): number | 'all' {
     if (v === 'all' || v === null || v === undefined || v === '') return 'all';
@@ -140,7 +205,7 @@ type OperationRow = {
     status: 'draft' | 'confirmed';
     date: Date | string;
     category: string;
-    commentShort: string;
+    comment: string;
     quantity: number;
     amount: number;
     reportMonth: string;
@@ -169,6 +234,8 @@ export default function Page() {
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [categoriesExpense, setCategoriesExpense] = useState<AccountancyCategory[]>([]);
+    const [categoriesIncome, setCategoriesIncome] = useState<AccountancyCategory[]>([]);
     const [loading, setLoading] = useState(true);
 
     const [filtersHydrated, setFiltersHydrated] = useState(false);
@@ -185,6 +252,8 @@ export default function Page() {
     const [amountDraft, setAmountDraft] = useState('');
     const [amountUpdatingId, setAmountUpdatingId] = useState<string | null>(null);
     const amountEditEscapeRef = useRef(false);
+    const [inlinePatchUpdatingId, setInlinePatchUpdatingId] = useState<string | null>(null);
+    const [commentDraftByRowId, setCommentDraftByRowId] = useState<Record<string, string>>({});
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [operationDeletingId, setOperationDeletingId] = useState<string | null>(null);
@@ -222,13 +291,17 @@ export default function Page() {
 
         const load = async () => {
             try {
-                const [exp, inc, cps, cfs, usersCf] = await Promise.all([
+                const [exp, inc, cps, cfs, usersCf, catExp, catInc] = await Promise.all([
                     getExpenses(),
                     getIncomes(),
                     getCounterparties(),
                     getCashflows(),
                     getUsersWithCashflow(),
+                    getAccountancyCategories('expense'),
+                    getAccountancyCategories('income'),
                 ]);
+                setCategoriesExpense(catExp);
+                setCategoriesIncome(catInc);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
@@ -431,9 +504,6 @@ export default function Page() {
             );
         };
 
-        const shortComment = (s: string | undefined, maxLen = 40) =>
-            !s ? '—' : s.length <= maxLen ? s : s.slice(0, maxLen) + '…';
-
         const rows: OperationRow[] = [];
 
         expenses
@@ -450,8 +520,8 @@ export default function Page() {
                     entityId: e._id ?? '',
                     status: e.status,
                     date: e.date,
-                    category: e.category ?? '—',
-                    commentShort: shortComment(e.comment),
+                    category: e.category ?? '',
+                    comment: e.comment ?? '',
                     quantity: e.quantity ?? 1,
                     amount: -getExpenseSum(e),
                     reportMonth: e.reportMonth ?? '',
@@ -475,8 +545,8 @@ export default function Page() {
                     entityId: i._id ?? '',
                     status: (i as any).status ?? 'draft',
                     date: i.date,
-                    category: i.category ?? '—',
-                    commentShort: shortComment(i.comment),
+                    category: i.category ?? '',
+                    comment: i.comment ?? '',
                     quantity: i.quantity ?? 1,
                     amount: getIncomeSum(i),
                     reportMonth: i.reportMonth ?? '',
@@ -677,6 +747,260 @@ export default function Page() {
         }
     };
 
+    const handleCategoryChange = async (row: OperationRow, newCategory: string) => {
+        if (!row.entityId) return;
+        if (!newCategory.trim()) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.formErrors'),
+                severity: 'error',
+            });
+            return;
+        }
+        if (newCategory === row.category) return;
+        setInlinePatchUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    category: newCategory,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, category: newCategory } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    category: newCategory,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, category: newCategory } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating category:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setInlinePatchUpdatingId(null);
+        }
+    };
+
+    const handleCommentCommit = async (row: OperationRow, draft: string) => {
+        if (!row.entityId) return;
+        const next = draft;
+        const prev = row.comment ?? '';
+        if (next === prev) return;
+        setInlinePatchUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    comment: next || undefined,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, comment: next || undefined } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    comment: next || undefined,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, comment: next || undefined } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating comment:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setInlinePatchUpdatingId(null);
+        }
+    };
+
+    const handleSourceChange = async (row: OperationRow, value: SourceRecipientOptionValue | '') => {
+        if (!row.entityId) return;
+        const next = value || undefined;
+        const prev = row.source || undefined;
+        if (next === prev) return;
+        setInlinePatchUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    source: next,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, source: next } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    source: next,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, source: next } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating source:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setInlinePatchUpdatingId(null);
+        }
+    };
+
+    const handleRecipientChange = async (row: OperationRow, value: SourceRecipientOptionValue | '') => {
+        if (!row.entityId) return;
+        const next = value || undefined;
+        const prev = row.recipient || undefined;
+        if (next === prev) return;
+        setInlinePatchUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    recipient: next,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, recipient: next } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    recipient: next,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, recipient: next } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating recipient:', error);
+            setSnackbar({
+                open: true,
+                message: t('common.serverError'),
+                severity: 'error',
+            });
+        } finally {
+            setInlinePatchUpdatingId(null);
+        }
+    };
+
     const handleOperationAmountCommit = async (row: OperationRow, draft: string) => {
         if (amountEditEscapeRef.current) {
             amountEditEscapeRef.current = false;
@@ -814,7 +1138,7 @@ export default function Page() {
 
     const quantityOptions = useMemo(() => {
         const opts: number[] = [];
-        for (let i = 1; i <= 15; i++) opts.push(i);
+        for (let i = 1; i <= 8; i++) opts.push(i);
         return opts;
     }, []);
 
@@ -962,8 +1286,8 @@ export default function Page() {
                     </Table>
                 </Paper>
 
-                <Paper sx={{ p: 2, flex: 2 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
+                <Paper sx={{ p: 1.5, flex: 2, minWidth: 0 }}>
+                    <Typography variant="h6" sx={{ mb: 1.5, fontSize: '1.05rem' }}>
                         {t('accountancy.statsByRoom')}
                     </Typography>
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} sx={{ mb: 2 }} flexWrap="wrap" useFlexGap>
@@ -1111,7 +1435,7 @@ export default function Page() {
 
                             {selectedObject && (
                                 <>
-                                    <Typography variant="subtitle1" sx={{ mt: 3, mb: 1 }}>
+                                    <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5 }}>
                                         {t('accountancy.operationsList')}
                                     </Typography>
                                     {filteredOperations.length === 0 ? (
@@ -1119,19 +1443,52 @@ export default function Page() {
                                             {t('accountancy.noOperations')}
                                         </Typography>
                                     ) : (
-                                        <Table size="small" sx={{ mt: 1, fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 }, '& .MuiSelect-select': { py: 0.5, minHeight: 'auto', fontSize: '0.75rem' }, '& .MuiSwitch-root': { transform: 'scale(0.75)' }, '& .MuiIconButton-root': { p: 0.25 } }}>
+                                        <TableContainer
+                                            sx={{
+                                                mt: 0.5,
+                                                width: '100%',
+                                                maxWidth: '100%',
+                                                maxHeight: { xs: 'none', md: 'calc(100vh - 240px)' },
+                                                overflow: 'auto',
+                                            }}
+                                        >
+                                        <Table
+                                            stickyHeader
+                                            size="small"
+                                            sx={{
+                                                tableLayout: 'fixed',
+                                                width: '100%',
+                                                fontSize: '0.6875rem',
+                                                '& .MuiTableCell-root': {
+                                                    py: 0.5,
+                                                    px: 0.5,
+                                                    verticalAlign: 'middle',
+                                                    lineHeight: 1.2,
+                                                },
+                                                '& .MuiTableCell-head': {
+                                                    py: 0.4,
+                                                    px: 0.5,
+                                                    fontSize: '0.65rem',
+                                                    fontWeight: 600,
+                                                    lineHeight: 1.1,
+                                                    backgroundColor: 'background.paper',
+                                                },
+                                                '& .MuiSwitch-root': { transform: 'scale(0.62)' },
+                                                '& .MuiIconButton-root': { p: 0.2 },
+                                            }}
+                                        >
                                             <TableHead>
                                                 <TableRow>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('common.status')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.reportMonth')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.dateColumn')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.categoryColumn')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.comment')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('common.quantity')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.source')}</TableCell>
-                                                    <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.recipient')}</TableCell>
-                                                    <TableCell sx={{ width: 72, py: 0.5, px: 0.5 }} />
+                                                    <TableCell sx={{ width: 44 }}>{t('common.status')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_SELECT_WIDTH_PX }}>{t('accountancy.reportMonth')}</TableCell>
+                                                    <TableCell sx={{ width: 72 }}>{t('accountancy.dateColumn')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_CATEGORY_COL_WIDTH_PX }}>{t('accountancy.categoryColumn')}</TableCell>
+                                                    <TableCell sx={{ width: '18%', minWidth: 96 }}>{t('accountancy.comment')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_QTY_COL_WIDTH_PX }}>{t('accountancy.quantity')}</TableCell>
+                                                    <TableCell sx={{ width: 80 }}>{t('accountancy.amountColumn')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_SELECT_WIDTH_PX }}>{t('accountancy.source')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_SELECT_WIDTH_PX }}>{t('accountancy.recipient')}</TableCell>
+                                                    <TableCell sx={{ width: 52, px: 0.25 }} />
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
@@ -1144,26 +1501,34 @@ export default function Page() {
                                                                 : undefined
                                                         }
                                                     >
-                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                        <TableCell sx={{ px: 0.25 }}>
                                                             <Tooltip title={row.status === 'confirmed' ? t('accountancy.statusConfirmed') : t('accountancy.statusDraft')}>
                                                             <Switch
                                                                     checked={row.status === 'confirmed'}
                                                                     onChange={() => handleStatusToggle(row)}
-                                                                    disabled={statusUpdatingId === row.id}
+                                                                    disabled={
+                                                                        statusUpdatingId === row.id ||
+                                                                        inlinePatchUpdatingId === row.id
+                                                                    }
                                                                     size="small"
                                                                     color="primary"
                                                                 />
                                                             </Tooltip>
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
-                                                            <FormControl size="small" sx={{ minWidth: 85 }}>
+                                                        <TableCell sx={{ px: 0.25 }}>
+                                                            <FormControl size="small" sx={opTableSelectFormSx}>
                                                                 <Select
+                                                                    sx={opTableSelectSx}
                                                                     value={row.reportMonth || ''}
                                                                     displayEmpty
                                                                     onChange={(e) =>
                                                                         handleReportMonthChange(row, e.target.value as string)
                                                                     }
-                                                                    disabled={reportMonthUpdatingId === row.id}
+                                                                    disabled={
+                                                                        reportMonthUpdatingId === row.id ||
+                                                                        inlinePatchUpdatingId === row.id
+                                                                    }
+                                                                    MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
                                                                 >
                                                                     <MenuItem value="">
                                                                         <em>—</em>
@@ -1176,33 +1541,192 @@ export default function Page() {
                                                                 </Select>
                                                             </FormControl>
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                        <TableCell sx={{ px: 0.25, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
                                                             {row.date
                                                                 ? new Date(row.date).toLocaleDateString('ru-RU', {
                                                                       day: '2-digit',
                                                                       month: '2-digit',
-                                                                      year: 'numeric',
+                                                                      year: '2-digit',
                                                                   })
                                                                 : '—'}
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
-                                                            <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="wrap">
-                                                                <span>{row.category}</span>
+                                                        <TableCell sx={{ px: 0.25, overflow: 'hidden' }}>
+                                                            <Stack
+                                                                direction="row"
+                                                                alignItems="center"
+                                                                spacing={0.5}
+                                                                flexWrap="nowrap"
+                                                                sx={{ minWidth: 0 }}
+                                                            >
+                                                                <FormControl
+                                                                    size="small"
+                                                                    sx={{ ...opTableCatSelectFormSx, flexShrink: 0 }}
+                                                                >
+                                                                    <Select
+                                                                        sx={opTableSelectSx}
+                                                                        value={row.category || ''}
+                                                                        displayEmpty
+                                                                        onChange={(e) =>
+                                                                            void handleCategoryChange(
+                                                                                row,
+                                                                                e.target.value as string,
+                                                                            )
+                                                                        }
+                                                                        disabled={
+                                                                            inlinePatchUpdatingId === row.id ||
+                                                                            quantityUpdatingId === row.id ||
+                                                                            reportMonthUpdatingId === row.id ||
+                                                                            statusUpdatingId === row.id
+                                                                        }
+                                                                        MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
+                                                                    >
+                                                                        <MenuItem value="">
+                                                                            <em>—</em>
+                                                                        </MenuItem>
+                                                                        {(() => {
+                                                                            const catList =
+                                                                                row.type === 'expense'
+                                                                                    ? categoriesExpense
+                                                                                    : categoriesIncome;
+                                                                            const items = buildCategoriesForSelect(
+                                                                                catList,
+                                                                                row.type === 'expense'
+                                                                                    ? 'expense'
+                                                                                    : 'income',
+                                                                            );
+                                                                            const names = new Set(
+                                                                                items.map((it) => it.name),
+                                                                            );
+                                                                            const orphan =
+                                                                                !!(
+                                                                                    row.category &&
+                                                                                    !names.has(row.category)
+                                                                                );
+                                                                            return [
+                                                                                ...(orphan
+                                                                                    ? [
+                                                                                          <MenuItem
+                                                                                              key={`orphan-${row.id}`}
+                                                                                              value={row.category}
+                                                                                          >
+                                                                                              {row.category}
+                                                                                          </MenuItem>,
+                                                                                      ]
+                                                                                    : []),
+                                                                                ...items.map((item) => (
+                                                                                    <MenuItem
+                                                                                        key={item.id}
+                                                                                        value={item.name}
+                                                                                    >
+                                                                                        {item.depth > 0
+                                                                                            ? '\u00A0'.repeat(
+                                                                                                  item.depth * 2,
+                                                                                              ) + '↳ '
+                                                                                            : ''}
+                                                                                        {item.name}
+                                                                                    </MenuItem>
+                                                                                )),
+                                                                            ];
+                                                                        })()}
+                                                                    </Select>
+                                                                </FormControl>
                                                                 {row.autoCreated && (
-                                                                    <Chip size="small" label={t('accountancy.autoAccounting.autoCreatedBadge')} color="success" variant="outlined" />
+                                                                    <Tooltip
+                                                                        title={t('accountancy.autoAccounting.autoCreatedBadge')}
+                                                                    >
+                                                                        <Chip
+                                                                            size="small"
+                                                                            label={t(
+                                                                                'accountancy.autoAccounting.autoCreatedBadge',
+                                                                            )}
+                                                                            color="success"
+                                                                            variant="outlined"
+                                                                            sx={{
+                                                                                height: 22,
+                                                                                flexShrink: 0,
+                                                                                maxWidth: 'none',
+                                                                                '& .MuiChip-label': {
+                                                                                    px: 0.5,
+                                                                                    fontSize: '0.6rem',
+                                                                                    lineHeight: 1.2,
+                                                                                },
+                                                                            }}
+                                                                        />
+                                                                    </Tooltip>
                                                                 )}
                                                             </Stack>
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1 }}>{row.commentShort}</TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1 }}>
-                                                            <FormControl size="small" sx={{ minWidth: 56 }}>
+                                                        <TableCell sx={{ px: 0.25, minWidth: 0 }}>
+                                                            <TextField
+                                                                size="small"
+                                                                fullWidth
+                                                                value={
+                                                                    commentDraftByRowId[row.id] !== undefined
+                                                                        ? commentDraftByRowId[row.id]!
+                                                                        : row.comment
+                                                                }
+                                                                onChange={(e) =>
+                                                                    setCommentDraftByRowId((prev) => ({
+                                                                        ...prev,
+                                                                        [row.id]: e.target.value,
+                                                                    }))
+                                                                }
+                                                                onBlur={() => {
+                                                                    const draft = commentDraftByRowId[row.id];
+                                                                    if (draft === undefined) return;
+                                                                    setCommentDraftByRowId((prev) => {
+                                                                        const next = { ...prev };
+                                                                        delete next[row.id];
+                                                                        return next;
+                                                                    });
+                                                                    void handleCommentCommit(row, draft);
+                                                                }}
+                                                                placeholder={t('accountancy.comment')}
+                                                                disabled={
+                                                                    inlinePatchUpdatingId === row.id ||
+                                                                    quantityUpdatingId === row.id ||
+                                                                    reportMonthUpdatingId === row.id ||
+                                                                    statusUpdatingId === row.id
+                                                                }
+                                                                slotProps={{
+                                                                    htmlInput: {
+                                                                        'aria-label': t('accountancy.comment'),
+                                                                    },
+                                                                }}
+                                                                sx={{
+                                                                    '& .MuiInputBase-input': {
+                                                                        fontSize: '0.6875rem',
+                                                                        py: '3px',
+                                                                        overflow: 'hidden',
+                                                                        textOverflow: 'ellipsis',
+                                                                        whiteSpace: 'nowrap',
+                                                                    },
+                                                                }}
+                                                            />
+                                                        </TableCell>
+                                                        <TableCell sx={{ px: 0.25 }}>
+                                                            <FormControl size="small" sx={opTableQtySelectFormSx}>
                                                                 <Select
+                                                                    sx={opTableSelectSx}
                                                                     value={row.quantity}
                                                                     onChange={(e) =>
                                                                         handleQuantityChange(row, Number(e.target.value))
                                                                     }
-                                                                    disabled={quantityUpdatingId === row.id}
+                                                                    disabled={
+                                                                        quantityUpdatingId === row.id ||
+                                                                        inlinePatchUpdatingId === row.id
+                                                                    }
+                                                                    MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
                                                                 >
+                                                                    {!quantityOptions.includes(row.quantity) &&
+                                                                    row.quantity >= 1 ? (
+                                                                        <MenuItem
+                                                                            key={`qty-outofrange-${row.id}`}
+                                                                            value={row.quantity}
+                                                                        >
+                                                                            {row.quantity}
+                                                                        </MenuItem>
+                                                                    ) : null}
                                                                     {quantityOptions.map((q) => (
                                                                         <MenuItem key={q} value={q}>
                                                                             {q}
@@ -1213,11 +1737,10 @@ export default function Page() {
                                                         </TableCell>
                                                         <TableCell
                                                             sx={{
-                                                                py: 0.5,
-                                                                px: 1,
+                                                                px: 0.25,
                                                                 color: row.amount >= 0 ? 'success.main' : 'error.main',
-                                                                minWidth: 100,
                                                                 verticalAlign: 'middle',
+                                                                fontSize: '0.6875rem',
                                                             }}
                                                         >
                                                             {amountEditingId === row.id ? (
@@ -1237,7 +1760,10 @@ export default function Page() {
                                                                             setAmountDraft('');
                                                                         }
                                                                     }}
-                                                                    disabled={amountUpdatingId === row.id}
+                                                                    disabled={
+                                                                        amountUpdatingId === row.id ||
+                                                                        inlinePatchUpdatingId === row.id
+                                                                    }
                                                                     autoFocus
                                                                     slotProps={{
                                                                         htmlInput: {
@@ -1246,10 +1772,10 @@ export default function Page() {
                                                                         },
                                                                     }}
                                                                     sx={{
-                                                                        width: 100,
+                                                                        width: 76,
                                                                         '& .MuiInputBase-input': {
-                                                                            fontSize: '0.75rem',
-                                                                            py: 0.5,
+                                                                            fontSize: '0.6875rem',
+                                                                            py: '3px',
                                                                         },
                                                                     }}
                                                                 />
@@ -1258,7 +1784,11 @@ export default function Page() {
                                                                     <Box
                                                                         component="span"
                                                                         onClick={() => {
-                                                                            if (amountUpdatingId === row.id) return;
+                                                                            if (
+                                                                                amountUpdatingId === row.id ||
+                                                                                inlinePatchUpdatingId === row.id
+                                                                            )
+                                                                                return;
                                                                             setAmountEditingId(row.id);
                                                                             setAmountDraft(
                                                                                 Math.abs(row.amount).toLocaleString('ru-RU', {
@@ -1279,13 +1809,45 @@ export default function Page() {
                                                                 </Tooltip>
                                                             )}
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1, whiteSpace: 'nowrap' }}>
-                                                            {formatSourceRecipientLabel(row.source, objects, counterparties, usersWithCashflow, cashflows)}
+                                                        <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
+                                                            <SourceRecipientSelect
+                                                                value={(row.source ?? '') as SourceRecipientOptionValue}
+                                                                onChange={(v) => void handleSourceChange(row, v)}
+                                                                label={t('accountancy.source')}
+                                                                counterparties={counterparties}
+                                                                usersWithCashflow={usersWithCashflow}
+                                                                hideLabel
+                                                                popperMinWidth={240}
+                                                                disabled={
+                                                                    inlinePatchUpdatingId === row.id ||
+                                                                    quantityUpdatingId === row.id ||
+                                                                    reportMonthUpdatingId === row.id ||
+                                                                    statusUpdatingId === row.id
+                                                                }
+                                                                sx={opTableSourceRecipientSx}
+                                                            />
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 1, whiteSpace: 'nowrap' }}>
-                                                            {formatSourceRecipientLabel(row.recipient, objects, counterparties, usersWithCashflow, cashflows)}
+                                                        <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
+                                                            <SourceRecipientSelect
+                                                                value={(row.recipient ?? '') as SourceRecipientOptionValue}
+                                                                onChange={(v) => void handleRecipientChange(row, v)}
+                                                                label={t('accountancy.recipient')}
+                                                                counterparties={counterparties}
+                                                                usersWithCashflow={usersWithCashflow}
+                                                                cashflows={cashflows}
+                                                                includeCashflows
+                                                                hideLabel
+                                                                popperMinWidth={240}
+                                                                disabled={
+                                                                    inlinePatchUpdatingId === row.id ||
+                                                                    quantityUpdatingId === row.id ||
+                                                                    reportMonthUpdatingId === row.id ||
+                                                                    statusUpdatingId === row.id
+                                                                }
+                                                                sx={opTableSourceRecipientSx}
+                                                            />
                                                         </TableCell>
-                                                        <TableCell sx={{ py: 0.5, px: 0.5 }}>
+                                                        <TableCell sx={{ px: 0.25 }}>
                                                             <Stack direction="row" alignItems="center" spacing={0}>
                                                                 <Link
                                                                     href={
@@ -1329,6 +1891,7 @@ export default function Page() {
                                                 ))}
                                             </TableBody>
                                         </Table>
+                                        </TableContainer>
                                     )}
                                 </>
                             )}

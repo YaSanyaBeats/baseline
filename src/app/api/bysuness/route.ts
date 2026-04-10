@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 
-async function getBusynessPerRoom(objectID: number, room: any) {
+async function getBusynessPerRoom(propertyId: number, room: any, roomTypeId: number) {
     const db = await getDB();
     const bookings = db.collection('bookings');
     
@@ -20,8 +20,10 @@ async function getBusynessPerRoom(objectID: number, room: any) {
     endDate.setDate(endDate.getDate() - 1);
 
     const neededBookings = await bookings.find({
-        propertyId: +objectID,
+        propertyId: +propertyId,
         unitId: +room.id,
+        /** Тип номера (Beds24 room / listing): при совпадающих unitId у разных roomType иначе возвращаются чужие брони. */
+        $or: [{ roomId: roomTypeId }, { roomID: roomTypeId }],
         status: { $nin: ['inquiry'] },
         $and: [
             { arrival: { $lte: endDate.toISOString().split('T')[0] } },
@@ -102,7 +104,7 @@ export async function GET(request: NextRequest) {
                 break;
             }
         }
-        
+
         if (!roomType || propertyId === null) {
             return NextResponse.json({ error: 'RoomType not found' }, { status: 404 });
         }
@@ -130,9 +132,9 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        // Используем propertyId для поиска броней
+        const roomTypeIdNum = Number(objectID);
         const result = await Promise.all(rooms.map((room: any) => {
-            return getBusynessPerRoom(propertyId!, room);
+            return getBusynessPerRoom(propertyId!, room, roomTypeIdNum);
         }));
 
         return NextResponse.json(result);

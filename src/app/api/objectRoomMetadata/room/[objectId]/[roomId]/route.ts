@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/lib/auth-options';
 import { upsertRoomMetadata } from '@/lib/server/objectRoomMetadata';
 import type { RoomMetadataDoc } from '@/lib/server/objectRoomMetadata';
 import type { RoomLevel } from '@/lib/types';

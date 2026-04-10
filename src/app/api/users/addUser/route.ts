@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 import bcrypt from 'bcrypt';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/lib/auth-options';
 import { logAuditAction } from '@/lib/auditLog';
 
 export async function POST(request: NextRequest) {

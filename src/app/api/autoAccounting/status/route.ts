@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/lib/auth-options';
 import { getUnprocessedBookingIds, getProcessedBookingIds } from '@/lib/autoAccountingEngine';
 
 export async function GET(request: NextRequest) {

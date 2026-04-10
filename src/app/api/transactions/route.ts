@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import type { TransactionListRow } from '@/lib/types';

@@ -82,7 +82,8 @@ export function formatSourceRecipientLabel(
 }
 
 interface SourceRecipientSelectProps {
-    value: SourceRecipientOptionValue | '';
+    /** Пустая строка или значение; `undefined` трактуется как «не выбрано» (= «—»), чтобы Autocomplete не переключался uncontrolled → controlled */
+    value: SourceRecipientOptionValue | '' | undefined;
     onChange: (value: SourceRecipientOptionValue | '') => void;
     label: string;
     counterparties: { _id: string; name: string }[];
@@ -98,6 +99,10 @@ interface SourceRecipientSelectProps {
     sx?: object;
     error?: boolean;
     disabled?: boolean;
+    /** Без плавающей подписи (placeholder + aria-label) — для плотных таблиц */
+    hideLabel?: boolean;
+    /** Минимальная ширина выпадающего попапа; если не задана — попап совпадает с шириной поля ввода */
+    popperMinWidth?: number;
 }
 
 export default function SourceRecipientSelect({
@@ -113,6 +118,8 @@ export default function SourceRecipientSelect({
     sx,
     error,
     disabled = false,
+    hideLabel = false,
+    popperMinWidth,
 }: SourceRecipientSelectProps) {
     const { objects } = useObjects();
     const { t } = useTranslation();
@@ -188,7 +195,12 @@ export default function SourceRecipientSelect({
         return list;
     }, [objects, counterparties, usersWithCashflow, cashflows, includeCashflows, includeBookingRoomOption, t]);
 
-    const selectedOption = useMemo(() => options.find((o) => o.value === value), [options, value]);
+    const normalizedValue = value ?? '';
+    const selectedOption = useMemo((): SourceRecipientAutocompleteOption | undefined => {
+        const found = options.find((o) => o.value === normalizedValue);
+        if (found) return found;
+        return options.find((o) => o.value === '') ?? undefined;
+    }, [options, normalizedValue]);
 
     const groupHeaders = useMemo(
         () => ({
@@ -218,6 +230,9 @@ export default function SourceRecipientSelect({
             size={size}
             sx={{ minWidth: 200, ...sx }}
             slotProps={{
+                popper: popperMinWidth != null
+                    ? { sx: { minWidth: popperMinWidth, width: 'auto !important' } }
+                    : undefined,
                 listbox: {
                     sx: { maxHeight: 360, p: 0 },
                 },
@@ -235,9 +250,22 @@ export default function SourceRecipientSelect({
                     </li>
                 );
             }}
-            renderInput={(params) => (
-                <TextField {...params} label={label} error={error} placeholder={t('common.search')} />
-            )}
+            renderInput={(params) =>
+                hideLabel ? (
+                    <TextField
+                        {...params}
+                        hiddenLabel
+                        error={error}
+                        placeholder={label}
+                        inputProps={{
+                            ...params.inputProps,
+                            'aria-label': label,
+                        }}
+                    />
+                ) : (
+                    <TextField {...params} label={label} error={error} placeholder={t('common.search')} />
+                )
+            }
         />
     );
 }

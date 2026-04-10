@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 
 export async function GET() {
@@ -31,7 +31,7 @@ export async function GET() {
 
         // Возвращаем данные пользователя без пароля
         return NextResponse.json({
-            _id: user._id,
+            _id: user._id != null ? String(user._id) : undefined,
             login: user.login,
             name: user.name,
             role: user.role,

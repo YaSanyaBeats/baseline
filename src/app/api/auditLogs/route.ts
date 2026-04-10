@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/lib/auth';
+import { authOptions } from '@/lib/auth-options';
 import { getAuditLogs } from '@/lib/auditLog';
 import { AuditLogAction, AuditLogEntity } from '@/lib/types';
 

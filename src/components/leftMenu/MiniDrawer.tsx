@@ -19,7 +19,6 @@ import Link from 'next/link'
 import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, SyncAlt } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
-import { useSession } from 'next-auth/react';
 import { User } from '@/lib/types';
 import { useUser } from '@/providers/UserProvider';
 import HeaderMenu from '../headerMenu/HeaderMenu';
@@ -121,9 +120,8 @@ const DesktopDrawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 
 }),
 );
 
-function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
-    const { data: session } = useSession();
-    const { open, setOpen } = props;
+function DrawerMenu(props: { open: boolean; setOpen: (value: boolean) => void; user: User | null }) {
+    const { open, setOpen, user } = props;
     const { t } = useTranslation();
     
     const menu: MenuItem[] = [
@@ -190,8 +188,7 @@ function DrawerMenu(props: {open: boolean, setOpen: (value: boolean) => void}) {
         },
     ];
     const getMenu = () => {
-        const user: User = session?.user as any; 
-        if(!user) {
+        if (!user) {
             return [];
         }
 
@@ -313,7 +310,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen}/>
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} />
                 </DesktopDrawer>
             ) : (
                 <Drawer
@@ -340,7 +337,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen}/>
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} />
                 </Drawer>
             )}
 

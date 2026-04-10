@@ -1,7 +1,7 @@
 import React from 'react'
 import { getServerSession } from 'next-auth'
 import { redirect } from 'next/navigation'
-import { authOptions } from '../../lib/auth'
+import { authOptions } from '../../lib/auth-options'
 import ObjectsProvider from '@/providers/ObjectsProvider'
 import { getObjectsForSession } from '@/lib/server/getObjects'
 import MiniDrawer from '@/components/leftMenu/MiniDrawer'
