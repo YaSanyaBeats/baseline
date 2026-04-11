@@ -51,14 +51,37 @@ import SourceRecipientSelect, {
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
-/** Ширина Select «Месяц отчёта» и «От кого»/«Кому» в таблице операций */
+/** Строка сводки: расходы/доходы объекта, не привязанные ни к одной комнате (см. resolveRecordRoomId). */
+const ACCOUNTANCY_UNALLOCATED_ROOM_ID = -900_000_001;
+
+/** YYYY-MM-DD по локальному календарю — границы периода и даты операций без сдвига UTC. */
+function localCalendarYmd(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** Ширина Select «Месяц отчёта» в таблице операций */
 const OP_TABLE_SELECT_WIDTH_PX = 104;
-/** Ширина Select «Категория» — чуть шире */
-const OP_TABLE_CAT_SELECT_WIDTH_PX = 130;
+/** Колонки «От кого» / «Кому» (Autocomplete) */
+const OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX = 260;
+/** Ширина Select «Категория» */
+const OP_TABLE_CAT_SELECT_WIDTH_PX = 260;
 /** Колонка «Категория»: селект + чип «Авто» в одну строку */
 const OP_TABLE_CATEGORY_COL_WIDTH_PX = OP_TABLE_CAT_SELECT_WIDTH_PX + 48;
 /** Колонка «Количество»: только 1-2 цифры */
 const OP_TABLE_QTY_COL_WIDTH_PX = 58;
+/** Колонка «Комментарий» — только px: при table-layout:fixed + width:100% проценты ломали раскладку */
+const OP_TABLE_COMMENT_COL_WIDTH_PX = 240;
+/** Минимальная ширина таблицы (сумма колонок), чтобы колонки не схлопывались до нуля */
+const OP_TABLE_MIN_WIDTH_PX =
+    44 +
+    OP_TABLE_SELECT_WIDTH_PX +
+    72 +
+    OP_TABLE_CATEGORY_COL_WIDTH_PX +
+    OP_TABLE_COMMENT_COL_WIDTH_PX +
+    OP_TABLE_QTY_COL_WIDTH_PX +
+    80 +
+    OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX * 2 +
+    52;
 
 const opTableSelectFormSx = {
     width: OP_TABLE_SELECT_WIDTH_PX,
@@ -95,20 +118,59 @@ const opTableSelectSx = {
     },
 } as const;
 
-const opTableSourceRecipientSx = {
-    width: OP_TABLE_SELECT_WIDTH_PX,
-    minWidth: OP_TABLE_SELECT_WIDTH_PX,
-    maxWidth: OP_TABLE_SELECT_WIDTH_PX,
-    '& .MuiOutlinedInput-root': {
-        minHeight: 30,
+/** Select «Категория»: только текст, без рамки и стрелки; список по клику без изменений */
+const opTableInlineSelectSx = {
+    width: '100%',
+    maxWidth: '100%',
+    bgcolor: 'transparent',
+    boxShadow: 'none',
+    '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
+    '&:hover .MuiOutlinedInput-notchedOutline': { border: 'none' },
+    '&.Mui-focused .MuiOutlinedInput-notchedOutline': { border: 'none' },
+    '& .MuiOutlinedInput-root.Mui-focused': { boxShadow: 'none' },
+    '& .MuiSelect-icon': { display: 'none' },
+    '& .MuiSelect-select': {
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+        whiteSpace: 'nowrap',
+        display: 'block',
+        py: '2px',
+        px: 0,
+        pr: '2px',
         fontSize: '0.6875rem',
-        py: 0.25,
+        lineHeight: 1.25,
+        minHeight: 22,
         boxSizing: 'border-box',
     },
-    '& .MuiOutlinedInput-input': {
-        py: '5px',
+} as const;
+
+/** Autocomplete «От кого» / «Кому»: только текст, без рамки и индикатора */
+const opTableSourceRecipientSx = {
+    width: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX,
+    minWidth: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX,
+    maxWidth: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX,
+    '& .MuiOutlinedInput-root': {
+        minHeight: 'auto',
         fontSize: '0.6875rem',
+        py: 0,
+        px: 0,
+        boxSizing: 'border-box',
+        bgcolor: 'transparent',
+        '& fieldset': { border: 'none' },
+        '&:hover fieldset': { border: 'none' },
+        '&.Mui-focused fieldset': { border: 'none' },
+        '&.Mui-focused': { boxShadow: 'none' },
     },
+    '& .MuiOutlinedInput-input': {
+        py: '2px',
+        px: 0,
+        fontSize: '0.6875rem',
+        cursor: 'pointer',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+    },
+    '& .MuiAutocomplete-popupIndicator': { display: 'none' },
+    '& .MuiAutocomplete-clearIndicator': { display: 'none' },
 } as const;
 
 function parseOverviewObjectId(v: unknown): number | 'all' {
@@ -186,6 +248,11 @@ function parseLocalizedTotalAmount(raw: string): number | null {
     return n;
 }
 
+/**
+ * Попадание записи в выбранный период сводки.
+ * Учитываем и календарные границы (дата операции), и поле «Месяц отчёта»:
+ * иначе запись с датой в декабре, но с отчётным месяцем ноябрь, полностью выпадала из декабрьской сводки.
+ */
 function recordMatchesReportPeriod(
     date: Date | string | undefined,
     reportMonth: string | undefined | null,
@@ -194,8 +261,33 @@ function recordMatchesReportPeriod(
 ): boolean {
     if (reportMonthsInFilter === null) return isDateInRange(date);
     const rm = (reportMonth ?? '').trim();
-    if (rm) return reportMonthsInFilter.has(rm);
-    return isDateInRange(date);
+    const byDate = isDateInRange(date);
+    const byReportMonth = rm !== '' && reportMonthsInFilter.has(rm);
+    return byDate || byReportMonth;
+}
+
+/** Room/unit/booking id из API/Mongo может прийти строкой — иначе `===` с числовым room.id ломает строки сводки. */
+function normalizeUnitOrRoomId(value: unknown): number | null {
+    if (value === undefined || value === null || value === '') return null;
+    const n = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Запись относится к выбранному объекту сводки: совпадение внутреннего id или тот же Beds24 propertyId
+ * (в базе могут быть два документа объекта с разным id при одном property).
+ */
+function recordObjectMatchesSelected(
+    recordObjectId: number,
+    selected: { id: number; propertyId: number },
+    allObjects: { id: number; propertyId: number }[],
+): boolean {
+    const rid = normalizeUnitOrRoomId(recordObjectId);
+    if (rid != null && rid === selected.id) return true;
+    const row = allObjects.find(
+        (o) => o.id === recordObjectId || normalizeUnitOrRoomId(o.id) === rid,
+    );
+    return row != null && row.propertyId === selected.propertyId;
 }
 
 type OperationRow = {
@@ -337,17 +429,13 @@ export default function Page() {
     const totalIncomes = incomes.reduce((sum, i) => sum + getIncomeSum(i), 0);
     const balance = totalIncomes - totalExpenses;
 
-    // Формат YYYY-MM-DD в локальной таймзоне (без сдвига UTC)
-    const toLocalDateString = (d: Date) =>
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
     // Эффективный период: либо выбранный месяц, либо кастомные dateFrom/dateTo
     const effectiveDateRange = useMemo(() => {
         if (selectedMonth) {
             const [y, m] = selectedMonth.split('-').map(Number);
             const from = new Date(y, m - 1, 1);
             const to = new Date(y, m, 0);
-            return { from: toLocalDateString(from), to: toLocalDateString(to) };
+            return { from: localCalendarYmd(from), to: localCalendarYmd(to) };
         }
         return { from: dateFrom, to: dateTo };
     }, [selectedMonth, dateFrom, dateTo]);
@@ -357,16 +445,11 @@ export default function Page() {
         if (!effFrom && !effTo) return () => true;
         return (d: Date | string | undefined) => {
             if (!d) return true;
-            const date = new Date(d as string | Date);
-            if (effFrom) {
-                const from = new Date(effFrom);
-                if (date < from) return false;
-            }
-            if (effTo) {
-                const to = new Date(effTo);
-                to.setDate(to.getDate() + 1);
-                if (date >= to) return false;
-            }
+            const parsed = new Date(d as string | Date);
+            if (Number.isNaN(parsed.getTime())) return false;
+            const dayStr = localCalendarYmd(parsed);
+            if (effFrom && dayStr < effFrom) return false;
+            if (effTo && dayStr > effTo) return false;
             return true;
         };
     }, [effectiveDateRange]);
@@ -424,24 +507,37 @@ export default function Page() {
         };
 
         /**
-         * Комната для строки в сводке: сначала unitId брони (если бронь найдена и сопоставлена с объектом),
-         * иначе roomId записи. Так строки совпадают со списком операций при «все комнаты», где matchRoom не отсекает записи без разрешённой брони.
+         * Комната для строки сводки:
+         * 1) roomId из проводки, если он есть в справочнике комнат объекта — приоритет бух. привязки;
+         * 2) иначе unitId брони Beds24, если он в справочнике;
+         * 3) иначе roomId проводки даже вне справочника (как запасной якорь).
          */
+        const roomIdSet = new Set(roomsForSelectedObject.map((r) => r.id));
+
         const resolveRecordRoomId = (
             recordObjectId: number,
             recordRoomId?: number,
             bookingId?: number,
         ): number | null => {
-            if (recordObjectId !== objectId) return null;
+            if (!recordObjectMatchesSelected(recordObjectId, selectedObject, objects)) return null;
 
-            if (bookingId) {
-                const booking = bookings.find((b) => b.id === bookingId);
-                if (booking && bookingBelongsToObject(booking) && booking.unitId != null) {
-                    return booking.unitId;
+            const ridExplicit = normalizeUnitOrRoomId(recordRoomId);
+            if (ridExplicit != null && roomIdSet.has(ridExplicit)) {
+                return ridExplicit;
+            }
+
+            const bid = normalizeUnitOrRoomId(bookingId);
+            if (bid != null) {
+                const booking = bookings.find((b) => normalizeUnitOrRoomId(b.id) === bid);
+                if (booking && bookingBelongsToObject(booking)) {
+                    const uid = normalizeUnitOrRoomId(booking.unitId);
+                    if (uid != null && roomIdSet.has(uid)) {
+                        return uid;
+                    }
                 }
             }
 
-            if (recordRoomId != null) return recordRoomId;
+            if (ridExplicit != null) return ridExplicit;
             return null;
         };
 
@@ -468,10 +564,32 @@ export default function Page() {
             };
         });
 
-        return selectedRoomId === 'all'
-            ? roomRows
-            : roomRows.filter((row) => row.roomId === selectedRoomId);
-    }, [selectedObject, roomsForSelectedObject, filteredByReportPeriod, bookings, selectedRoomId]);
+        let orphanExp = 0;
+        let orphanInc = 0;
+        filteredByReportPeriod.expenses.forEach((e) => {
+            if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) return;
+            if (expenseRoomId(e) === null) orphanExp += getExpenseSum(e);
+        });
+        filteredByReportPeriod.incomes.forEach((i) => {
+            if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) return;
+            if (incomeRoomId(i) === null) orphanInc += getIncomeSum(i);
+        });
+
+        let rows: Array<{ roomId: number; roomName: string; expenses: number; incomes: number }> =
+            selectedRoomId === 'all' && (orphanExp > 0 || orphanInc > 0)
+                ? [
+                      ...roomRows,
+                      {
+                          roomId: ACCOUNTANCY_UNALLOCATED_ROOM_ID,
+                          roomName: t('accountancy.unallocatedRoomStats'),
+                          expenses: orphanExp,
+                          incomes: orphanInc,
+                      },
+                  ]
+                : roomRows;
+
+        return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomId === selectedRoomId);
+    }, [selectedObject, roomsForSelectedObject, filteredByReportPeriod, bookings, selectedRoomId, t, objects]);
 
     // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
     const reportMonthOptions = useMemo(() => {
@@ -509,7 +627,7 @@ export default function Page() {
         expenses
             .filter(
                 (e) =>
-                    e.objectId === selectedObjectId &&
+                    recordObjectMatchesSelected(e.objectId, selectedObject, objects) &&
                     matchRoom(e.roomId, e.bookingId) &&
                     recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
             )
@@ -534,7 +652,7 @@ export default function Page() {
         incomes
             .filter(
                 (i) =>
-                    i.objectId === selectedObjectId &&
+                    recordObjectMatchesSelected(i.objectId, selectedObject, objects) &&
                     matchRoom(i.roomId, i.bookingId) &&
                     recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
             )
@@ -567,6 +685,7 @@ export default function Page() {
         bookings,
         isDateInRange,
         reportMonthsInFilter,
+        objects,
     ]);
 
     const handleStatusToggle = async (row: OperationRow) => {
@@ -1303,8 +1422,8 @@ export default function Page() {
                                         const [y, m] = value.split('-').map(Number);
                                         const from = new Date(y, m - 1, 1);
                                         const to = new Date(y, m, 0);
-                                        setDateFrom(toLocalDateString(from));
-                                        setDateTo(toLocalDateString(to));
+                                        setDateFrom(localCalendarYmd(from));
+                                        setDateTo(localCalendarYmd(to));
                                     }
                                 }}
                             >
@@ -1415,11 +1534,21 @@ export default function Page() {
                                 <TableBody>
                                     {filteredRoomStats.map((row) => {
                                         const balance = row.incomes - row.expenses;
+                                        const isUnallocatedRow = row.roomId === ACCOUNTANCY_UNALLOCATED_ROOM_ID;
                                         return (
                                             <TableRow
                                                 key={row.roomId}
-                                                onClick={() => setSelectedRoomId(row.roomId)}
-                                                sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                                                onClick={
+                                                    isUnallocatedRow
+                                                        ? undefined
+                                                        : () => setSelectedRoomId(row.roomId)
+                                                }
+                                                sx={{
+                                                    cursor: isUnallocatedRow ? 'default' : 'pointer',
+                                                    '&:hover': {
+                                                        bgcolor: isUnallocatedRow ? undefined : 'action.hover',
+                                                    },
+                                                }}
                                             >
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{row.roomName}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.expenses)}</TableCell>
@@ -1448,8 +1577,8 @@ export default function Page() {
                                                 mt: 0.5,
                                                 width: '100%',
                                                 maxWidth: '100%',
-                                                maxHeight: { xs: 'none', md: 'calc(100vh - 240px)' },
-                                                overflow: 'auto',
+                                                overflowX: 'auto',
+                                                overflowY: 'visible',
                                             }}
                                         >
                                         <Table
@@ -1458,6 +1587,7 @@ export default function Page() {
                                             sx={{
                                                 tableLayout: 'fixed',
                                                 width: '100%',
+                                                minWidth: OP_TABLE_MIN_WIDTH_PX,
                                                 fontSize: '0.6875rem',
                                                 '& .MuiTableCell-root': {
                                                     py: 0.5,
@@ -1481,13 +1611,15 @@ export default function Page() {
                                                 <TableRow>
                                                     <TableCell sx={{ width: 44 }}>{t('common.status')}</TableCell>
                                                     <TableCell sx={{ width: OP_TABLE_SELECT_WIDTH_PX }}>{t('accountancy.reportMonth')}</TableCell>
-                                                    <TableCell sx={{ width: 72 }}>{t('accountancy.dateColumn')}</TableCell>
+                                                    <TableCell sx={{ width: 72, pl: 1 }}>{t('accountancy.dateColumn')}</TableCell>
                                                     <TableCell sx={{ width: OP_TABLE_CATEGORY_COL_WIDTH_PX }}>{t('accountancy.categoryColumn')}</TableCell>
-                                                    <TableCell sx={{ width: '18%', minWidth: 96 }}>{t('accountancy.comment')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_COMMENT_COL_WIDTH_PX, minWidth: OP_TABLE_COMMENT_COL_WIDTH_PX }}>
+                                                        {t('accountancy.comment')}
+                                                    </TableCell>
                                                     <TableCell sx={{ width: OP_TABLE_QTY_COL_WIDTH_PX }}>{t('accountancy.quantity')}</TableCell>
                                                     <TableCell sx={{ width: 80 }}>{t('accountancy.amountColumn')}</TableCell>
-                                                    <TableCell sx={{ width: OP_TABLE_SELECT_WIDTH_PX }}>{t('accountancy.source')}</TableCell>
-                                                    <TableCell sx={{ width: OP_TABLE_SELECT_WIDTH_PX }}>{t('accountancy.recipient')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX }}>{t('accountancy.source')}</TableCell>
+                                                    <TableCell sx={{ width: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX }}>{t('accountancy.recipient')}</TableCell>
                                                     <TableCell sx={{ width: 52, px: 0.25 }} />
                                                 </TableRow>
                                             </TableHead>
@@ -1541,7 +1673,7 @@ export default function Page() {
                                                                 </Select>
                                                             </FormControl>
                                                         </TableCell>
-                                                        <TableCell sx={{ px: 0.25, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
+                                                        <TableCell sx={{ px: 0.25, pl: 1, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
                                                             {row.date
                                                                 ? new Date(row.date).toLocaleDateString('ru-RU', {
                                                                       day: '2-digit',
@@ -1563,7 +1695,8 @@ export default function Page() {
                                                                     sx={{ ...opTableCatSelectFormSx, flexShrink: 0 }}
                                                                 >
                                                                     <Select
-                                                                        sx={opTableSelectSx}
+                                                                        sx={opTableInlineSelectSx}
+                                                                        IconComponent={() => null}
                                                                         value={row.category || ''}
                                                                         displayEmpty
                                                                         onChange={(e) =>
@@ -1656,7 +1789,7 @@ export default function Page() {
                                                                 )}
                                                             </Stack>
                                                         </TableCell>
-                                                        <TableCell sx={{ px: 0.25, minWidth: 0 }}>
+                                                        <TableCell sx={{ px: 0.25, minWidth: OP_TABLE_COMMENT_COL_WIDTH_PX, width: OP_TABLE_COMMENT_COL_WIDTH_PX }}>
                                                             <TextField
                                                                 size="small"
                                                                 fullWidth

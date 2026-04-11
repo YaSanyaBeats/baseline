@@ -6,6 +6,7 @@ import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import { normalizeMongoIdString } from '@/lib/mongoId';
 
 export async function GET() {
     try {
@@ -45,7 +46,17 @@ export async function GET() {
             .sort({ date: -1, createdAt: -1 })
             .toArray();
 
-        return NextResponse.json(expenses);
+        const serialized = expenses.map((doc) => ({
+            ...doc,
+            _id: normalizeMongoIdString(doc._id),
+        }));
+
+        return NextResponse.json(serialized, {
+            headers: {
+                'Cache-Control': 'no-store, no-cache, must-revalidate',
+                Pragma: 'no-cache',
+            },
+        });
     } catch (error) {
         console.error('Error in GET /api/expenses:', error);
         return NextResponse.json(

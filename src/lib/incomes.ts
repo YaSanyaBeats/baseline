@@ -1,9 +1,9 @@
 import axios from 'axios';
 import { CommonResponse, Income } from './types';
-import { getApiUrl } from './api-client';
+import { apiClient, getApiUrl } from './api-client';
 
 export async function getIncomes(): Promise<Income[]> {
-    const response = await axios.get(getApiUrl('incomes'));
+    const response = await apiClient.get(getApiUrl('incomes'));
     return response.data;
 }
 

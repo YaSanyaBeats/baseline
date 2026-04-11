@@ -1,9 +1,9 @@
 import axios from 'axios';
 import { CommonResponse, Expense } from './types';
-import { getApiUrl } from './api-client';
+import { apiClient, getApiUrl } from './api-client';
 
 export async function getExpenses(): Promise<Expense[]> {
-    const response = await axios.get(getApiUrl('expenses'));
+    const response = await apiClient.get(getApiUrl('expenses'));
     return response.data;
 }
 

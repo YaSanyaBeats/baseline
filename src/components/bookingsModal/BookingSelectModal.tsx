@@ -23,11 +23,27 @@ import {
     MenuItem,
     Typography,
 } from "@mui/material";
-import { Booking, Object as Obj } from "@/lib/types";
+import { Booking, InvoiceItem, Object as Obj } from "@/lib/types";
 import { searchBookings, BookingSearchParams } from "@/lib/bookings";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useObjects } from "@/providers/ObjectsProvider";
 import { formatDate, formatTitle } from "@/lib/format";
+
+const getMaxInvoice = (invoiceItems: InvoiceItem[] | undefined | null) => {
+    let maxInvoice: InvoiceItem | undefined;
+    (invoiceItems ?? []).forEach((invoiceItem) => {
+        if (invoiceItem.type !== "charge") {
+            return;
+        }
+        if (!maxInvoice || invoiceItem.lineTotal > maxInvoice.lineTotal) {
+            maxInvoice = invoiceItem;
+        }
+    });
+    return maxInvoice;
+};
+
+const getBookingPrice = (booking: Booking) =>
+    getMaxInvoice(booking.invoiceItems)?.lineTotal ?? 0;
 
 interface BookingSelectModalProps {
     open: boolean;
@@ -108,9 +124,75 @@ export default function BookingSelectModal({
             }));
         };
 
-    const getObjectName = (booking: any, objs: Obj[]) => {
-        const object = objs.find((o) => o.id === booking.propertyId);
-        return object ? object.name : booking.propertyId ?? "";
+    const getRoomNameForBooking = (booking: Booking, objs: Obj[]) => {
+        const pid = booking.propertyId;
+        const uid =
+            booking.unitId != null ? Number(booking.unitId) : null;
+        const bRoomRaw = booking.roomId ?? booking.roomID;
+        const bRoom = bRoomRaw != null ? Number(bRoomRaw) : null;
+        const pidNum = pid != null ? Number(pid) : NaN;
+
+        /** Объекты с тем же property (в т.ч. несколько строк room type с одним propertyId). */
+        let scope: Obj[] =
+            pid == null || Number.isNaN(pidNum)
+                ? objs
+                : objs.filter(
+                      (o) =>
+                          Number(o.propertyId ?? o.id) === pidNum ||
+                          Number(o.id) === pidNum,
+                  );
+        if (pid != null && !Number.isNaN(pidNum) && scope.length === 0) {
+            scope = objs;
+        }
+
+        const roomNameFromRoomTypes = (
+            roomNumericId: number | null,
+            searchIn: Obj[],
+        ): string | null => {
+            if (roomNumericId == null || Number.isNaN(roomNumericId)) {
+                return null;
+            }
+            for (const o of searchIn) {
+                const unit = o.roomTypes?.find(
+                    (r) => Number(r.id) === roomNumericId,
+                );
+                if (unit) {
+                    const n = unit.name?.trim();
+                    return n || `Room ${unit.id}`;
+                }
+            }
+            return null;
+        };
+
+        const byUnit = roomNameFromRoomTypes(uid, scope);
+        if (byUnit) return byUnit;
+
+        const byUnitGlobal =
+            scope !== objs ? roomNameFromRoomTypes(uid, objs) : null;
+        if (byUnitGlobal) return byUnitGlobal;
+
+        const byRoomId = roomNameFromRoomTypes(bRoom, scope);
+        if (byRoomId) return byRoomId;
+
+        const byRoomIdGlobal =
+            scope !== objs ? roomNameFromRoomTypes(bRoom, objs) : null;
+        if (byRoomIdGlobal) return byRoomIdGlobal;
+
+        if (bRoom != null && !Number.isNaN(bRoom)) {
+            const obj = objs.find((o) => Number(o.id) === bRoom);
+            const propertyIdNum = Number(obj?.propertyId ?? obj?.id);
+            if (
+                obj &&
+                Number(obj.id) !== propertyIdNum &&
+                obj.name?.trim()
+            ) {
+                return obj.name.trim();
+            }
+        }
+
+        if (uid != null && !Number.isNaN(uid)) return String(uid);
+        if (bRoom != null && !Number.isNaN(bRoom)) return String(bRoom);
+        return "—";
     };
 
     return (
@@ -181,9 +263,9 @@ export default function BookingSelectModal({
                             <TableRow>
                                 <TableCell>ID</TableCell>
                                 <TableCell>{t("common.name")}</TableCell>
-                                <TableCell>{t("common.object")}</TableCell>
+                                <TableCell>{t("common.roomName")}</TableCell>
                                 <TableCell>{t("common.period")}</TableCell>
-                                <TableCell>{t("common.status")}</TableCell>
+                                <TableCell>{t("common.price")}</TableCell>
                                 <TableCell align="right">{t("common.actions")}</TableCell>
                             </TableRow>
                         </TableHead>
@@ -208,13 +290,15 @@ export default function BookingSelectModal({
                                             )}
                                         </TableCell>
                                         <TableCell>
-                                            {getObjectName(booking, objects)}
+                                            {getRoomNameForBooking(booking, objects)}
                                         </TableCell>
                                         <TableCell>
                                             {formatDate(booking.arrival)} -{" "}
                                             {formatDate(booking.departure)}
                                         </TableCell>
-                                        <TableCell>{booking.status}</TableCell>
+                                        <TableCell>
+                                            {getBookingPrice(booking)} ฿
+                                        </TableCell>
                                         <TableCell align="right">
                                             <Button
                                                 variant="outlined"

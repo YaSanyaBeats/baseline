@@ -46,7 +46,10 @@ export interface Booking {
     /** Может отсутствовать в ответе Beds24/API для части броней. */
     invoiceItems?: InvoiceItem[],
     propertyId?: number,
-    unitId?: number
+    unitId?: number,
+    /** Beds24: id комнаты/листинга; в Mongo может быть вместо или вместе с unitId */
+    roomId?: number,
+    roomID?: number,
 }
 
 export interface InvoiceItem {
