@@ -575,7 +575,7 @@ export default function Page() {
             if (incomeRoomId(i) === null) orphanInc += getIncomeSum(i);
         });
 
-        let rows: Array<{ roomId: number; roomName: string; expenses: number; incomes: number }> =
+        const rows: Array<{ roomId: number; roomName: string; expenses: number; incomes: number }> =
             selectedRoomId === 'all' && (orphanExp > 0 || orphanInc > 0)
                 ? [
                       ...roomRows,
