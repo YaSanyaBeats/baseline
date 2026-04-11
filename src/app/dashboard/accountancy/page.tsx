@@ -250,8 +250,10 @@ function parseLocalizedTotalAmount(raw: string): number | null {
 
 /**
  * Попадание записи в выбранный период сводки.
- * Учитываем и календарные границы (дата операции), и поле «Месяц отчёта»:
- * иначе запись с датой в декабре, но с отчётным месяцем ноябрь, полностью выпадала из декабрьской сводки.
+ * Если задан интервал и набор отчётных месяцев (YYYY-MM) для него:
+ * — при непустом «Месяце отчёта» запись попадает только если он входит в этот набор (дата операции не расширяет период);
+ * — при пустом «Месяце отчёта» сохраняем отбор по календарной дате (старые проводки без поля).
+ * Если период не задан (null), фильтр только по дате операции.
  */
 function recordMatchesReportPeriod(
     date: Date | string | undefined,
@@ -261,9 +263,8 @@ function recordMatchesReportPeriod(
 ): boolean {
     if (reportMonthsInFilter === null) return isDateInRange(date);
     const rm = (reportMonth ?? '').trim();
-    const byDate = isDateInRange(date);
-    const byReportMonth = rm !== '' && reportMonthsInFilter.has(rm);
-    return byDate || byReportMonth;
+    if (rm === '') return isDateInRange(date);
+    return reportMonthsInFilter.has(rm);
 }
 
 /** Room/unit/booking id из API/Mongo может прийти строкой — иначе `===` с числовым room.id ломает строки сводки. */
