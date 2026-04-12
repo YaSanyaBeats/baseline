@@ -21,10 +21,10 @@ import { useEffect, useState } from 'react';
 import { Expense, Income } from '@/lib/types';
 import { getExpenses, deleteExpense } from '@/lib/expenses';
 import { getIncomes, deleteIncome } from '@/lib/incomes';
+import { getCashflows } from '@/lib/cashflows';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
-import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import Link from 'next/link';
 
@@ -41,11 +41,11 @@ type RecordRow = {
 export default function Page() {
     const { t } = useTranslation();
     const { user, isAdmin, isAccountant } = useUser();
-    const { objects } = useObjects();
     const { setSnackbar } = useSnackbar();
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [loading, setLoading] = useState(true);
+    const [userCashflowId, setUserCashflowId] = useState<string | undefined>();
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
     const canEditOnlyDraft = user?.hasCashflow && !isAdmin && !isAccountant;
@@ -55,14 +55,20 @@ export default function Page() {
             setLoading(false);
             return;
         }
-        Promise.all([getExpenses(), getIncomes()])
-            .then(([expList, incList]) => {
+        Promise.all([getExpenses(), getIncomes(), getCashflows()])
+            .then(([expList, incList, cfList]) => {
                 const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
-                const userPrefix = uid ? `user:${uid}` : '';
-                const isMine = (r: { source?: string; recipient?: string }) =>
-                    userPrefix && (r.source === userPrefix || r.recipient === userPrefix);
-                setExpenses(userPrefix ? expList.filter(isMine) : expList);
-                setIncomes(userPrefix ? incList.filter(isMine) : incList);
+                const userCf = uid ? cfList.find((cf) => cf.userId === uid) : undefined;
+                const cfId = userCf?._id;
+                setUserCashflowId(cfId);
+
+                if (cfId) {
+                    setExpenses(expList.filter((e) => e.cashflowId === cfId));
+                    setIncomes(incList.filter((i) => i.cashflowId === cfId));
+                } else {
+                    setExpenses([]);
+                    setIncomes([]);
+                }
             })
             .catch((err) => {
                 console.error(err);
@@ -75,57 +81,30 @@ export default function Page() {
             .finally(() => setLoading(false));
     }, [hasAccess, user?._id]);
 
-    const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
-    const userPrefix = uid ? `user:${uid}` : '';
-
-    /** Сумма со знаком для баланса: пользователь в получателе → +, в источнике → − */
-    const getSignedAmount = (
-        sum: number,
-        source: string | undefined,
-        recipient: string | undefined
-    ): number => {
-        if (recipient === userPrefix) return sum;
-        if (source === userPrefix) return -sum;
-        return 0;
-    };
-
+    // Расходы — со знаком минус, доходы — со знаком плюс
     const balance =
-        expenses.reduce(
-            (s, e) => s + getSignedAmount(getExpenseSum(e), e.source, e.recipient),
-            0
-        ) +
-        incomes.reduce(
-            (s, i) => s + getSignedAmount(getIncomeSum(i), i.source, i.recipient),
-            0
-        );
+        incomes.reduce((s, i) => s + getIncomeSum(i), 0) -
+        expenses.reduce((s, e) => s + getExpenseSum(e), 0);
 
     const rows: RecordRow[] = [
-        ...expenses.map((e) => {
-            const sum = getExpenseSum(e);
-            const amount = getSignedAmount(sum, e.source, e.recipient);
-            return {
-                _id: e._id!,
-                type: 'expense' as const,
-                date: e.date,
-                category: e.category,
-                amount,
-                status: e.status ?? 'draft',
-                canEdit: canEditOnlyDraft ? e.status === 'draft' : true,
-            };
-        }),
-        ...incomes.map((i) => {
-            const sum = getIncomeSum(i);
-            const amount = getSignedAmount(sum, i.source, i.recipient);
-            return {
-                _id: i._id!,
-                type: 'income' as const,
-                date: i.date,
-                category: i.category,
-                amount,
-                status: i.status ?? 'draft',
-                canEdit: canEditOnlyDraft ? i.status === 'draft' : true,
-            };
-        }),
+        ...expenses.map((e) => ({
+            _id: e._id!,
+            type: 'expense' as const,
+            date: e.date,
+            category: e.category,
+            amount: -getExpenseSum(e),
+            status: e.status ?? 'draft',
+            canEdit: canEditOnlyDraft ? e.status === 'draft' : true,
+        })),
+        ...incomes.map((i) => ({
+            _id: i._id!,
+            type: 'income' as const,
+            date: i.date,
+            category: i.category,
+            amount: getIncomeSum(i),
+            status: i.status ?? 'draft',
+            canEdit: canEditOnlyDraft ? i.status === 'draft' : true,
+        })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
     const formatDate = (date: Date | string): string => {
@@ -206,12 +185,12 @@ export default function Page() {
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                <Link href="/dashboard/accountancy/expense/add">
+                <Link href={`/dashboard/accountancy/cashflow/expense/add${userCashflowId ? `?cashflowId=${userCashflowId}` : ''}`}>
                     <Button variant="contained" startIcon={<AddIcon />}>
                         {t('accountancy.addExpense')}
                     </Button>
                 </Link>
-                <Link href="/dashboard/accountancy/income/add">
+                <Link href={`/dashboard/accountancy/cashflow/income/add${userCashflowId ? `?cashflowId=${userCashflowId}` : ''}`}>
                     <Button variant="contained" startIcon={<AddIcon />}>
                         {t('accountancy.addIncome')}
                     </Button>

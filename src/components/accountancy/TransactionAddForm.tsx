@@ -1,0 +1,690 @@
+'use client';
+
+import {
+    Box,
+    Button,
+    FormControl,
+    IconButton,
+    InputLabel,
+    MenuItem,
+    Select,
+    Stack,
+    TextField,
+    Typography,
+    Alert,
+    Paper,
+    Table,
+    TableBody,
+    TableCell,
+    TableHead,
+    TableRow,
+} from '@mui/material';
+import SendIcon from '@mui/icons-material/Send';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import { useEffect, useMemo, useState } from 'react';
+import type { AccountancyCategory, AccountancyAttachment, Booking, Expense, Income, ExpenseStatus, UserObject } from '@/lib/types';
+import { formatTitle } from '@/lib/format';
+import { addExpense } from '@/lib/expenses';
+import { addIncome } from '@/lib/incomes';
+import { getApiErrorMessage } from '@/lib/axiosResponseMessage';
+import { formatPartialTransactionAddWarning } from '@/lib/accountancyPartialAddMessage';
+import { getCounterparties } from '@/lib/counterparties';
+import { getCashflows } from '@/lib/cashflows';
+import { getUsersWithCashflow } from '@/lib/users';
+import FileAttachments from '@/components/accountancy/FileAttachments';
+import SourceRecipientSelect, {
+    type SourceRecipientOptionValue,
+    PREFIX_ROOM,
+} from '@/components/accountancy/SourceRecipientSelect';
+import { useSnackbar } from '@/providers/SnackbarContext';
+import { useUser } from '@/providers/UserProvider';
+import { useTranslation } from '@/i18n/useTranslation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
+import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
+import { getAccountancyCategories } from '@/lib/accountancyCategories';
+import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+
+type ItemForm = {
+    category: string;
+    amount: number | undefined;
+    quantity: number;
+    date: string;
+    reportMonth: string;
+    comment: string;
+    source: SourceRecipientOptionValue | '';
+    recipient: SourceRecipientOptionValue | '';
+    attachments: AccountancyAttachment[];
+    bookingId: number | undefined;
+    status: ExpenseStatus;
+};
+
+const defaultItem: ItemForm = {
+    category: '',
+    amount: undefined,
+    quantity: 1,
+    date: '',
+    reportMonth: '',
+    comment: '',
+    source: '',
+    recipient: '',
+    attachments: [],
+    bookingId: undefined,
+    status: 'draft',
+};
+
+interface TransactionAddFormProps {
+    type: 'expense' | 'income';
+}
+
+export default function TransactionAddForm({ type }: TransactionAddFormProps) {
+    const { t } = useTranslation();
+    const router = useRouter();
+    const searchParams = useSearchParams();
+    const cashflowIdFromUrl = searchParams.get('cashflowId') ?? undefined;
+    const { isAdmin, isAccountant, user } = useUser();
+    const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
+    const [objectId, setObjectId] = useState<number | undefined>();
+    const [roomId, setRoomId] = useState<number | undefined>();
+    const [items, setItems] = useState<ItemForm[]>([{ ...defaultItem }]);
+    const [bookingModalForIndex, setBookingModalForIndex] = useState<number | null>(null);
+    const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
+    const [categories, setCategories] = useState<AccountancyCategory[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [errors, setErrors] = useState<Record<string, string>>({});
+    const { setSnackbar } = useSnackbar();
+
+    const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
+
+    useEffect(() => {
+        if (!hasAccess) return;
+        Promise.all([
+            getAccountancyCategories(type),
+            getCounterparties(),
+            getCashflows(),
+            getUsersWithCashflow(),
+        ])
+            .then(([cats, cps, cfs, usersCf]) => {
+                setCategories(cats);
+                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
+            })
+            .catch((error) => {
+                console.error('Error loading data:', error);
+            });
+    }, [hasAccess, type]);
+
+    const handleChangeObject = (value: UserObject[]) => {
+        setSelectedObjects(value);
+        const objId = value.length > 0 ? value[0].id : undefined;
+        const rId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        setObjectId(objId);
+        setRoomId(rId);
+        const roomValue: SourceRecipientOptionValue | '' =
+            objId != null && rId != null ? `${PREFIX_ROOM}${objId}:${rId}` : '';
+        setItems((prev) =>
+            prev.map((item) => ({
+                ...item,
+                source: type === 'expense' ? roomValue : item.source,
+                recipient: type === 'income' ? roomValue : item.recipient,
+            }))
+        );
+        setErrors((prev) => {
+            const next = { ...prev };
+            if (objId) delete next.objectId;
+            return next;
+        });
+    };
+
+    const handleAddItem = () => {
+        const newItem = { ...defaultItem };
+        if (objectId != null && roomId != null) {
+            if (type === 'expense') newItem.source = `${PREFIX_ROOM}${objectId}:${roomId}`;
+            else newItem.recipient = `${PREFIX_ROOM}${objectId}:${roomId}`;
+        }
+        setItems((prev) => [...prev, newItem]);
+    };
+
+    const handleRemoveItem = (index: number) => {
+        if (items.length <= 1) return;
+        setItems((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    const handleChangeItem = (index: number, field: keyof ItemForm, value: unknown) => {
+        setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+        setErrors((prev) => {
+            const next = { ...prev };
+            delete next[`item_${index}_${field}`];
+            return next;
+        });
+    };
+
+    const handleChangeItemAmount = (
+        index: number,
+        event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    ) => {
+        const num = Number(event.target.value);
+        handleChangeItem(index, 'amount', isNaN(num) ? undefined : num);
+    };
+
+    const handleChangeItemQuantity = (
+        index: number,
+        event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+    ) => {
+        const num = Number(event.target.value);
+        const q = Number.isInteger(num) && num >= 1 ? num : 1;
+        handleChangeItem(index, 'quantity', q);
+    };
+
+    const getEffectiveCost = (item: ItemForm): number => {
+        if (item.amount != null && item.amount > 0) return item.amount;
+        const cat = categories.find((c) => c.name === item.category);
+        return cat?.pricePerUnit ?? 0;
+    };
+
+    const validate = (): boolean => {
+        const errs: Record<string, string> = {};
+
+        if (!objectId) errs.objectId = t('accountancy.objectError');
+
+        items.forEach((item, index) => {
+            if (!item.category) errs[`item_${index}_category`] = t('accountancy.category');
+            if (!item.date)
+                errs[`item_${index}_date`] = t(
+                    type === 'expense' ? 'accountancy.expenseDate' : 'accountancy.incomeDate'
+                );
+            if (getEffectiveCost(item) <= 0) errs[`item_${index}_amount`] = t('accountancy.cost');
+            if (item.quantity != null && (item.quantity < 1 || !Number.isInteger(item.quantity)))
+                errs[`item_${index}_quantity`] = t('accountancy.quantity');
+            if (type === 'expense' && !item.status) errs[`item_${index}_status`] = t('accountancy.status');
+        });
+
+        if (Object.keys(errs).length > 0) {
+            setErrors(errs);
+            setSnackbar({ open: true, message: t('accountancy.formErrors'), severity: 'error' });
+            return false;
+        }
+
+        return true;
+    };
+
+    const usedBookingIds = useMemo(
+        () =>
+            Array.from(
+                new Set(items.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number'))
+            ),
+        [items]
+    );
+
+    const handleOpenBookingModal = (index: number) => setBookingModalForIndex(index);
+    const handleCloseBookingModal = () => setBookingModalForIndex(null);
+
+    const handleBookingSelect = (booking: Booking) => {
+        if (bookingModalForIndex === null) return;
+        handleChangeItem(bookingModalForIndex, 'bookingId', booking.id);
+        setBookingLabels((prev) => ({
+            ...prev,
+            [booking.id]: formatTitle(booking.firstName, booking.lastName, booking.title),
+        }));
+        setBookingModalForIndex(null);
+    };
+
+    const handleDetachBooking = (index: number) => handleChangeItem(index, 'bookingId', undefined);
+
+    const handleSubmit = async () => {
+        if (!validate() || !objectId) return;
+
+        setLoading(true);
+        let successCount = 0;
+        const failures: { category: string; message: string }[] = [];
+
+        try {
+            for (const item of items) {
+                const effectiveCost = getEffectiveCost(item);
+                try {
+                    let res;
+                    if (type === 'expense') {
+                        const payload: Expense = {
+                            objectId,
+                            roomId,
+                            bookingId: item.bookingId,
+                            source: item.source || undefined,
+                            recipient: item.recipient || undefined,
+                            cashflowId: cashflowIdFromUrl,
+                            category: item.category,
+                            amount: effectiveCost,
+                            quantity: item.quantity ?? 1,
+                            date: new Date(item.date),
+                            comment: item.comment || '',
+                            status: item.status,
+                            reportMonth: item.reportMonth || undefined,
+                            attachments: item.attachments ?? [],
+                            accountantId: '',
+                        };
+                        res = await addExpense(payload);
+                    } else {
+                        const payload: Income = {
+                            objectId,
+                            roomId,
+                            bookingId: item.bookingId,
+                            cashflowId: cashflowIdFromUrl,
+                            category: item.category,
+                            amount: effectiveCost,
+                            quantity: item.quantity ?? 1,
+                            date: new Date(item.date),
+                            status: 'draft',
+                            reportMonth: item.reportMonth || undefined,
+                            source: item.source || undefined,
+                            recipient: item.recipient || undefined,
+                            comment: item.comment || undefined,
+                            attachments: item.attachments ?? [],
+                            accountantId: '',
+                        };
+                        res = await addIncome(payload);
+                    }
+                    if (res.success) successCount++;
+                    else failures.push({ category: item.category, message: res.message || t('common.serverError') });
+                } catch (err) {
+                    failures.push({
+                        category: item.category,
+                        message: getApiErrorMessage(err, t('common.serverError')),
+                    });
+                }
+            }
+
+            const failCount = failures.length;
+            const successKey =
+                type === 'expense' ? 'accountancy.expensesAdded' : 'accountancy.incomesAdded';
+            const message =
+                failCount === 0
+                    ? `${t(successKey)}: ${successCount}`
+                    : formatPartialTransactionAddWarning(t, type, successCount, failures);
+
+            setSnackbar({ open: true, message, severity: failCount === 0 ? 'success' : 'warning' });
+
+            if (successCount > 0) router.back();
+        } catch (error) {
+            console.error('Error adding transactions:', error);
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const titleKey = type === 'expense' ? 'accountancy.addExpense' : 'accountancy.addIncome';
+    const dateLabelKey = type === 'expense' ? 'accountancy.expenseDate' : 'accountancy.incomeDate';
+
+    if (!hasAccess) {
+        return (
+            <Box>
+                <Typography variant="h4">{t(titleKey)}</Typography>
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                    {t('accountancy.noAccess')}
+                </Alert>
+            </Box>
+        );
+    }
+
+    return (
+        <>
+            <form noValidate autoComplete="off">
+                <Typography variant="h4">{t(titleKey)}</Typography>
+
+                <Paper variant="outlined" sx={{ p: 2, mt: 2, mb: 2 }}>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
+                        {t('accountancy.commonForAllItems')}
+                    </Typography>
+                    <Stack direction="column" spacing={2} sx={{ maxWidth: '500px' }}>
+                        <Box>
+                            <RoomsMultiSelect
+                                value={selectedObjects}
+                                onChange={handleChangeObject}
+                                label={t('accountancy.object')}
+                                multiple={false}
+                            />
+                            {errors.objectId && (
+                                <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                                    {errors.objectId}
+                                </Typography>
+                            )}
+                        </Box>
+                    </Stack>
+                </Paper>
+
+                <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                    {t('accountancy.itemsToAdd')}
+                </Typography>
+                <Box sx={{ overflowX: 'auto', mb: 2 }}>
+                    <Table size="small">
+                        <TableHead>
+                            <TableRow>
+                                <TableCell width={40} />
+                                <TableCell>{t('accountancy.bookingColumn')}</TableCell>
+                                <TableCell>{t('accountancy.category')}</TableCell>
+                                <TableCell>{t('accountancy.source')}</TableCell>
+                                <TableCell>{t('accountancy.recipient')}</TableCell>
+                                <TableCell>{t('accountancy.cost')}</TableCell>
+                                <TableCell>{t('accountancy.quantity')}</TableCell>
+                                <TableCell>{t('accountancy.amountColumn')}</TableCell>
+                                <TableCell>{t(dateLabelKey)}</TableCell>
+                                <TableCell>{t('accountancy.reportMonth')}</TableCell>
+                                <TableCell>{t('accountancy.comment')}</TableCell>
+                                {type === 'expense' && <TableCell>{t('accountancy.status')}</TableCell>}
+                                <TableCell>{t('accountancy.attachments')}</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {items.map((item, index) => (
+                                <TableRow key={index}>
+                                    <TableCell>
+                                        <IconButton
+                                            size="small"
+                                            onClick={() => handleRemoveItem(index)}
+                                            disabled={items.length <= 1}
+                                            aria-label={t('accountancy.removeItem')}
+                                        >
+                                            <DeleteOutlineIcon fontSize="small" />
+                                        </IconButton>
+                                    </TableCell>
+
+                                    {/* Бронирование */}
+                                    <TableCell sx={{ minWidth: 200 }}>
+                                        <Stack
+                                            direction="row"
+                                            spacing={1}
+                                            alignItems="center"
+                                            flexWrap="wrap"
+                                            useFlexGap
+                                        >
+                                            <FormControl size="small" sx={{ minWidth: 140 }}>
+                                                <InputLabel>{t('accountancy.bookingQuickSelect')}</InputLabel>
+                                                <Select
+                                                    value={item.bookingId ?? ''}
+                                                    label={t('accountancy.bookingQuickSelect')}
+                                                    onChange={(e) => {
+                                                        const v = e.target.value;
+                                                        const num =
+                                                            typeof v === 'number'
+                                                                ? v
+                                                                : String(v).trim() === ''
+                                                                  ? undefined
+                                                                  : Number(v);
+                                                        handleChangeItem(index, 'bookingId', num);
+                                                    }}
+                                                >
+                                                    <MenuItem value="">—</MenuItem>
+                                                    {usedBookingIds.map((id) => (
+                                                        <MenuItem key={id} value={id}>
+                                                            {bookingLabels[id] ?? `#${id}`}
+                                                        </MenuItem>
+                                                    ))}
+                                                </Select>
+                                            </FormControl>
+                                            <Button
+                                                variant="outlined"
+                                                size="small"
+                                                onClick={() => handleOpenBookingModal(index)}
+                                            >
+                                                {t('accountancy.selectBooking')}
+                                            </Button>
+                                            {item.bookingId != null && (
+                                                <IconButton
+                                                    size="small"
+                                                    color="secondary"
+                                                    onClick={() => handleDetachBooking(index)}
+                                                    title={t('accountancy.detachBooking')}
+                                                    aria-label={t('accountancy.detachBooking')}
+                                                >
+                                                    <CloseIcon fontSize="small" />
+                                                </IconButton>
+                                            )}
+                                        </Stack>
+                                    </TableCell>
+
+                                    {/* Категория */}
+                                    <TableCell>
+                                        <FormControl
+                                            size="small"
+                                            sx={{ minWidth: 160 }}
+                                            error={!!errors[`item_${index}_category`]}
+                                        >
+                                            <InputLabel>{t('accountancy.category')}</InputLabel>
+                                            <Select
+                                                value={item.category || ''}
+                                                label={t('accountancy.category')}
+                                                onChange={(e) =>
+                                                    handleChangeItem(index, 'category', e.target.value as string)
+                                                }
+                                            >
+                                                {buildCategoriesForSelect(categories, type).map((cat) => (
+                                                    <MenuItem key={cat.id} value={cat.name}>
+                                                        {cat.depth > 0
+                                                            ? '\u00A0'.repeat(cat.depth * 2) + '↳ '
+                                                            : ''}
+                                                        {cat.name}
+                                                    </MenuItem>
+                                                ))}
+                                            </Select>
+                                        </FormControl>
+                                    </TableCell>
+
+                                    {/* Источник */}
+                                    <TableCell>
+                                        <SourceRecipientSelect
+                                            value={item.source}
+                                            onChange={(v) => handleChangeItem(index, 'source', v)}
+                                            label={t('accountancy.source')}
+                                            counterparties={counterparties}
+                                            usersWithCashflow={usersWithCashflow}
+                                            sx={{ minWidth: 200 }}
+                                        />
+                                    </TableCell>
+
+                                    {/* Получатель */}
+                                    <TableCell>
+                                        <SourceRecipientSelect
+                                            value={item.recipient}
+                                            onChange={(v) => handleChangeItem(index, 'recipient', v)}
+                                            label={t('accountancy.recipient')}
+                                            counterparties={counterparties}
+                                            usersWithCashflow={usersWithCashflow}
+                                            cashflows={cashflows}
+                                            includeCashflows
+                                            sx={{ minWidth: 200 }}
+                                        />
+                                    </TableCell>
+
+                                    {/* Стоимость */}
+                                    <TableCell>
+                                        <TextField
+                                            size="small"
+                                            type="number"
+                                            label={t('accountancy.cost')}
+                                            value={item.amount ?? ''}
+                                            onChange={(e) => handleChangeItemAmount(index, e)}
+                                            error={!!errors[`item_${index}_amount`]}
+                                            inputProps={{ min: 0, step: 0.01 }}
+                                            sx={{ width: 120 }}
+                                        />
+                                    </TableCell>
+
+                                    {/* Количество */}
+                                    <TableCell>
+                                        <TextField
+                                            size="small"
+                                            type="number"
+                                            label={t('accountancy.quantity')}
+                                            value={item.quantity ?? 1}
+                                            onChange={(e) => handleChangeItemQuantity(index, e)}
+                                            error={!!errors[`item_${index}_quantity`]}
+                                            inputProps={{ min: 1, step: 1 }}
+                                            sx={{ width: 90 }}
+                                        />
+                                    </TableCell>
+
+                                    {/* Сумма */}
+                                    <TableCell>
+                                        <Typography variant="body2">
+                                            {t('accountancy.amountColumn')}:{' '}
+                                            {(
+                                                (item.quantity ?? 1) * getEffectiveCost(item)
+                                            ).toLocaleString('ru-RU', {
+                                                minimumFractionDigits: 2,
+                                                maximumFractionDigits: 2,
+                                            })}
+                                        </Typography>
+                                    </TableCell>
+
+                                    {/* Дата */}
+                                    <TableCell>
+                                        <TextField
+                                            size="small"
+                                            type="date"
+                                            InputLabelProps={{ shrink: true }}
+                                            value={item.date || ''}
+                                            onChange={(e) => handleChangeItem(index, 'date', e.target.value)}
+                                            error={!!errors[`item_${index}_date`]}
+                                            sx={{ width: 150 }}
+                                        />
+                                    </TableCell>
+
+                                    {/* Отчётный месяц */}
+                                    <TableCell>
+                                        <FormControl size="small" sx={{ minWidth: 140 }}>
+                                            <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
+                                            <Select
+                                                value={item.reportMonth || ''}
+                                                label={t('accountancy.reportMonth')}
+                                                onChange={(e) =>
+                                                    handleChangeItem(
+                                                        index,
+                                                        'reportMonth',
+                                                        e.target.value as string
+                                                    )
+                                                }
+                                            >
+                                                <MenuItem value="">—</MenuItem>
+                                                {Array.from({ length: 24 }, (_, i) => {
+                                                    const now = new Date();
+                                                    const d = new Date(
+                                                        now.getFullYear(),
+                                                        now.getMonth() - i,
+                                                        1
+                                                    );
+                                                    const y = d.getFullYear();
+                                                    const m = d.getMonth() + 1;
+                                                    const value = `${y}-${String(m).padStart(2, '0')}`;
+                                                    return (
+                                                        <MenuItem key={value} value={value}>
+                                                            {t(`accountancy.months.${m}`)} {y}
+                                                        </MenuItem>
+                                                    );
+                                                })}
+                                            </Select>
+                                        </FormControl>
+                                    </TableCell>
+
+                                    {/* Комментарий */}
+                                    <TableCell>
+                                        <TextField
+                                            size="small"
+                                            placeholder={t('accountancy.comment')}
+                                            value={item.comment || ''}
+                                            onChange={(e) =>
+                                                handleChangeItem(index, 'comment', e.target.value)
+                                            }
+                                            sx={{ minWidth: 120 }}
+                                        />
+                                    </TableCell>
+
+                                    {/* Статус — только для расходов */}
+                                    {type === 'expense' && (
+                                        <TableCell>
+                                            <FormControl
+                                                size="small"
+                                                sx={{ minWidth: 120 }}
+                                                error={!!errors[`item_${index}_status`]}
+                                            >
+                                                <InputLabel>{t('accountancy.status')}</InputLabel>
+                                                <Select
+                                                    value={item.status || 'draft'}
+                                                    label={t('accountancy.status')}
+                                                    onChange={(e) =>
+                                                        handleChangeItem(
+                                                            index,
+                                                            'status',
+                                                            e.target.value as ExpenseStatus
+                                                        )
+                                                    }
+                                                >
+                                                    <MenuItem value="draft">
+                                                        {t('accountancy.statusDraft')}
+                                                    </MenuItem>
+                                                    <MenuItem value="confirmed">
+                                                        {t('accountancy.statusConfirmed')}
+                                                    </MenuItem>
+                                                </Select>
+                                            </FormControl>
+                                        </TableCell>
+                                    )}
+
+                                    {/* Вложения */}
+                                    <TableCell>
+                                        <FileAttachments
+                                            value={item.attachments ?? []}
+                                            onChange={(attachments: AccountancyAttachment[]) =>
+                                                handleChangeItem(index, 'attachments', attachments)
+                                            }
+                                            disabled={loading}
+                                        />
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </Box>
+
+                <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={handleAddItem}
+                    sx={{ mb: 2 }}
+                >
+                    {t('accountancy.addItem')}
+                </Button>
+
+                <Stack direction="row" spacing={2} mt={2}>
+                    <Button
+                        variant="outlined"
+                        startIcon={<ArrowBackIcon />}
+                        onClick={() => router.back()}
+                    >
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        endIcon={<SendIcon />}
+                        onClick={handleSubmit}
+                        disabled={loading}
+                    >
+                        {t('common.send')}
+                    </Button>
+                </Stack>
+            </form>
+
+            <BookingSelectModal
+                open={bookingModalForIndex !== null}
+                onClose={handleCloseBookingModal}
+                onSelect={handleBookingSelect}
+                initialObjectId={objectId}
+            />
+        </>
+    );
+}
