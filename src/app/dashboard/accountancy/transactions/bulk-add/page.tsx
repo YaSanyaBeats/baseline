@@ -168,7 +168,7 @@ export default function BulkAddTransactionsPage() {
 
     const getEffectiveCost = useCallback(
         (row: BulkRow): number => {
-            if (row.amount != null && row.amount > 0) return row.amount;
+            if (row.amount != null) return row.amount;
             const cat = categories.find((c) => c.name === category);
             return cat?.pricePerUnit ?? 0;
         },
@@ -268,8 +268,7 @@ export default function BulkAddTransactionsPage() {
             if (!row.selectedRoom.length || !row.selectedRoom[0].rooms.length) {
                 validationErrors[`row_${index}_selectedRoom`] = t('accountancy.object');
             }
-            const cost = getEffectiveCost(row);
-            if (cost <= 0) {
+            if (getEffectiveCost(row) < 0) {
                 validationErrors[`row_${index}_amount`] = t('accountancy.cost');
             }
             if (row.quantity < 1 || !Number.isInteger(row.quantity)) {

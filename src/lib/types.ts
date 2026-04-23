@@ -50,6 +50,10 @@ export interface Booking {
     /** Beds24: id комнаты/листинга; в Mongo может быть вместо или вместе с unitId */
     roomId?: number,
     roomID?: number,
+    /** Канал OTA / источник (Beds24). */
+    referer?: string,
+    refererEditable?: string,
+    channel?: string,
 }
 
 export interface InvoiceItem {

@@ -2,6 +2,6 @@ import ExpenseEditForm from '@/components/accountancy/ExpenseEditForm';
 
 export default function Page() {
     return (
-        <ExpenseEditForm notFoundRedirect="/dashboard/accountancy/transactions?kind=expense" />
+        <ExpenseEditForm notFoundRedirect="/dashboard/cashflow" requireMatchingUserCashflow />
     );
 }

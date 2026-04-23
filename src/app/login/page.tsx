@@ -1,8 +1,11 @@
 'use client'
 import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import Alert from '@mui/material/Alert'
 import Box from '@mui/material/Box'
 import Button from '@mui/material/Button'
 import FormControl from '@mui/material/FormControl'
+import Snackbar from '@mui/material/Snackbar'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
@@ -10,10 +13,13 @@ import { handleSignIn } from '../../lib/auth'
 import { Card, SignInContainer } from '../../components/styled/Card'
 
 export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
+    const router = useRouter()
     const [emailError, setEmailError] = React.useState(false)
     const [emailErrorMessage, setEmailErrorMessage] = React.useState('')
     const [passwordError, setPasswordError] = React.useState(false)
     const [passwordErrorMessage, setPasswordErrorMessage] = React.useState('')
+    const [authErrorOpen, setAuthErrorOpen] = React.useState(false)
+    const [submitting, setSubmitting] = React.useState(false)
     const [formData, setFormData] = React.useState({
         login: "",
         password: ""
@@ -27,22 +33,33 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
         }));
     }
 
-    const handleSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
         event.preventDefault();
-        if (emailError || passwordError) {
-            event.preventDefault()
+        if (!validateInputs()) {
             return
         }
-        handleSignIn(formData);
+        setSubmitting(true)
+        try {
+            const result = await handleSignIn(formData)
+            if (result?.error || !result?.ok) {
+                setAuthErrorOpen(true)
+                return
+            }
+            router.push('/dashboard')
+            router.refresh()
+        } finally {
+            setSubmitting(false)
+        }
     }
 
     const validateInputs = () => {
 
         let isValid = true
+        const loginTrimmed = formData.login.trim()
 
-        if (!formData.login) {
+        if (!loginTrimmed || loginTrimmed.length <= 3) {
             setEmailError(true)
-            setEmailErrorMessage('Please enter a valid login.')
+            setEmailErrorMessage('Логин должен быть длиннее 3 символов.')
             isValid = false
         } else {
             setEmailError(false)
@@ -110,7 +127,6 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
                             type="password"
                             id="password"
                             autoComplete="current-password"
-                            autoFocus
                             required
                             fullWidth
                             variant="outlined"
@@ -118,11 +134,21 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
                             onChange={handleChange}
                         />
                     </FormControl>
-                    <Button type="submit" fullWidth variant="contained" onClick={validateInputs}>
+                    <Button type="submit" fullWidth variant="contained" disabled={submitting}>
                         Sign in
                     </Button>
                 </Box>
             </Card>
+            <Snackbar
+                open={authErrorOpen}
+                autoHideDuration={6000}
+                onClose={() => setAuthErrorOpen(false)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+            >
+                <Alert onClose={() => setAuthErrorOpen(false)} severity="error" variant="filled" sx={{ width: '100%' }}>
+                    Неверный логин или пароль
+                </Alert>
+            </Snackbar>
         </SignInContainer>
     )
 }

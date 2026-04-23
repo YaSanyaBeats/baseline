@@ -40,9 +40,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (expenseData.amount <= 0) {
+        if (expenseData.amount < 0) {
             return NextResponse.json(
-                { success: false, message: 'Стоимость должна быть больше нуля' },
+                { success: false, message: 'Стоимость не может быть отрицательной' },
                 { status: 400 },
             );
         }
@@ -120,7 +120,10 @@ export async function POST(request: NextRequest) {
             counterpartyId: expenseData.counterpartyId ?? null,
             source: expenseData.source ?? null,
             recipient: expenseData.recipient ?? null,
-            cashflowId: expenseData.cashflowId ?? null,
+            cashflowId:
+                expenseData.cashflowId !== undefined
+                    ? (expenseData.cashflowId ?? null)
+                    : (existingExpense.cashflowId ?? null),
             category: expenseData.category,
             amount: expenseData.amount,
             quantity,

@@ -28,11 +28,11 @@ export const authOptions = {
                         login: credentials.login,
                     };
                 } catch (e: unknown) {
-                    if (e instanceof Error) {
-                        throw new Error(e.message);
-                    } else {
-                        throw new Error('INTERNAL ERROR');
+                    if (axios.isAxiosError(e) && e.response?.status === 401) {
+                        return null;
                     }
+                    console.error('Credentials authorize failed', e);
+                    return null;
                 }
             },
         }),

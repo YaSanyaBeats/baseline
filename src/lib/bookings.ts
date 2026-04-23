@@ -20,16 +20,24 @@ export interface BookingSearchParams {
     text?: string;
     from?: string;
     to?: string;
+    /**
+     * Вместе с overlapTo: брони, у которых интервал [arrival, departure] пересекается с
+     * [overlapFrom, overlapTo] (инкл.). На бэкенде имеет приоритет над from/to.
+     */
+    overlapFrom?: string;
+    overlapTo?: string;
 }
 
 export async function searchBookings(params: BookingSearchParams): Promise<Booking[]> {
-    const { objectId, query, text, from, to } = params;
+    const { objectId, query, text, from, to, overlapFrom, overlapTo } = params;
     const searchStr = (text ?? query)?.trim();
     const axiosParams: Record<string, string | number> = {};
     if (objectId != null) axiosParams.objectId = objectId;
     if (searchStr) axiosParams.text = searchStr;
     if (from) axiosParams.from = from;
     if (to) axiosParams.to = to;
+    if (overlapFrom) axiosParams.overlapFrom = overlapFrom;
+    if (overlapTo) axiosParams.overlapTo = overlapTo;
     const response = await axios.get(getApiUrl('bookings/search'), {
         params: axiosParams,
     });

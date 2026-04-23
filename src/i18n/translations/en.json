@@ -51,37 +51,8 @@
     "internalObjects": "Internal Objects",
     "options": "Options",
     "beds24": "Beds24",
-    "migratePropertyRoomtype": "Migrate property → roomType",
     "signOut": "Sign out",
     "manageAccount": "Manage account"
-  },
-  "adminMigrate": {
-    "title": "Migrate bindings: property → roomTypes[0]",
-    "subtitle": "Remap legacy property IDs to the first room type ID (roomTypes[0]) across all related collections.",
-    "info": "Run a dry run first (no DB writes), review counts and the mapping table, then apply. Admin only.",
-    "dryRun": "Dry run",
-    "apply": "Apply migration",
-    "confirmApply": "Write changes to the database? This will rebind IDs in all affected documents.",
-    "dryRunDone": "Dry run completed",
-    "applyDone": "Migration applied",
-    "resultDryRun": "Result (dry run, no DB changes)",
-    "resultApplied": "Result after apply",
-    "mapLabel": "Mappings property → first roomType",
-    "tableCollection": "Collection / area",
-    "tableScanned": "Scanned",
-    "tableUpdated": "Updated",
-    "collections": {
-      "users": "Users (objects[].id)",
-      "expenses": "Expenses",
-      "incomes": "Incomes",
-      "reports": "Reports",
-      "counterparties": "Counterparties (roomLinks)",
-      "cashflows": "Cashflow (roomLinks)",
-      "cashflowRules": "Cashflow rules (roomLinks)",
-      "autoAccountingRules": "Auto-accounting (objectId)",
-      "optionsExcludeObjects": "Options excludeObjects",
-      "auditLogs": "Audit log (metadata.objectId)"
-    }
   },
   "header": {
     "premium": "Premium",
@@ -385,6 +356,15 @@
     "statsByRoom": "Balance by rooms of the object",
     "noStatsForSelection": "No data for the selected filter",
     "operationsList": "Operations",
+    "bookingRoomFilterMismatch": "The transaction room differs from the transaction booking room",
+    "noBookingSubgroup": {
+      "common": "General expenses",
+      "guest": "Guest expenses",
+      "hc": "HC expenses",
+      "owner": "Owner expenses",
+      "mutual": "Mutual settlements",
+      "other": "Other"
+    },
     "noOperations": "No operations for the selected object and room",
     "inlineAmountEditHint": "Click to edit the total sum; unit price is derived from quantity.",
     "invalidTotalAmount": "Enter a non-negative number",

@@ -53,6 +53,9 @@ export async function GET(request: NextRequest) {
         const textRaw = (searchParams.get('text') || searchParams.get('query') || '').trim();
         const from = searchParams.get('from');
         const to = searchParams.get('to');
+        /** Пересечение проживания с [overlapFrom, overlapTo] (инкл. по календарным дням UTC); приоритетнее фильтра `from`/`to` по дате заезда. */
+        const overlapFrom = searchParams.get('overlapFrom');
+        const overlapTo = searchParams.get('overlapTo');
 
         const bookingsCollection = db.collection('bookings');
 
@@ -62,8 +65,22 @@ export async function GET(request: NextRequest) {
             andParts.push({ propertyId: Number(objectIdParam) });
         }
 
-        /** В Mongo после синка Beds24 `arrival` часто строка (YYYY-MM-DD); прямое $gte/$lte с BSON Date не совпадает по типу. */
-        if (from || to) {
+        /** В Mongo после синка Beds24 даты часто строки (YYYY-MM-DD); прямое $gte/$lte с BSON Date не совпадает по типу. */
+        if (overlapFrom && overlapTo) {
+            const arrivalDate = {
+                $toDate: { $ifNull: ['$arrival', '1970-01-01'] },
+            };
+            const departureDate = {
+                $toDate: { $ifNull: ['$departure', '9999-12-31'] },
+            };
+            const rangeStart = startOfUtcDayFromIsoDate(overlapFrom);
+            const rangeEnd = endOfUtcDayFromIsoDate(overlapTo);
+            andParts.push({
+                $expr: {
+                    $and: [{ $lte: [arrivalDate, rangeEnd] }, { $gte: [departureDate, rangeStart] }],
+                },
+            });
+        } else if (from || to) {
             const arrivalDate = {
                 $toDate: { $ifNull: ['$arrival', '1970-01-01'] },
             };

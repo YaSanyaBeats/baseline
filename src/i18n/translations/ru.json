@@ -51,37 +51,8 @@
     "internalObjects": "Внутренние объекты",
     "options": "Параметры",
     "beds24": "Beds24",
-    "migratePropertyRoomtype": "Миграция property → roomType",
     "signOut": "Выйти",
     "manageAccount": "Управление аккаунтом"
-  },
-  "adminMigrate": {
-    "title": "Миграция привязок property → roomTypes[0]",
-    "subtitle": "Перепривязка старых ID property к ID первого типа номера (roomTypes[0]) во всех связанных коллекциях.",
-    "info": "Сначала выполните пробный прогон (без записи в БД), проверьте счётчики и карту соответствий, затем примените миграцию. Доступно только администратору.",
-    "dryRun": "Пробный прогон",
-    "apply": "Применить миграцию",
-    "confirmApply": "Записать изменения в базу? Это действие перепривяжет ID во всех затронутых документах.",
-    "dryRunDone": "Пробный прогон выполнен",
-    "applyDone": "Миграция применена",
-    "resultDryRun": "Результат (пробный прогон, БД не менялась)",
-    "resultApplied": "Результат после применения",
-    "mapLabel": "Записей в карте property → первый roomType",
-    "tableCollection": "Коллекция / область",
-    "tableScanned": "Просмотрено",
-    "tableUpdated": "Изменено",
-    "collections": {
-      "users": "Пользователи (objects[].id)",
-      "expenses": "Расходы",
-      "incomes": "Доходы",
-      "reports": "Отчёты",
-      "counterparties": "Контрагенты (roomLinks)",
-      "cashflows": "Кэшфлоу (roomLinks)",
-      "cashflowRules": "Правила кэшфлоу (roomLinks)",
-      "autoAccountingRules": "Автоучёт (objectId)",
-      "optionsExcludeObjects": "Параметры excludeObjects",
-      "auditLogs": "Журнал (metadata.objectId)"
-    }
   },
   "header": {
     "premium": "Премиум",
@@ -384,6 +355,15 @@
     "statsByRoom": "Баланс по комнатам объекта",
     "noStatsForSelection": "Нет данных для выбранного фильтра",
     "operationsList": "Операции",
+    "bookingRoomFilterMismatch": "Комната транзакции отличается от брони транзакции",
+    "noBookingSubgroup": {
+      "common": "Общие расходы",
+      "guest": "Расходы гостя",
+      "hc": "Расходы HC",
+      "owner": "Расходы владельца",
+      "mutual": "Взаиморасчёты",
+      "other": "Прочее"
+    },
     "noOperations": "Нет операций для выбранного объекта и комнаты",
     "inlineAmountEditHint": "Нажмите, чтобы изменить сумму (итого). Цена за единицу пересчитается от количества.",
     "invalidTotalAmount": "Введите неотрицательное число",

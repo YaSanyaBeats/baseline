@@ -17,35 +17,7 @@
 - `options` с `optionName: 'excludeObjects'` (массив ID)
 - `auditLogs.metadata.objectId`
 
-### Как запустить
-
-1. **Пробный прогон** (без записи в БД):
-
-   ```http
-   POST /api/admin/migrate-property-to-roomtype
-   Content-Type: application/json
-
-   { "dryRun": true }
-   ```
-
-2. **Реальная миграция** (только пользователь с ролью `admin`):
-
-   ```http
-   POST /api/admin/migrate-property-to-roomtype
-   Content-Type: application/json
-
-   { "dryRun": false }
-   ```
-
-Или из React:
-
-```tsx
-import { useMigratePropertyObjectIds } from '@/hooks/useMigratePropertyObjectIds';
-
-const { migrate, loading, error } = useMigratePropertyObjectIds();
-await migrate(true);  // dry run
-await migrate(false); // применить
-```
+Функцию `migratePropertyObjectIdsToRoomTypeIds` при необходимости можно вызвать из серверного кода (скрипт, админ-утилита), передав `Db` и опции `dryRun` / `verbose`.
 
 ### Важно
 

@@ -7,6 +7,7 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
+    "import": "node scripts/import-json-to-mongo.js",
     "mongo": "mongod -auth",
     "compass": "MongoDBCompass"
   },

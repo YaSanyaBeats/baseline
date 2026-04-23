@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, SyncAlt } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { User } from '@/lib/types';
@@ -179,12 +179,6 @@ function DrawerMenu(props: { open: boolean; setOpen: (value: boolean) => void; u
             icon: <House fontSize="small" />, 
             link: '/dashboard/beds24',
             roles: ['admin']
-        },
-        {
-            text: t('menu.migratePropertyRoomtype'),
-            icon: <SyncAlt fontSize="small" />,
-            link: '/dashboard/admin/migrate-property-roomtype',
-            roles: ['admin'],
         },
     ];
     const getMenu = () => {

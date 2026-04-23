@@ -39,9 +39,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (incomeData.amount <= 0) {
+        if (incomeData.amount < 0) {
             return NextResponse.json(
-                { success: false, message: 'Стоимость должна быть больше нуля' },
+                { success: false, message: 'Стоимость не может быть отрицательной' },
                 { status: 400 },
             );
         }
@@ -117,7 +117,10 @@ export async function POST(request: NextRequest) {
             bookingId: incomeData.bookingId ?? null,
             source: incomeData.source ?? null,
             recipient: incomeData.recipient ?? null,
-            cashflowId: incomeData.cashflowId ?? null,
+            cashflowId:
+                incomeData.cashflowId !== undefined
+                    ? (incomeData.cashflowId ?? null)
+                    : (existingIncome.cashflowId ?? null),
             category: incomeData.category,
             amount: incomeData.amount,
             quantity,

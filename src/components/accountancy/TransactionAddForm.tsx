@@ -42,7 +42,7 @@ import SourceRecipientSelect, {
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
@@ -83,8 +83,6 @@ interface TransactionAddFormProps {
 export default function TransactionAddForm({ type }: TransactionAddFormProps) {
     const { t } = useTranslation();
     const router = useRouter();
-    const searchParams = useSearchParams();
-    const cashflowIdFromUrl = searchParams.get('cashflowId') ?? undefined;
     const { isAdmin, isAccountant, user } = useUser();
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [objectId, setObjectId] = useState<number | undefined>();
@@ -99,6 +97,8 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
+    /** Кэшфлоу текущего пользователя (как на /dashboard/cashflow), без query в URL */
+    const [userCashflowId, setUserCashflowId] = useState<string | undefined>();
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
 
@@ -115,11 +115,14 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
+                const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
+                const userCf = uid ? cfs.find((cf) => cf.userId === uid) : undefined;
+                setUserCashflowId(userCf?._id);
             })
             .catch((error) => {
                 console.error('Error loading data:', error);
             });
-    }, [hasAccess, type]);
+    }, [hasAccess, type, user?._id]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
@@ -184,7 +187,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
     };
 
     const getEffectiveCost = (item: ItemForm): number => {
-        if (item.amount != null && item.amount > 0) return item.amount;
+        if (item.amount != null) return item.amount;
         const cat = categories.find((c) => c.name === item.category);
         return cat?.pricePerUnit ?? 0;
     };
@@ -200,7 +203,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                 errs[`item_${index}_date`] = t(
                     type === 'expense' ? 'accountancy.expenseDate' : 'accountancy.incomeDate'
                 );
-            if (getEffectiveCost(item) <= 0) errs[`item_${index}_amount`] = t('accountancy.cost');
+            if (getEffectiveCost(item) < 0) errs[`item_${index}_amount`] = t('accountancy.cost');
             if (item.quantity != null && (item.quantity < 1 || !Number.isInteger(item.quantity)))
                 errs[`item_${index}_quantity`] = t('accountancy.quantity');
             if (type === 'expense' && !item.status) errs[`item_${index}_status`] = t('accountancy.status');
@@ -257,7 +260,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                             bookingId: item.bookingId,
                             source: item.source || undefined,
                             recipient: item.recipient || undefined,
-                            cashflowId: cashflowIdFromUrl,
+                            cashflowId: userCashflowId,
                             category: item.category,
                             amount: effectiveCost,
                             quantity: item.quantity ?? 1,
@@ -274,7 +277,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                             objectId,
                             roomId,
                             bookingId: item.bookingId,
-                            cashflowId: cashflowIdFromUrl,
+                            cashflowId: userCashflowId,
                             category: item.category,
                             amount: effectiveCost,
                             quantity: item.quantity ?? 1,

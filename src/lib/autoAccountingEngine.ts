@@ -333,7 +333,7 @@ export async function runRulesForBookings(
 
             if (rule.ruleType === 'expense') {
                 if (rule.period === 'per_booking') {
-                    const reportMonthBooking = `${arrival.getFullYear()}-${String(arrival.getMonth() + 1).padStart(2, '0')}`;
+                    const reportMonthBooking = `${departure.getFullYear()}-${String(departure.getMonth() + 1).padStart(2, '0')}`;
                     if (
                         await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                             objectId: accountingObjectId,
@@ -411,7 +411,7 @@ export async function runRulesForBookings(
                 }
             } else {
                 if (rule.period === 'per_booking') {
-                    const reportMonthBookingInc = `${arrival.getFullYear()}-${String(arrival.getMonth() + 1).padStart(2, '0')}`;
+                    const reportMonthBookingInc = `${departure.getFullYear()}-${String(departure.getMonth() + 1).padStart(2, '0')}`;
                     if (
                         await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                             objectId: accountingObjectId,

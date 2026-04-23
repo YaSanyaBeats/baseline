@@ -1,4 +1,4 @@
-'use client'
+'use client';
 
 import {
     Box,
@@ -13,34 +13,49 @@ import {
     Typography,
     Alert,
     CircularProgress,
-} from "@mui/material"
+} from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
-import { useEffect, useState } from "react";
-import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
-import { getIncomes, updateIncome } from "@/lib/incomes";
-import { getCounterparties } from "@/lib/counterparties";
-import { getCashflows } from "@/lib/cashflows";
-import { getUsersWithCashflow } from "@/lib/users";
-import FileAttachments from "@/components/accountancy/FileAttachments";
-import SourceRecipientSelect, { type SourceRecipientOptionValue } from "@/components/accountancy/SourceRecipientSelect";
-import { useSnackbar } from "@/providers/SnackbarContext";
-import { useUser } from "@/providers/UserProvider";
-import { useTranslation } from "@/i18n/useTranslation";
+import { useEffect, useState } from 'react';
+import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from '@/lib/types';
+import { getExpenses, updateExpense } from '@/lib/expenses';
+import { getCounterparties } from '@/lib/counterparties';
+import { getCashflows } from '@/lib/cashflows';
+import { getUsersWithCashflow } from '@/lib/users';
+import FileAttachments from '@/components/accountancy/FileAttachments';
+import SourceRecipientSelect, { type SourceRecipientOptionValue } from '@/components/accountancy/SourceRecipientSelect';
+import { useSnackbar } from '@/providers/SnackbarContext';
+import { useUser } from '@/providers/UserProvider';
+import { useTranslation } from '@/i18n/useTranslation';
 import { useRouter, useParams } from 'next/navigation';
-import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
-import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
-import { getAccountancyCategories } from "@/lib/accountancyCategories";
-import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
+import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
+import { getAccountancyCategories } from '@/lib/accountancyCategories';
+import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 
-export default function Page() {
+type ExpenseForm = Omit<Expense, '_id' | 'accountantId' | 'accountantName' | 'createdAt' | 'date'> & {
+    _id?: string;
+    date: string;
+};
+
+export interface ExpenseEditFormProps {
+    /** Куда перенаправить, если расход не найден или доступ запрещён */
+    notFoundRedirect: string;
+    /** Только для «Мой кэшфлоу»: разрешить правку только записи с cashflowId текущего пользователя */
+    requireMatchingUserCashflow?: boolean;
+}
+
+export default function ExpenseEditForm({
+    notFoundRedirect,
+    requireMatchingUserCashflow = false,
+}: ExpenseEditFormProps) {
     const { t } = useTranslation();
     const router = useRouter();
     const params = useParams();
-    const incomeId = params?.id as string;
+    const expenseId = params?.id as string;
     const { isAdmin, isAccountant, user } = useUser();
-    const [income, setIncome] = useState<Partial<Income & { dateString: string }>>({});
+    const [expense, setExpense] = useState<Partial<ExpenseForm>>({});
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -55,77 +70,107 @@ export default function Page() {
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
 
     useEffect(() => {
-        if (hasAccess) {
-            Promise.all([getAccountancyCategories('income'), getCounterparties(), getCashflows(), getUsersWithCashflow()])
-                .then(([cats, cps, cfs, usersCf]) => {
-                    setCategories(cats);
-                    setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
-                    setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
-                    setUsersWithCashflow(usersCf);
-                })
-                .catch((error) => {
-                    console.error('Error loading categories:', error);
-                });
+        if (!hasAccess || !expenseId) {
+            setLoadingData(false);
+            return;
         }
-        if (hasAccess && incomeId) {
-            getIncomes()
-                .then((items) => {
-                    const found = items.find((e) => e._id === incomeId);
-                    if (found) {
-                        setIncome({
-                            _id: found._id,
-                            objectId: found.objectId,
-                            roomId: found.roomId,
-                            bookingId: found.bookingId,
-                            category: found.category,
-                            amount: found.amount,
-                            quantity: found.quantity ?? 1,
-                            dateString: found.date
-                                ? new Date(found.date as any).toISOString().slice(0, 10)
-                                : '',
-                            status: (found as any).status || 'draft',
-                            reportMonth: found.reportMonth ?? '',
-                            source: found.source ?? '',
-                            recipient: found.recipient ?? '',
-                            comment: found.comment ?? '',
-                            attachments: found.attachments ?? [],
-                        });
-                        if (found.objectId) {
-                            setSelectedObjects([{
-                                id: found.objectId,
-                                rooms: found.roomId ? [found.roomId] : [],
-                            }]);
-                        }
-                    } else {
+
+        let cancelled = false;
+
+        Promise.all([
+            getAccountancyCategories('expense'),
+            getCounterparties(),
+            getCashflows(),
+            getUsersWithCashflow(),
+            getExpenses(),
+        ])
+            .then(([cats, cps, cfsRaw, usersCf, items]) => {
+                if (cancelled) return;
+                setCategories(cats);
+                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfsRaw.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
+
+                const found = items.find((e) => e._id === expenseId);
+                if (!found) {
+                    setSnackbar({
+                        open: true,
+                        message: t('accountancy.expenseNotFound'),
+                        severity: 'error',
+                    });
+                    router.push(notFoundRedirect);
+                    return;
+                }
+
+                if (requireMatchingUserCashflow) {
+                    const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
+                    const userCf = uid ? cfsRaw.find((cf) => cf.userId === uid) : undefined;
+                    const uidCf = userCf?._id;
+                    if (!uidCf || found.cashflowId !== uidCf) {
                         setSnackbar({
                             open: true,
-                            message: t('accountancy.incomeNotFound'),
+                            message: t('accountancy.expenseNotFound'),
                             severity: 'error',
                         });
-                        router.push('/dashboard/accountancy/transactions?kind=income');
+                        router.push(notFoundRedirect);
+                        return;
                     }
-                })
-                .catch((error) => {
-                    console.error('Error loading data:', error);
+                }
+
+                setExpense({
+                    _id: found._id,
+                    objectId: found.objectId,
+                    roomId: found.roomId,
+                    bookingId: found.bookingId,
+                    source: found.source ?? '',
+                    recipient: found.recipient ?? '',
+                    cashflowId: found.cashflowId,
+                    category: found.category,
+                    amount: found.amount,
+                    quantity: found.quantity ?? 1,
+                    comment: found.comment,
+                    status: found.status,
+                    date: found.date
+                        ? new Date(found.date as Date | string).toISOString().slice(0, 10)
+                        : '',
+                    reportMonth: found.reportMonth ?? '',
+                    attachments: found.attachments ?? [],
+                });
+                if (found.objectId) {
+                    setSelectedObjects([
+                        {
+                            id: found.objectId,
+                            rooms: found.roomId ? [found.roomId] : [],
+                        },
+                    ]);
+                }
+            })
+            .catch((error) => {
+                console.error('Error loading data:', error);
+                if (!cancelled) {
                     setSnackbar({
                         open: true,
                         message: t('common.serverError'),
                         severity: 'error',
                     });
-                    router.push('/dashboard/accountancy/transactions?kind=income');
-                })
-                .finally(() => {
-                    setLoadingData(false);
-                });
-        }
+                    router.push(notFoundRedirect);
+                }
+            })
+            .finally(() => {
+                if (!cancelled) setLoadingData(false);
+            });
+
+        return () => {
+            cancelled = true;
+        };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasAccess, incomeId, router]);
+    }, [hasAccess, expenseId, router, notFoundRedirect, requireMatchingUserCashflow, user?._id]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
         const objectId = value.length > 0 ? value[0].id : undefined;
         const roomId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
-        setIncome((prev) => ({ ...prev, objectId, roomId }));
+        setExpense((prev) => ({ ...prev, objectId, roomId }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             if (objectId) {
@@ -136,21 +181,20 @@ export default function Page() {
     };
 
     const handleChangeField =
-        (field: 'category' | 'dateString') =>
-            (event: React.ChangeEvent<HTMLInputElement>) => {
-                const value = event.target.value;
-                setIncome((prev) => ({ ...prev, [field]: value }));
-                setErrors((prev) => {
-                    const newErrors = { ...prev };
-                    delete newErrors[field];
-                    return newErrors;
-                });
-            };
+        (field: keyof ExpenseForm) => (event: React.ChangeEvent<HTMLInputElement>) => {
+            const value = event.target.value;
+            setExpense((prev) => ({ ...prev, [field]: value }));
+            setErrors((prev) => {
+                const newErrors = { ...prev };
+                delete newErrors[field];
+                return newErrors;
+            });
+        };
 
     const handleChangeAmount = (event: React.ChangeEvent<HTMLInputElement>) => {
         const value = event.target.value;
         const num = Number(value);
-        setIncome((prev) => ({ ...prev, amount: isNaN(num) ? undefined : num }));
+        setExpense((prev) => ({ ...prev, amount: isNaN(num) ? undefined : num }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             delete newErrors.amount;
@@ -162,7 +206,7 @@ export default function Page() {
         const value = event.target.value;
         const num = Number(value);
         const q = Number.isInteger(num) && num >= 1 ? num : 1;
-        setIncome((prev) => ({ ...prev, quantity: q }));
+        setExpense((prev) => ({ ...prev, quantity: q }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             delete newErrors.quantity;
@@ -170,29 +214,42 @@ export default function Page() {
         });
     };
 
+    const handleChangeStatus = (event: { target: { value: unknown } }) => {
+        const value = event.target.value as ExpenseStatus;
+        setExpense((prev) => ({ ...prev, status: value }));
+        setErrors((prev) => {
+            const newErrors = { ...prev };
+            delete newErrors.status;
+            return newErrors;
+        });
+    };
+
     const getEffectiveCost = (): number => {
-        if (income.amount != null) return income.amount;
-        const cat = categories.find((c) => c.name === income.category);
+        if (expense.amount != null) return expense.amount;
+        const cat = categories.find((c) => c.name === expense.category);
         return cat?.pricePerUnit ?? 0;
     };
 
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
-        if (!income.objectId) {
+        if (!expense.objectId) {
             validationErrors.objectId = t('accountancy.objectError');
         }
-        if (!income.category) {
+        if (!expense.category) {
             validationErrors.category = t('accountancy.category');
         }
-        if (!income.dateString) {
-            validationErrors.dateString = t('accountancy.incomeDate');
+        if (!expense.date) {
+            validationErrors.date = t('accountancy.expenseDate');
         }
         if (getEffectiveCost() < 0) {
             validationErrors.amount = t('accountancy.cost');
         }
-        if (income.quantity != null && (income.quantity < 1 || !Number.isInteger(income.quantity))) {
+        if (expense.quantity != null && (expense.quantity < 1 || !Number.isInteger(expense.quantity))) {
             validationErrors.quantity = t('accountancy.quantity');
+        }
+        if (!expense.status) {
+            validationErrors.status = t('accountancy.status');
         }
 
         if (Object.keys(validationErrors).length > 0) {
@@ -216,14 +273,14 @@ export default function Page() {
         setBookingModalOpen(false);
     };
 
-    const handleBookingSelect = (booking: any) => {
-        setIncome((prev) => ({
+    const handleBookingSelect = (booking: { id: number }) => {
+        setExpense((prev) => ({
             ...prev,
             bookingId: booking.id,
         }));
     };
     const handleDetachBooking = () => {
-        setIncome((prev) => ({ ...prev, bookingId: undefined }));
+        setExpense((prev) => ({ ...prev, bookingId: undefined }));
     };
 
     const handleSubmit = () => {
@@ -231,37 +288,38 @@ export default function Page() {
 
         setLoading(true);
 
-        const payload: Income = {
-            _id: income._id as string,
-            objectId: income.objectId as number,
-            roomId: income.roomId,
-            bookingId: income.bookingId,
-            category: income.category as string,
+        const payload: Expense = {
+            _id: expense._id as string,
+            objectId: expense.objectId as number,
+            roomId: expense.roomId,
+            bookingId: expense.bookingId,
+            source: expense.source || undefined,
+            recipient: expense.recipient || undefined,
+            cashflowId: expense.cashflowId,
+            category: expense.category as string,
             amount: getEffectiveCost(),
-            quantity: income.quantity ?? 1,
-            date: new Date(income.dateString as string),
-            status: (income.status as IncomeStatus) || 'draft',
-            reportMonth: income.reportMonth || undefined,
-            source: income.source || undefined,
-            recipient: income.recipient || undefined,
-            comment: income.comment ?? '',
-            attachments: income.attachments ?? [],
-            accountantId: '', // не используется при обновлении
+            quantity: expense.quantity ?? 1,
+            date: new Date(expense.date as string),
+            comment: expense.comment || '',
+            status: (expense.status as ExpenseStatus) || 'draft',
+            reportMonth: expense.reportMonth || undefined,
+            attachments: expense.attachments ?? [],
+            accountantId: '',
         };
 
-        updateIncome(payload)
+        updateExpense(payload)
             .then((res) => {
                 setSnackbar({
                     open: true,
-                    message: res.message || t('accountancy.incomeUpdated'),
+                    message: res.message || t('accountancy.expenseUpdated'),
                     severity: res.success ? 'success' : 'error',
                 });
-            if (res.success) {
-                router.back();
-            }
+                if (res.success) {
+                    router.back();
+                }
             })
             .catch((error) => {
-                console.error('Error updating income:', error);
+                console.error('Error updating expense:', error);
                 setSnackbar({
                     open: true,
                     message: t('common.serverError'),
@@ -274,7 +332,7 @@ export default function Page() {
     if (!hasAccess) {
         return (
             <Box>
-                <Typography variant="h4">{t('accountancy.editIncome')}</Typography>
+                <Typography variant="h4">{t('accountancy.editExpense')}</Typography>
                 <Alert severity="warning" sx={{ mt: 2 }}>
                     {t('accountancy.noAccess')}
                 </Alert>
@@ -293,7 +351,7 @@ export default function Page() {
     return (
         <>
             <form noValidate autoComplete="off">
-                <Typography variant="h4">{t('accountancy.editIncome')}</Typography>
+                <Typography variant="h4">{t('accountancy.editExpense')}</Typography>
                 <Stack direction="column" spacing={2} mt={2} sx={{ maxWidth: '500px' }}>
                     <Box>
                         <RoomsMultiSelect
@@ -310,16 +368,13 @@ export default function Page() {
                     </Box>
                     <Box>
                         <Stack direction="row" spacing={2} alignItems="center">
-                            <Button
-                                variant="outlined"
-                                onClick={handleOpenBookingModal}
-                            >
+                            <Button variant="outlined" onClick={handleOpenBookingModal}>
                                 {t('accountancy.selectBooking')}
                             </Button>
-                            {income.bookingId && (
+                            {expense.bookingId && (
                                 <>
                                     <Typography variant="body2" color="text.secondary">
-                                        {t('accountancy.bookingId')}: {income.bookingId}
+                                        {t('accountancy.bookingId')}: {expense.bookingId}
                                     </Typography>
                                     <IconButton
                                         size="small"
@@ -338,13 +393,13 @@ export default function Page() {
                         <FormControl sx={{ width: '100%' }} error={!!errors.category}>
                             <InputLabel>{t('accountancy.category')}</InputLabel>
                             <Select
-                                value={income.category || ''}
+                                value={expense.category || ''}
                                 label={t('accountancy.category')}
                                 onChange={(e) =>
-                                    setIncome((prev) => ({ ...prev, category: e.target.value as string }))
+                                    setExpense((prev) => ({ ...prev, category: e.target.value as string }))
                                 }
                             >
-                                {buildCategoriesForSelect(categories, 'income').map((item) => (
+                                {buildCategoriesForSelect(categories, 'expense').map((item) => (
                                     <MenuItem key={item.id} value={item.name}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
                                         {item.name}
@@ -359,6 +414,30 @@ export default function Page() {
                         </FormControl>
                     </Box>
                     <Box>
+                        <SourceRecipientSelect
+                            value={(expense.source as SourceRecipientOptionValue) ?? ''}
+                            onChange={(v) => setExpense((prev) => ({ ...prev, source: v || undefined }))}
+                            label={t('accountancy.source')}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            size="medium"
+                            sx={{ width: '100%' }}
+                        />
+                    </Box>
+                    <Box>
+                        <SourceRecipientSelect
+                            value={(expense.recipient as SourceRecipientOptionValue) ?? ''}
+                            onChange={(v) => setExpense((prev) => ({ ...prev, recipient: v || undefined }))}
+                            label={t('accountancy.recipient')}
+                            counterparties={counterparties}
+                            usersWithCashflow={usersWithCashflow}
+                            cashflows={cashflows}
+                            includeCashflows
+                            size="medium"
+                            sx={{ width: '100%' }}
+                        />
+                    </Box>
+                    <Box>
                         <TextField
                             id="amount"
                             label={t('accountancy.cost')}
@@ -366,7 +445,7 @@ export default function Page() {
                             sx={{ width: '100%' }}
                             autoComplete="off"
                             type="number"
-                            value={income.amount ?? ''}
+                            value={expense.amount ?? ''}
                             onChange={handleChangeAmount}
                             error={!!errors.amount}
                             helperText={errors.amount}
@@ -381,7 +460,7 @@ export default function Page() {
                             sx={{ width: '100%' }}
                             autoComplete="off"
                             type="number"
-                            value={income.quantity ?? 1}
+                            value={expense.quantity ?? 1}
                             onChange={handleChangeQuantity}
                             error={!!errors.quantity}
                             helperText={errors.quantity}
@@ -390,32 +469,39 @@ export default function Page() {
                     </Box>
                     <Box>
                         <Typography variant="body2" color="text.secondary">
-                            {t('accountancy.amountColumn')}: {((income.quantity ?? 1) * getEffectiveCost()).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {t('accountancy.amountColumn')}:{' '}
+                            {((expense.quantity ?? 1) * getEffectiveCost()).toLocaleString('ru-RU', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
                         </Typography>
                     </Box>
                     <Box>
                         <TextField
                             id="date"
-                            label={t('accountancy.incomeDate')}
+                            label={t('accountancy.expenseDate')}
                             variant="outlined"
                             sx={{ width: '100%' }}
                             autoComplete="off"
                             type="date"
                             InputLabelProps={{ shrink: true }}
-                            value={income.dateString || ''}
-                            onChange={handleChangeField('dateString')}
-                            error={!!errors.dateString}
-                            helperText={errors.dateString}
+                            value={expense.date || ''}
+                            onChange={handleChangeField('date')}
+                            error={!!errors.date}
+                            helperText={errors.date}
                         />
                     </Box>
                     <Box>
                         <FormControl sx={{ width: '100%' }}>
                             <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
                             <Select
-                                value={income.reportMonth ?? ''}
+                                value={expense.reportMonth ?? ''}
                                 label={t('accountancy.reportMonth')}
                                 onChange={(e) =>
-                                    setIncome((prev) => ({ ...prev, reportMonth: (e.target.value as string) || undefined }))
+                                    setExpense((prev) => ({
+                                        ...prev,
+                                        reportMonth: (e.target.value as string) || undefined,
+                                    }))
                                 }
                             >
                                 <MenuItem value="">—</MenuItem>
@@ -439,69 +525,48 @@ export default function Page() {
                         </FormControl>
                     </Box>
                     <Box>
-                        <SourceRecipientSelect
-                            value={(income.source as SourceRecipientOptionValue) ?? ''}
-                            onChange={(v) => setIncome((prev) => ({ ...prev, source: v || undefined }))}
-                            label={t('accountancy.source')}
-                            counterparties={counterparties}
-                            usersWithCashflow={usersWithCashflow}
-                            size="medium"
-                            sx={{ width: '100%' }}
-                        />
-                    </Box>
-                    <Box>
-                        <SourceRecipientSelect
-                            value={(income.recipient as SourceRecipientOptionValue) ?? ''}
-                            onChange={(v) => setIncome((prev) => ({ ...prev, recipient: v || undefined }))}
-                            label={t('accountancy.recipient')}
-                            counterparties={counterparties}
-                            usersWithCashflow={usersWithCashflow}
-                            cashflows={cashflows}
-                            includeCashflows
-                            size="medium"
-                            sx={{ width: '100%' }}
-                        />
-                    </Box>
-                    <Box>
-                        <FormControl sx={{ minWidth: 150 }}>
-                            <InputLabel>{t('accountancy.status')}</InputLabel>
-                            <Select
-                                value={income.status || 'draft'}
-                                onChange={(e) =>
-                                    setIncome((prev) => ({ ...prev, status: e.target.value as IncomeStatus }))
-                                }
-                                label={t('accountancy.status')}
-                            >
-                                <MenuItem value="draft">{t('accountancy.statusDraft')}</MenuItem>
-                                <MenuItem value="confirmed">{t('accountancy.statusConfirmed')}</MenuItem>
-                            </Select>
-                        </FormControl>
-                    </Box>
-                    <Box>
                         <TextField
                             id="comment"
                             label={t('accountancy.comment')}
                             variant="outlined"
                             sx={{ width: '100%' }}
+                            autoComplete="off"
                             multiline
                             minRows={2}
-                            value={income.comment ?? ''}
-                            onChange={(e) =>
-                                setIncome((prev) => ({ ...prev, comment: e.target.value || undefined }))
-                            }
+                            value={expense.comment || ''}
+                            onChange={handleChangeField('comment')}
                         />
                     </Box>
                     <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.status')}</InputLabel>
+                            <Select
+                                value={expense.status || 'draft'}
+                                label={t('accountancy.status')}
+                                onChange={handleChangeStatus}
+                                error={!!errors.status}
+                            >
+                                <MenuItem value="draft">{t('accountancy.statusDraft')}</MenuItem>
+                                <MenuItem value="confirmed">{t('accountancy.statusConfirmed')}</MenuItem>
+                            </Select>
+                            {errors.status && (
+                                <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                                    {errors.status}
+                                </Typography>
+                            )}
+                        </FormControl>
+                    </Box>
+                    <Box>
                         <FileAttachments
-                            value={income.attachments ?? []}
+                            value={expense.attachments ?? []}
                             onChange={(attachments: AccountancyAttachment[]) =>
-                                setIncome((prev) => ({ ...prev, attachments }))
+                                setExpense((prev) => ({ ...prev, attachments }))
                             }
                             disabled={loading}
                         />
                     </Box>
                 </Stack>
-                <Stack direction={"row"} spacing={2} mt={2}>
+                <Stack direction={'row'} spacing={2} mt={2}>
                     <Button
                         type="button"
                         variant="outlined"
@@ -510,12 +575,7 @@ export default function Page() {
                     >
                         {t('common.cancel')}
                     </Button>
-                    <Button
-                        variant="contained"
-                        endIcon={<SendIcon />}
-                        onClick={handleSubmit}
-                        disabled={loading}
-                    >
+                    <Button variant="contained" endIcon={<SendIcon />} onClick={handleSubmit} disabled={loading}>
                         {t('common.save')}
                     </Button>
                 </Stack>
@@ -524,9 +584,8 @@ export default function Page() {
                 open={bookingModalOpen}
                 onClose={handleCloseBookingModal}
                 onSelect={handleBookingSelect}
-                initialObjectId={income.objectId}
+                initialObjectId={expense.objectId}
             />
         </>
     );
 }
-

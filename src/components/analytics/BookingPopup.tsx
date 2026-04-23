@@ -3,15 +3,8 @@ import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Paper, Table
 import Link from "next/link";
 import React from "react";
 import LaunchIcon from '@mui/icons-material/Launch';
-import { formatDate, formatTitle } from "@/lib/format";
+import { formatDate, formatTitle, getBookingRefererDisplay } from "@/lib/format";
 import { useTranslation } from "@/i18n/useTranslation";
-
-const KNOWN_REFERERS = ['Booking.com', 'Airbnb', 'Ctrip'];
-
-function getDisplayReferer(referer: string | null | undefined): string {
-    if (!referer) return 'HolyCowPhuket';
-    return KNOWN_REFERERS.includes(referer) ? referer : 'HolyCowPhuket';
-}
 
 export default function BookingPopup(props: { open: boolean, bookings: AnalyticsBooking[], onClose: () => void }) {
     const { open, bookings, onClose } = props;
@@ -61,7 +54,7 @@ export default function BookingPopup(props: { open: boolean, bookings: Analytics
                                         {formatDate(booking.arrival)} - {formatDate(booking.departure)}
                                     </TableCell>
                                     <TableCell sx={{whiteSpace: 'nowrap'}}>{booking.price} ฿</TableCell>
-                                    <TableCell sx={{whiteSpace: 'nowrap'}}>{getDisplayReferer(booking.referer)}</TableCell>
+                                    <TableCell sx={{whiteSpace: 'nowrap'}}>{getBookingRefererDisplay(booking.referer)}</TableCell>
                                     <TableCell sx={{whiteSpace: 'nowrap'}}>{formatDate(booking.bookingTime)}</TableCell>
                                     <TableCell>
                                         <Link target="_blank" href={`https://beds24.com/control2.php?ajax=bookedit&id=${booking.id}&tab=1`}>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
@@ -29,7 +29,12 @@ import {
     DialogContentText,
     DialogActions,
 } from "@mui/material";
-import { Visibility, Delete as DeleteIcon } from "@mui/icons-material";
+import {
+    Visibility,
+    Delete as DeleteIcon,
+    ExpandMore as ExpandMoreIcon,
+    Warning as WarningIcon,
+} from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
@@ -39,7 +44,7 @@ import { AccountancyCategory, Booking, Expense, Income } from "@/lib/types";
 import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
 import { getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
 import { getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
-import { getBookingsByIds } from "@/lib/bookings";
+import { getBookingsByIds, searchBookings } from "@/lib/bookings";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
@@ -48,6 +53,12 @@ import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import SourceRecipientSelect, {
     type SourceRecipientOptionValue,
 } from "@/components/accountancy/SourceRecipientSelect";
+import { AccountancyOverviewOperationTableRow, type AccountancyOverviewOperationRowModel } from "@/components/accountancy/AccountancyOverviewOperationTableRow";
+import { getBookingRefererDisplay } from "@/lib/format";
+import {
+    NO_BOOKING_SUBGROUP_ORDER,
+    resolveNoBookingSubgroupId,
+} from "@/lib/noBookingCategorySubgroups";
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
@@ -274,6 +285,47 @@ function normalizeUnitOrRoomId(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+/** Одна строка заголовка группы: id · статус · check-in · check-out · title · source · name · surname */
+function formatBookingOperationsGroupLabel(bookingId: number, bookings: Booking[]): string {
+    const dash = '—';
+    const segText = (v: unknown) => {
+        if (v === undefined || v === null) return dash;
+        const s = String(v).trim();
+        return s !== '' ? s : dash;
+    };
+    const segDate = (v: unknown) => {
+        if (v === undefined || v === null || v === '') return dash;
+        const d = new Date(v as string | Date);
+        if (Number.isNaN(d.getTime())) return dash;
+        return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
+    };
+    const segSource = (booking: Booking) => {
+        const raw = [booking.refererEditable, booking.referer, booking.channel].find(
+            (s) => s != null && String(s).trim() !== '',
+        );
+        if (raw == null) return dash;
+        return getBookingRefererDisplay(String(raw).trim());
+    };
+
+    const idSeg = `#${bookingId}`;
+    const b = bookings.find((x) => normalizeUnitOrRoomId(x.id) === bookingId);
+    const statusSeg = b ? segText(b.status) : dash;
+
+    if (!b) {
+        return [idSeg, statusSeg, dash, dash, dash, dash, dash, dash].join(' · ');
+    }
+    return [
+        idSeg,
+        statusSeg,
+        segDate(b.arrival),
+        segDate(b.departure),
+        segText(b.title),
+        segSource(b),
+        segText(b.firstName),
+        segText(b.lastName),
+    ].join(' · ');
+}
+
 /**
  * Запись относится к выбранному объекту сводки: совпадение внутреннего id или тот же Beds24 propertyId
  * (в базе могут быть два документа объекта с разным id при одном property).
@@ -291,20 +343,14 @@ function recordObjectMatchesSelected(
     return row != null && row.propertyId === selected.propertyId;
 }
 
-type OperationRow = {
-    id: string;
-    type: 'expense' | 'income';
-    entityId: string;
-    status: 'draft' | 'confirmed';
-    date: Date | string;
-    category: string;
-    comment: string;
-    quantity: number;
-    amount: number;
-    reportMonth: string;
-    source?: string;
-    recipient?: string;
-    autoCreated?: boolean;
+type OperationRow = AccountancyOverviewOperationRowModel;
+
+type OperationListGroup = {
+    key: string;
+    label: string;
+    rows: OperationRow[];
+    /** Бронь привязана к другой комнате, чем в фильтре (только для групп `b-*`) */
+    bookingRoomMismatch?: boolean;
 };
 
 export default function Page() {
@@ -324,6 +370,8 @@ export default function Page() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
+    /** Брони выбранного отчётного месяца по объекту (пересечение с периодом), для пустых групп в списке операций */
+    const [monthBookingsForReportMonth, setMonthBookingsForReportMonth] = useState<Booking[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
@@ -350,7 +398,10 @@ export default function Page() {
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [operationDeletingId, setOperationDeletingId] = useState<string | null>(null);
-
+    /** Ключи групп операций (включая `none`), свёрнутых в аккордеоне */
+    const [collapsedOperationGroups, setCollapsedOperationGroups] = useState<Set<string>>(
+        () => new Set(),
+    );
     useEffect(() => {
         const s = loadOverviewFilters();
         if (s) {
@@ -424,13 +475,7 @@ export default function Page() {
         load();
     }, [hasAccess]);
 
-    
-
-    const totalExpenses = expenses.reduce((sum, e) => sum + getExpenseSum(e), 0);
-    const totalIncomes = incomes.reduce((sum, i) => sum + getIncomeSum(i), 0);
-    const balance = totalIncomes - totalExpenses;
-
-    // Эффективный период: либо выбранный месяц, либо кастомные dateFrom/dateTo
+    /** Эффективный период: выбранный месяц (YYYY-MM) или кастомные dateFrom/dateTo */
     const effectiveDateRange = useMemo(() => {
         if (selectedMonth) {
             const [y, m] = selectedMonth.split('-').map(Number);
@@ -440,6 +485,12 @@ export default function Page() {
         }
         return { from: dateFrom, to: dateTo };
     }, [selectedMonth, dateFrom, dateTo]);
+
+    
+
+    const totalExpenses = expenses.reduce((sum, e) => sum + getExpenseSum(e), 0);
+    const totalIncomes = incomes.reduce((sum, i) => sum + getIncomeSum(i), 0);
+    const balance = totalIncomes - totalExpenses;
 
     const isDateInRange = useMemo(() => {
         const { from: effFrom, to: effTo } = effectiveDateRange;
@@ -472,22 +523,51 @@ export default function Page() {
         [expenses, incomes, reportMonthsInFilter, isDateInRange],
     );
 
-    const objectStats = useMemo(() => {
-        const map: Record<number, { expenses: number; incomes: number }> = {};
-        filteredByReportPeriod.expenses.forEach((e) => {
-            if (!map[e.objectId]) map[e.objectId] = { expenses: 0, incomes: 0 };
-            map[e.objectId].expenses += getExpenseSum(e);
-        });
-        filteredByReportPeriod.incomes.forEach((i) => {
-            if (!map[i.objectId]) map[i.objectId] = { expenses: 0, incomes: 0 };
-            map[i.objectId].incomes += getIncomeSum(i);
-        });
-        return map;
-    }, [filteredByReportPeriod]);
-
     const selectedObject = selectedObjectId === 'all'
         ? null
         : objects.find((o) => o.id === selectedObjectId);
+
+    useEffect(() => {
+        if (!hasAccess || !selectedMonth || !selectedObject) {
+            setMonthBookingsForReportMonth([]);
+            return;
+        }
+        let cancelled = false;
+        const propertyIdForSearch = selectedObject.propertyId ?? selectedObject.id;
+        const rangeFrom = effectiveDateRange.from;
+        const rangeTo = effectiveDateRange.to;
+        if (!rangeFrom || !rangeTo) {
+            setMonthBookingsForReportMonth([]);
+            return;
+        }
+        (async () => {
+            try {
+                const list = await searchBookings({
+                    objectId: propertyIdForSearch,
+                    overlapFrom: rangeFrom,
+                    overlapTo: rangeTo,
+                });
+                let next = list;
+                if (selectedRoomId !== 'all') {
+                    next = list.filter((b) => normalizeUnitOrRoomId(b.unitId) === selectedRoomId);
+                }
+                if (!cancelled) setMonthBookingsForReportMonth(next);
+            } catch (e) {
+                console.error('accountancy: month bookings load failed', e);
+                if (!cancelled) setMonthBookingsForReportMonth([]);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        hasAccess,
+        selectedMonth,
+        selectedObject,
+        selectedRoomId,
+        effectiveDateRange.from,
+        effectiveDateRange.to,
+    ]);
 
     const roomsForSelectedObject = useMemo(
         () => (selectedObject ? selectedObject.roomTypes : []),
@@ -633,6 +713,7 @@ export default function Page() {
                     recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
             )
             .forEach((e) => {
+                const bid = normalizeUnitOrRoomId(e.bookingId);
                 rows.push({
                     id: `exp-${e._id ?? ''}`,
                     type: 'expense',
@@ -647,6 +728,7 @@ export default function Page() {
                     source: e.source,
                     recipient: e.recipient,
                     autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
+                    ...(bid != null ? { bookingId: bid } : {}),
                 });
             });
 
@@ -658,6 +740,7 @@ export default function Page() {
                     recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
             )
             .forEach((i) => {
+                const bidInc = normalizeUnitOrRoomId(i.bookingId);
                 rows.push({
                     id: `inc-${i._id ?? ''}`,
                     type: 'income',
@@ -672,6 +755,7 @@ export default function Page() {
                     source: i.source,
                     recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
+                    ...(bidInc != null ? { bookingId: bidInc } : {}),
                 });
             });
 
@@ -688,6 +772,113 @@ export default function Page() {
         reportMonthsInFilter,
         objects,
     ]);
+
+    const bookingsMergedForLabels = useMemo(() => {
+        const byId = new Map<number, Booking>();
+        for (const b of bookings) {
+            const id = normalizeUnitOrRoomId(b.id);
+            if (id != null) byId.set(id, b);
+        }
+        for (const b of monthBookingsForReportMonth) {
+            const id = normalizeUnitOrRoomId(b.id);
+            if (id != null) byId.set(id, b);
+        }
+        return Array.from(byId.values());
+    }, [bookings, monthBookingsForReportMonth]);
+
+    const operationGroups = useMemo((): OperationListGroup[] => {
+        const map = new Map<string, OperationRow[]>();
+        for (const row of filteredOperations) {
+            const bid = row.bookingId;
+            const key = bid != null ? `b-${bid}` : 'none';
+            if (!map.has(key)) map.set(key, []);
+            map.get(key)!.push(row);
+        }
+        const noneRows = map.get('none') ?? [];
+        map.delete('none');
+
+        for (const [, gRows] of map) {
+            gRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+
+        if (selectedMonth && monthBookingsForReportMonth.length > 0) {
+            const keysWithRows = new Set(map.keys());
+            for (const b of monthBookingsForReportMonth) {
+                const bid = normalizeUnitOrRoomId(b.id);
+                if (bid == null) continue;
+                const key = `b-${bid}`;
+                if (!keysWithRows.has(key)) {
+                    map.set(key, []);
+                    keysWithRows.add(key);
+                }
+            }
+        }
+
+        const bookingGroupSortTime = (key: string, gRows: OperationRow[]): number => {
+            if (gRows.length) {
+                return Math.max(...gRows.map((r) => new Date(r.date).getTime()));
+            }
+            const bid = Number(key.slice(2));
+            const booking = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
+            if (booking?.arrival) {
+                const t = new Date(booking.arrival).getTime();
+                return Number.isNaN(t) ? 0 : t;
+            }
+            return 0;
+        };
+        const bookingEntries = [...map.entries()].sort(
+            (a, b) => bookingGroupSortTime(b[0], b[1]) - bookingGroupSortTime(a[0], a[1]),
+        );
+        const bookingRoomMismatchForKey = (bookingKey: string): boolean => {
+            if (selectedRoomId === 'all' || !bookingKey.startsWith('b-')) return false;
+            const bid = Number(bookingKey.slice(2));
+            const b = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
+            if (!b) return false;
+            return normalizeUnitOrRoomId(b.unitId) !== selectedRoomId;
+        };
+
+        const bookingGroups: OperationListGroup[] = bookingEntries.map(([key, rows]) => ({
+            key,
+            label: formatBookingOperationsGroupLabel(Number(key.slice(2)), bookingsMergedForLabels),
+            rows,
+            bookingRoomMismatch: bookingRoomMismatchForKey(key),
+        }));
+
+        const bySub = new Map<string, OperationRow[]>();
+        for (const sid of NO_BOOKING_SUBGROUP_ORDER) {
+            bySub.set(sid, []);
+        }
+        for (const row of noneRows) {
+            const sid = resolveNoBookingSubgroupId(row.category);
+            bySub.get(sid)!.push(row);
+        }
+        for (const sid of NO_BOOKING_SUBGROUP_ORDER) {
+            bySub.get(sid)!.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        }
+        const noBookingGroups: OperationListGroup[] = NO_BOOKING_SUBGROUP_ORDER.map((sid) => ({
+            key: `nobook-${sid}`,
+            label: t(`accountancy.noBookingSubgroup.${sid}`),
+            rows: bySub.get(sid)!,
+        }));
+
+        return [...bookingGroups, ...noBookingGroups];
+    }, [
+        filteredOperations,
+        bookingsMergedForLabels,
+        monthBookingsForReportMonth,
+        selectedMonth,
+        selectedRoomId,
+        t,
+    ]);
+
+    const toggleOperationGroupCollapsed = (groupKey: string) => {
+        setCollapsedOperationGroups((prev) => {
+            const next = new Set(prev);
+            if (next.has(groupKey)) next.delete(groupKey);
+            else next.add(groupKey);
+            return next;
+        });
+    };
 
     const handleStatusToggle = async (row: OperationRow) => {
         if (!row.entityId) return;
@@ -1378,28 +1569,100 @@ export default function Page() {
                     <Table size="small" sx={{ fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 } }}>
                         <TableBody>
                             {objects.map((obj) => {
-                                const stat = objectStats[obj.id] || { expenses: 0, incomes: 0 };
-                                const rowBalance = stat.incomes - stat.expenses;
-                                const isObjectRowSelected = selectedObjectId !== 'all' && selectedObjectId === obj.id;
+                                const roomTypes = obj.roomTypes ?? [];
+                                const isObjectExpanded = selectedObjectId === obj.id;
+                                const isObjectRowSelected =
+                                    selectedObjectId !== 'all' &&
+                                    selectedObjectId === obj.id &&
+                                    selectedRoomId === 'all';
                                 return (
-                                    <TableRow
-                                        key={`${obj.propertyName || 'obj'}-${obj.id}`}
-                                        hover
-                                        selected={isObjectRowSelected}
-                                        onClick={() => {
-                                            setSelectedObjectId(obj.id);
-                                            setSelectedRoomId('all');
-                                        }}
-                                        sx={{
-                                            cursor: 'pointer',
-                                            '&.Mui-selected': {
-                                                bgcolor: 'action.selected',
-                                                '&:hover': { bgcolor: 'action.selected' },
-                                            },
-                                        }}
-                                    >
-                                        <TableCell sx={{ py: 0.5, px: 1 }}>{obj.name}</TableCell>
-                                    </TableRow>
+                                    <Fragment key={`${obj.propertyName || 'obj'}-${obj.id}`}>
+                                        <TableRow
+                                            hover
+                                            selected={isObjectRowSelected}
+                                            onClick={() => {
+                                                setSelectedObjectId(obj.id);
+                                                setSelectedRoomId('all');
+                                            }}
+                                            sx={{
+                                                cursor: 'pointer',
+                                                '&.Mui-selected': {
+                                                    bgcolor: 'action.selected',
+                                                    '&:hover': { bgcolor: 'action.selected' },
+                                                },
+                                            }}
+                                        >
+                                            <TableCell sx={{ py: 0.5, px: 1 }}>
+                                                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+                                                    {roomTypes.length > 0 ? (
+                                                        <ExpandMoreIcon
+                                                            fontSize="small"
+                                                            sx={{
+                                                                flexShrink: 0,
+                                                                transform: isObjectExpanded
+                                                                    ? 'rotate(0deg)'
+                                                                    : 'rotate(-90deg)',
+                                                                transition: (theme) =>
+                                                                    theme.transitions.create('transform', {
+                                                                        duration: theme.transitions.duration.shorter,
+                                                                    }),
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <Box sx={{ width: 24, flexShrink: 0 }} />
+                                                    )}
+                                                    <Typography
+                                                        component="span"
+                                                        variant="body2"
+                                                        sx={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                                    >
+                                                        {obj.name}
+                                                    </Typography>
+                                                </Stack>
+                                            </TableCell>
+                                        </TableRow>
+                                        {isObjectExpanded &&
+                                            roomTypes.map((room) => {
+                                                const isRoomRowSelected =
+                                                    selectedObjectId === obj.id && selectedRoomId === room.id;
+                                                const roomLabel = room.name || `Room ${room.id}`;
+                                                return (
+                                                    <TableRow
+                                                        key={`room-${obj.id}-${room.id}`}
+                                                        hover
+                                                        selected={isRoomRowSelected}
+                                                        onClick={() => {
+                                                            setSelectedObjectId(obj.id);
+                                                            setSelectedRoomId(room.id);
+                                                        }}
+                                                        sx={{
+                                                            cursor: 'pointer',
+                                                            '&.Mui-selected': {
+                                                                bgcolor: 'action.selected',
+                                                                '&:hover': { bgcolor: 'action.selected' },
+                                                            },
+                                                        }}
+                                                    >
+                                                        <TableCell
+                                                            sx={{
+                                                                py: 0.4,
+                                                                pl: 3,
+                                                                pr: 1,
+                                                                borderLeft: 3,
+                                                                borderColor: 'divider',
+                                                            }}
+                                                        >
+                                                            <Typography
+                                                                variant="body2"
+                                                                sx={{ fontSize: '0.7rem', pl: 0.5, color: 'text.secondary' }}
+                                                            >
+                                                                {roomLabel}
+                                                            </Typography>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })}
+                                    </Fragment>
                                 );
                             })}
                         </TableBody>
@@ -1568,7 +1831,7 @@ export default function Page() {
                                     <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5 }}>
                                         {t('accountancy.operationsList')}
                                     </Typography>
-                                    {filteredOperations.length === 0 ? (
+                                    {operationGroups.length === 0 ? (
                                         <Typography color="text.secondary">
                                             {t('accountancy.noOperations')}
                                         </Typography>
@@ -1625,404 +1888,139 @@ export default function Page() {
                                                 </TableRow>
                                             </TableHead>
                                             <TableBody>
-                                                {filteredOperations.map((row) => (
-                                                    <TableRow
-                                                        key={row.id}
-                                                        sx={
-                                                            row.autoCreated
-                                                                ? { bgcolor: (theme) => (theme.palette.mode === 'light' ? 'rgba(46, 125, 50, 0.06)' : 'rgba(102, 187, 106, 0.1)') }
-                                                                : undefined
-                                                        }
-                                                    >
-                                                        <TableCell sx={{ px: 0.25 }}>
-                                                            <Tooltip title={row.status === 'confirmed' ? t('accountancy.statusConfirmed') : t('accountancy.statusDraft')}>
-                                                            <Switch
-                                                                    checked={row.status === 'confirmed'}
-                                                                    onChange={() => handleStatusToggle(row)}
-                                                                    disabled={
-                                                                        statusUpdatingId === row.id ||
-                                                                        inlinePatchUpdatingId === row.id
-                                                                    }
-                                                                    size="small"
-                                                                    color="primary"
-                                                                />
-                                                            </Tooltip>
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25 }}>
-                                                            <FormControl size="small" sx={opTableSelectFormSx}>
-                                                                <Select
-                                                                    sx={opTableSelectSx}
-                                                                    value={row.reportMonth || ''}
-                                                                    displayEmpty
-                                                                    onChange={(e) =>
-                                                                        handleReportMonthChange(row, e.target.value as string)
-                                                                    }
-                                                                    disabled={
-                                                                        reportMonthUpdatingId === row.id ||
-                                                                        inlinePatchUpdatingId === row.id
-                                                                    }
-                                                                    MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
-                                                                >
-                                                                    <MenuItem value="">
-                                                                        <em>—</em>
-                                                                    </MenuItem>
-                                                                    {reportMonthOptions.map((o) => (
-                                                                        <MenuItem key={o.value} value={o.value}>
-                                                                            {o.label}
-                                                                        </MenuItem>
-                                                                    ))}
-                                                                </Select>
-                                                            </FormControl>
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25, pl: 1, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
-                                                            {row.date
-                                                                ? new Date(row.date).toLocaleDateString('ru-RU', {
-                                                                      day: '2-digit',
-                                                                      month: '2-digit',
-                                                                      year: '2-digit',
-                                                                  })
-                                                                : '—'}
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25, overflow: 'hidden' }}>
-                                                            <Stack
-                                                                direction="row"
-                                                                alignItems="center"
-                                                                spacing={0.5}
-                                                                flexWrap="nowrap"
-                                                                sx={{ minWidth: 0 }}
-                                                            >
-                                                                <FormControl
-                                                                    size="small"
-                                                                    sx={{ ...opTableCatSelectFormSx, flexShrink: 0 }}
-                                                                >
-                                                                    <Select
-                                                                        sx={opTableInlineSelectSx}
-                                                                        IconComponent={() => null}
-                                                                        value={row.category || ''}
-                                                                        displayEmpty
-                                                                        onChange={(e) =>
-                                                                            void handleCategoryChange(
-                                                                                row,
-                                                                                e.target.value as string,
-                                                                            )
-                                                                        }
-                                                                        disabled={
-                                                                            inlinePatchUpdatingId === row.id ||
-                                                                            quantityUpdatingId === row.id ||
-                                                                            reportMonthUpdatingId === row.id ||
-                                                                            statusUpdatingId === row.id
-                                                                        }
-                                                                        MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
-                                                                    >
-                                                                        <MenuItem value="">
-                                                                            <em>—</em>
-                                                                        </MenuItem>
-                                                                        {(() => {
-                                                                            const catList =
-                                                                                row.type === 'expense'
-                                                                                    ? categoriesExpense
-                                                                                    : categoriesIncome;
-                                                                            const items = buildCategoriesForSelect(
-                                                                                catList,
-                                                                                row.type === 'expense'
-                                                                                    ? 'expense'
-                                                                                    : 'income',
-                                                                            );
-                                                                            const names = new Set(
-                                                                                items.map((it) => it.name),
-                                                                            );
-                                                                            const orphan =
-                                                                                !!(
-                                                                                    row.category &&
-                                                                                    !names.has(row.category)
-                                                                                );
-                                                                            return [
-                                                                                ...(orphan
-                                                                                    ? [
-                                                                                          <MenuItem
-                                                                                              key={`orphan-${row.id}`}
-                                                                                              value={row.category}
-                                                                                          >
-                                                                                              {row.category}
-                                                                                          </MenuItem>,
-                                                                                      ]
-                                                                                    : []),
-                                                                                ...items.map((item) => (
-                                                                                    <MenuItem
-                                                                                        key={item.id}
-                                                                                        value={item.name}
-                                                                                    >
-                                                                                        {item.depth > 0
-                                                                                            ? '\u00A0'.repeat(
-                                                                                                  item.depth * 2,
-                                                                                              ) + '↳ '
-                                                                                            : ''}
-                                                                                        {item.name}
-                                                                                    </MenuItem>
-                                                                                )),
-                                                                            ];
-                                                                        })()}
-                                                                    </Select>
-                                                                </FormControl>
-                                                                {row.autoCreated && (
-                                                                    <Tooltip
-                                                                        title={t('accountancy.autoAccounting.autoCreatedBadge')}
-                                                                    >
-                                                                        <Chip
-                                                                            size="small"
-                                                                            label={t(
-                                                                                'accountancy.autoAccounting.autoCreatedBadge',
-                                                                            )}
-                                                                            color="success"
-                                                                            variant="outlined"
-                                                                            sx={{
-                                                                                height: 22,
-                                                                                flexShrink: 0,
-                                                                                maxWidth: 'none',
-                                                                                '& .MuiChip-label': {
-                                                                                    px: 0.5,
-                                                                                    fontSize: '0.6rem',
-                                                                                    lineHeight: 1.2,
-                                                                                },
-                                                                            }}
-                                                                        />
-                                                                    </Tooltip>
-                                                                )}
-                                                            </Stack>
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25, minWidth: OP_TABLE_COMMENT_COL_WIDTH_PX, width: OP_TABLE_COMMENT_COL_WIDTH_PX }}>
-                                                            <TextField
-                                                                size="small"
-                                                                fullWidth
-                                                                value={
-                                                                    commentDraftByRowId[row.id] !== undefined
-                                                                        ? commentDraftByRowId[row.id]!
-                                                                        : row.comment
-                                                                }
-                                                                onChange={(e) =>
-                                                                    setCommentDraftByRowId((prev) => ({
-                                                                        ...prev,
-                                                                        [row.id]: e.target.value,
-                                                                    }))
-                                                                }
-                                                                onBlur={() => {
-                                                                    const draft = commentDraftByRowId[row.id];
-                                                                    if (draft === undefined) return;
-                                                                    setCommentDraftByRowId((prev) => {
-                                                                        const next = { ...prev };
-                                                                        delete next[row.id];
-                                                                        return next;
-                                                                    });
-                                                                    void handleCommentCommit(row, draft);
-                                                                }}
-                                                                placeholder={t('accountancy.comment')}
-                                                                disabled={
-                                                                    inlinePatchUpdatingId === row.id ||
-                                                                    quantityUpdatingId === row.id ||
-                                                                    reportMonthUpdatingId === row.id ||
-                                                                    statusUpdatingId === row.id
-                                                                }
-                                                                slotProps={{
-                                                                    htmlInput: {
-                                                                        'aria-label': t('accountancy.comment'),
-                                                                    },
-                                                                }}
-                                                                sx={{
-                                                                    '& .MuiInputBase-input': {
-                                                                        fontSize: '0.6875rem',
-                                                                        py: '3px',
-                                                                        overflow: 'hidden',
-                                                                        textOverflow: 'ellipsis',
-                                                                        whiteSpace: 'nowrap',
-                                                                    },
-                                                                }}
-                                                            />
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25 }}>
-                                                            <FormControl size="small" sx={opTableQtySelectFormSx}>
-                                                                <Select
-                                                                    sx={opTableSelectSx}
-                                                                    value={row.quantity}
-                                                                    onChange={(e) =>
-                                                                        handleQuantityChange(row, Number(e.target.value))
-                                                                    }
-                                                                    disabled={
-                                                                        quantityUpdatingId === row.id ||
-                                                                        inlinePatchUpdatingId === row.id
-                                                                    }
-                                                                    MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
-                                                                >
-                                                                    {!quantityOptions.includes(row.quantity) &&
-                                                                    row.quantity >= 1 ? (
-                                                                        <MenuItem
-                                                                            key={`qty-outofrange-${row.id}`}
-                                                                            value={row.quantity}
-                                                                        >
-                                                                            {row.quantity}
-                                                                        </MenuItem>
-                                                                    ) : null}
-                                                                    {quantityOptions.map((q) => (
-                                                                        <MenuItem key={q} value={q}>
-                                                                            {q}
-                                                                        </MenuItem>
-                                                                    ))}
-                                                                </Select>
-                                                            </FormControl>
-                                                        </TableCell>
-                                                        <TableCell
+                                                {operationGroups.map((group) => {
+                                                    const collapsed = collapsedOperationGroups.has(group.key);
+                                                    const groupIsEmpty = group.rows.length === 0;
+                                                    const sharedOperationRowProps = {
+                                                        t,
+                                                        opTableSelectFormSx,
+                                                        opTableCatSelectFormSx,
+                                                        opTableQtySelectFormSx,
+                                                        opTableSelectSx,
+                                                        opTableInlineSelectSx,
+                                                        opTableSourceRecipientSx,
+                                                        OP_TABLE_COMMENT_COL_WIDTH_PX,
+                                                        handleStatusToggle,
+                                                        statusUpdatingId,
+                                                        inlinePatchUpdatingId,
+                                                        handleReportMonthChange,
+                                                        reportMonthUpdatingId,
+                                                        reportMonthOptions,
+                                                        categoriesExpense,
+                                                        categoriesIncome,
+                                                        handleCategoryChange,
+                                                        quantityUpdatingId,
+                                                        commentDraftByRowId,
+                                                        setCommentDraftByRowId,
+                                                        handleCommentCommit,
+                                                        quantityOptions,
+                                                        handleQuantityChange,
+                                                        amountEditingId,
+                                                        amountDraft,
+                                                        setAmountDraft,
+                                                        setAmountEditingId,
+                                                        amountEditEscapeRef,
+                                                        handleOperationAmountCommit,
+                                                        amountUpdatingId,
+                                                        formatAmount,
+                                                        handleSourceChange,
+                                                        handleRecipientChange,
+                                                        counterparties,
+                                                        usersWithCashflow,
+                                                        cashflows,
+                                                        operationDeletingId,
+                                                        handleOperationDeleteClick,
+                                                    };
+                                                    return (
+                                                    <Fragment key={group.key}>
+                                                        <TableRow
+                                                            hover={!groupIsEmpty}
+                                                            onClick={() => toggleOperationGroupCollapsed(group.key)}
                                                             sx={{
-                                                                px: 0.25,
-                                                                color: row.amount >= 0 ? 'success.main' : 'error.main',
-                                                                verticalAlign: 'middle',
-                                                                fontSize: '0.6875rem',
+                                                                cursor: 'pointer',
+                                                                ...(groupIsEmpty && {
+                                                                    opacity: 0.65,
+                                                                }),
                                                             }}
+                                                            aria-expanded={!collapsed}
+                                                            aria-disabled={groupIsEmpty}
                                                         >
-                                                            {amountEditingId === row.id ? (
-                                                                <TextField
-                                                                    size="small"
-                                                                    value={amountDraft}
-                                                                    onChange={(e) => setAmountDraft(e.target.value)}
-                                                                    onBlur={(e) => void handleOperationAmountCommit(row, e.target.value)}
-                                                                    onKeyDown={(e) => {
-                                                                        if (e.key === 'Enter') {
-                                                                            e.preventDefault();
-                                                                            (e.target as HTMLInputElement).blur();
-                                                                        } else if (e.key === 'Escape') {
-                                                                            e.preventDefault();
-                                                                            amountEditEscapeRef.current = true;
-                                                                            setAmountEditingId(null);
-                                                                            setAmountDraft('');
+                                                            <TableCell
+                                                                colSpan={10}
+                                                                sx={{
+                                                                    py: 0.75,
+                                                                    px: 1,
+                                                                    lineHeight: 1.25,
+                                                                    color: groupIsEmpty ? 'text.disabled' : undefined,
+                                                                    bgcolor: (theme) => {
+                                                                        if (groupIsEmpty) {
+                                                                            return theme.palette.mode === 'light'
+                                                                                ? 'rgba(0, 0, 0, 0.02)'
+                                                                                : 'rgba(255, 255, 255, 0.03)';
                                                                         }
-                                                                    }}
-                                                                    disabled={
-                                                                        amountUpdatingId === row.id ||
-                                                                        inlinePatchUpdatingId === row.id
-                                                                    }
-                                                                    autoFocus
-                                                                    slotProps={{
-                                                                        htmlInput: {
-                                                                            inputMode: 'decimal',
-                                                                            'aria-label': t('accountancy.amountColumn'),
-                                                                        },
-                                                                    }}
-                                                                    sx={{
-                                                                        width: 76,
-                                                                        '& .MuiInputBase-input': {
-                                                                            fontSize: '0.6875rem',
-                                                                            py: '3px',
-                                                                        },
-                                                                    }}
-                                                                />
-                                                            ) : (
-                                                                <Tooltip title={t('accountancy.inlineAmountEditHint')}>
-                                                                    <Box
-                                                                        component="span"
-                                                                        onClick={() => {
-                                                                            if (
-                                                                                amountUpdatingId === row.id ||
-                                                                                inlinePatchUpdatingId === row.id
-                                                                            )
-                                                                                return;
-                                                                            setAmountEditingId(row.id);
-                                                                            setAmountDraft(
-                                                                                Math.abs(row.amount).toLocaleString('ru-RU', {
-                                                                                    minimumFractionDigits: 2,
-                                                                                    maximumFractionDigits: 2,
-                                                                                }),
-                                                                            );
-                                                                        }}
+                                                                        return theme.palette.mode === 'light'
+                                                                            ? 'rgba(0, 0, 0, 0.04)'
+                                                                            : 'rgba(255, 255, 255, 0.06)';
+                                                                    },
+                                                                    borderBottom: 1,
+                                                                    borderColor: 'divider',
+                                                                }}
+                                                            >
+                                                                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+                                                                    <ExpandMoreIcon
+                                                                        fontSize="small"
                                                                         sx={{
-                                                                            cursor:
-                                                                                amountUpdatingId === row.id ? 'default' : 'pointer',
-                                                                            display: 'inline-block',
+                                                                            flexShrink: 0,
+                                                                            color: groupIsEmpty ? 'action.disabled' : undefined,
+                                                                            transform: collapsed
+                                                                                ? 'rotate(-90deg)'
+                                                                                : 'rotate(0deg)',
+                                                                            transition: (theme) =>
+                                                                                theme.transitions.create('transform', {
+                                                                                    duration: theme.transitions.duration.shorter,
+                                                                                }),
+                                                                        }}
+                                                                    />
+                                                                    <Typography
+                                                                        component="span"
+                                                                        sx={{
+                                                                            fontSize: '0.7rem',
+                                                                            fontWeight: groupIsEmpty ? 500 : 600,
+                                                                            overflow: 'hidden',
+                                                                            textOverflow: 'ellipsis',
+                                                                            whiteSpace: 'nowrap',
+                                                                            minWidth: 0,
+                                                                            color: 'inherit',
                                                                         }}
                                                                     >
-                                                                        {row.amount >= 0 ? '+' : ''}
-                                                                        {formatAmount(row.amount)}
-                                                                    </Box>
-                                                                </Tooltip>
-                                                            )}
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
-                                                            <SourceRecipientSelect
-                                                                value={(row.source ?? '') as SourceRecipientOptionValue}
-                                                                onChange={(v) => void handleSourceChange(row, v)}
-                                                                label={t('accountancy.source')}
-                                                                counterparties={counterparties}
-                                                                usersWithCashflow={usersWithCashflow}
-                                                                hideLabel
-                                                                popperMinWidth={240}
-                                                                disabled={
-                                                                    inlinePatchUpdatingId === row.id ||
-                                                                    quantityUpdatingId === row.id ||
-                                                                    reportMonthUpdatingId === row.id ||
-                                                                    statusUpdatingId === row.id
-                                                                }
-                                                                sx={opTableSourceRecipientSx}
-                                                            />
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
-                                                            <SourceRecipientSelect
-                                                                value={(row.recipient ?? '') as SourceRecipientOptionValue}
-                                                                onChange={(v) => void handleRecipientChange(row, v)}
-                                                                label={t('accountancy.recipient')}
-                                                                counterparties={counterparties}
-                                                                usersWithCashflow={usersWithCashflow}
-                                                                cashflows={cashflows}
-                                                                includeCashflows
-                                                                hideLabel
-                                                                popperMinWidth={240}
-                                                                disabled={
-                                                                    inlinePatchUpdatingId === row.id ||
-                                                                    quantityUpdatingId === row.id ||
-                                                                    reportMonthUpdatingId === row.id ||
-                                                                    statusUpdatingId === row.id
-                                                                }
-                                                                sx={opTableSourceRecipientSx}
-                                                            />
-                                                        </TableCell>
-                                                        <TableCell sx={{ px: 0.25 }}>
-                                                            <Stack direction="row" alignItems="center" spacing={0}>
-                                                                <Link
-                                                                    href={
-                                                                        row.type === 'expense'
-                                                                            ? `/dashboard/accountancy/expense/edit/${row.entityId}`
-                                                                            : `/dashboard/accountancy/income/edit/${row.entityId}`
-                                                                    }
-                                                                    aria-label={t('common.view')}
-                                                                    style={{ display: 'inline-flex' }}
-                                                                >
-                                                                    <IconButton
-                                                                        size="small"
-                                                                        color="primary"
-                                                                        component="span"
-                                                                    >
-                                                                        <Visibility fontSize="small" />
-                                                                    </IconButton>
-                                                                </Link>
-                                                                <Tooltip
-                                                                    title={
-                                                                        row.type === 'expense'
-                                                                            ? t('accountancy.deleteExpenseTitle')
-                                                                            : t('accountancy.deleteIncomeTitle')
-                                                                    }
-                                                                >
-                                                                    <span>
-                                                                        <IconButton
-                                                                            size="small"
-                                                                            color="error"
-                                                                            onClick={() => handleOperationDeleteClick(row)}
-                                                                            disabled={operationDeletingId === row.id}
-                                                                            aria-label={t('common.delete')}
+                                                                        {group.label}
+                                                                    </Typography>
+                                                                    {group.bookingRoomMismatch ? (
+                                                                        <Tooltip
+                                                                            title={t('accountancy.bookingRoomFilterMismatch')}
+                                                                            arrow
                                                                         >
-                                                                            <DeleteIcon fontSize="small" />
-                                                                        </IconButton>
-                                                                    </span>
-                                                                </Tooltip>
-                                                            </Stack>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                ))}
+                                                                            <WarningIcon
+                                                                                fontSize="small"
+                                                                                color="warning"
+                                                                                sx={{ flexShrink: 0, ml: 0.25 }}
+                                                                            />
+                                                                        </Tooltip>
+                                                                    ) : null}
+                                                                </Stack>
+                                                            </TableCell>
+                                                        </TableRow>
+                                                        {!collapsed &&
+                                                            group.rows.map((row) => (
+                                                                <AccountancyOverviewOperationTableRow
+                                                                    key={row.id}
+                                                                    row={row}
+                                                                    {...sharedOperationRowProps}
+                                                                />
+                                                            ))}
+                                                    </Fragment>
+                                                    );
+                                                })}
                                             </TableBody>
                                         </Table>
                                         </TableContainer>

@@ -61,6 +61,9 @@ export async function GET(request: NextRequest) {
                         firstName: 1,
                         lastName: 1,
                         status: 1,
+                        referer: 1,
+                        refererEditable: 1,
+                        channel: 1,
                     },
                 } as any,
             )

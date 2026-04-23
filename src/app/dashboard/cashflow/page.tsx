@@ -45,7 +45,6 @@ export default function Page() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [loading, setLoading] = useState(true);
-    const [userCashflowId, setUserCashflowId] = useState<string | undefined>();
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
     const canEditOnlyDraft = user?.hasCashflow && !isAdmin && !isAccountant;
@@ -60,7 +59,6 @@ export default function Page() {
                 const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
                 const userCf = uid ? cfList.find((cf) => cf.userId === uid) : undefined;
                 const cfId = userCf?._id;
-                setUserCashflowId(cfId);
 
                 if (cfId) {
                     setExpenses(expList.filter((e) => e.cashflowId === cfId));
@@ -185,12 +183,12 @@ export default function Page() {
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
-                <Link href={`/dashboard/accountancy/cashflow/expense/add${userCashflowId ? `?cashflowId=${userCashflowId}` : ''}`}>
+                <Link href="/dashboard/accountancy/cashflow/expense/add">
                     <Button variant="contained" startIcon={<AddIcon />}>
                         {t('accountancy.addExpense')}
                     </Button>
                 </Link>
-                <Link href={`/dashboard/accountancy/cashflow/income/add${userCashflowId ? `?cashflowId=${userCashflowId}` : ''}`}>
+                <Link href="/dashboard/accountancy/cashflow/income/add">
                     <Button variant="contained" startIcon={<AddIcon />}>
                         {t('accountancy.addIncome')}
                     </Button>
@@ -253,7 +251,7 @@ export default function Page() {
                                                 <Link
                                                     href={
                                                         row.type === 'expense'
-                                                            ? `/dashboard/accountancy/expense/edit/${row._id}`
+                                                            ? `/dashboard/cashflow/expense/edit/${row._id}`
                                                             : `/dashboard/accountancy/income/edit/${row._id}`
                                                     }
                                                 >
