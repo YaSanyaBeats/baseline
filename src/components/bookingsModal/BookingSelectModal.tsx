@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
     Dialog,
     DialogTitle,
@@ -45,11 +45,27 @@ const getMaxInvoice = (invoiceItems: InvoiceItem[] | undefined | null) => {
 const getBookingPrice = (booking: Booking) =>
     getMaxInvoice(booking.invoiceItems)?.lineTotal ?? 0;
 
+/** YYYY-MM → последний день месяца (YYYY-MM-DD) для input type="date" */
+function reportMonthToLastDayString(reportMonth: string): string {
+    if (!/^\d{4}-\d{2}$/.test(reportMonth)) return "";
+    const [yStr, mStr] = reportMonth.split("-");
+    const y = Number(yStr);
+    const m = Number(mStr);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return "";
+    const last = new Date(y, m, 0);
+    const d = last.getDate();
+    return `${yStr}-${mStr}-${String(d).padStart(2, "0")}`;
+}
+
 interface BookingSelectModalProps {
     open: boolean;
     onClose: () => void;
     onSelect: (booking: Booking) => void;
     initialObjectId?: number;
+    /** Месяц отчёта YYYY-MM: «От» = 1-е число, «До» = последний день месяца */
+    reportMonth?: string;
+    /** Комната из формы (id в roomTypes объекта) — подставляется в фильтр при открытии */
+    initialRoomId?: number;
 }
 
 export default function BookingSelectModal({
@@ -57,48 +73,82 @@ export default function BookingSelectModal({
     onClose,
     onSelect,
     initialObjectId,
+    reportMonth,
+    initialRoomId,
 }: BookingSelectModalProps) {
     const { t } = useTranslation();
     const { objects } = useObjects();
 
     const [filters, setFilters] = useState<BookingSearchParams>({
-        objectId: initialObjectId,
+        objectId: undefined,
+        roomId: undefined,
         query: "",
         from: "",
         to: "",
     });
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<Booking[]>([]);
-
-    useEffect(() => {
-        if (open && initialObjectId && !filters.objectId) {
-            setFilters((prev) => ({ ...prev, objectId: initialObjectId }));
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [open, initialObjectId]);
+    const wasOpenRef = useRef(false);
 
     /** В коллекции bookings поле propertyId совпадает с object.propertyId (Beds24), а не всегда с object.id из списка объектов. */
-    const bookingPropertyIdForApi = (internalObjectId?: number): number | undefined => {
-        if (internalObjectId == null) return undefined;
-        const o = objects.find((x) => x.id === internalObjectId);
-        if (o) return o.propertyId ?? o.id;
-        return internalObjectId;
-    };
+    const bookingPropertyIdForApi = useCallback(
+        (internalObjectId?: number): number | undefined => {
+            if (internalObjectId == null) return undefined;
+            const o = objects.find((x) => x.id === internalObjectId);
+            if (o) return o.propertyId ?? o.id;
+            return internalObjectId;
+        },
+        [objects],
+    );
 
-    const handleSearch = async () => {
-        const apiParams: BookingSearchParams = {
-            ...filters,
-            objectId: bookingPropertyIdForApi(filters.objectId),
-        };
-        setLoading(true);
-        try {
-            const data = await searchBookings(apiParams);
-            setResults(data);
-        } catch (error) {
-            console.error("Error searching bookings:", error);
-        } finally {
-            setLoading(false);
+    const runSearchWithFilters = useCallback(
+        async (f: BookingSearchParams) => {
+            const apiParams: BookingSearchParams = {
+                ...f,
+                objectId: bookingPropertyIdForApi(f.objectId),
+            };
+            setLoading(true);
+            try {
+                const data = await searchBookings(apiParams);
+                setResults(data);
+            } catch (error) {
+                console.error("Error searching bookings:", error);
+            } finally {
+                setLoading(false);
+            }
+        },
+        [bookingPropertyIdForApi],
+    );
+
+    useEffect(() => {
+        if (open) {
+            const justOpened = !wasOpenRef.current;
+            if (justOpened) {
+                const validMonth =
+                    reportMonth && /^\d{4}-\d{2}$/.test(reportMonth) ? reportMonth : "";
+                const from = validMonth ? `${validMonth}-01` : "";
+                const to = validMonth ? reportMonthToLastDayString(validMonth) : "";
+                const next: BookingSearchParams = {
+                    objectId: initialObjectId,
+                    roomId:
+                        initialObjectId != null && initialRoomId != null
+                            ? initialRoomId
+                            : undefined,
+                    query: "",
+                    from,
+                    to,
+                };
+                setFilters(next);
+                void runSearchWithFilters(next);
+            }
+            wasOpenRef.current = true;
+        } else {
+            wasOpenRef.current = false;
         }
+    }, [open, initialObjectId, initialRoomId, reportMonth, runSearchWithFilters]);
+
+    const handleSearch = () => {
+        void runSearchWithFilters(filters);
     };
 
     const handleSelectBooking = (booking: Booking) => {
@@ -108,9 +158,27 @@ export default function BookingSelectModal({
 
     const handleChangeObject = (event: any) => {
         const value = event.target.value;
+        const newObjectId = value ? Number(value) : undefined;
+        setFilters((prev) => {
+            const next: BookingSearchParams = { ...prev, objectId: newObjectId };
+            if (newObjectId == null) {
+                next.roomId = undefined;
+            } else {
+                const o = objects.find((x) => x.id === newObjectId);
+                const roomIds = o?.roomTypes?.map((r) => r.id) ?? [];
+                if (prev.roomId != null && !roomIds.includes(prev.roomId)) {
+                    next.roomId = undefined;
+                }
+            }
+            return next;
+        });
+    };
+
+    const handleChangeRoom = (event: { target: { value: string } }) => {
+        const value = event.target.value;
         setFilters((prev) => ({
             ...prev,
-            objectId: value ? Number(value) : undefined,
+            roomId: value ? Number(value) : undefined,
         }));
     };
 
@@ -223,6 +291,26 @@ export default function BookingSelectModal({
                                         {obj.name}
                                     </MenuItem>
                                 ))}
+                            </Select>
+                        </FormControl>
+                        <FormControl
+                            sx={{ minWidth: 200 }}
+                            disabled={!filters.objectId}
+                        >
+                            <InputLabel>{t("common.room")}</InputLabel>
+                            <Select
+                                value={filters.roomId != null ? String(filters.roomId) : ""}
+                                label={t("common.room")}
+                                onChange={handleChangeRoom}
+                            >
+                                <MenuItem value="">{t("accountancy.all")}</MenuItem>
+                                {(objects.find((o) => o.id === filters.objectId)?.roomTypes ?? []).map(
+                                    (r) => (
+                                        <MenuItem key={`room-${r.id}`} value={String(r.id)}>
+                                            {r.name}
+                                        </MenuItem>
+                                    ),
+                                )}
                             </Select>
                         </FormControl>
                         <TextField

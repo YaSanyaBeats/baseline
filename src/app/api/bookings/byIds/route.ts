@@ -76,3 +76,82 @@ export async function GET(request: NextRequest) {
     }
 }
 
+/** Те же данные, что GET, но id в теле — без ограничения длины URL. */
+export async function POST(request: NextRequest) {
+    try {
+        const session = await getServerSession(authOptions);
+        if (!session || !session.user) {
+            return NextResponse.json(
+                { success: false, message: 'Необходима авторизация' },
+                { status: 401 },
+            );
+        }
+
+        const userRole = (session.user as any).role;
+        const hasCashflow = Boolean((session.user as any).hasCashflow);
+        const hasAccess = userRole === 'admin' || userRole === 'accountant' || hasCashflow || userRole === 'owner';
+        if (!hasAccess) {
+            return NextResponse.json(
+                { success: false, message: 'Недостаточно прав' },
+                { status: 403 },
+            );
+        }
+
+        let body: unknown;
+        try {
+            body = await request.json();
+        } catch {
+            return NextResponse.json(
+                { success: false, message: 'Invalid JSON body' },
+                { status: 400 },
+            );
+        }
+
+        const rawIds =
+            body &&
+            typeof body === 'object' &&
+            'ids' in body &&
+            Array.isArray((body as { ids: unknown }).ids)
+                ? (body as { ids: unknown[] }).ids
+                : [];
+
+        const ids = rawIds
+            .map((x) => (typeof x === 'number' ? x : Number(String(x).trim())))
+            .filter((n) => Number.isFinite(n));
+
+        if (ids.length === 0) {
+            return NextResponse.json([]);
+        }
+
+        const db = await getDB();
+        const bookingsCollection = db.collection('bookings');
+
+        const bookings = await bookingsCollection
+            .find(
+                { id: { $in: ids } },
+                {
+                    projection: {
+                        id: 1,
+                        propertyId: 1,
+                        unitId: 1,
+                        arrival: 1,
+                        departure: 1,
+                        title: 1,
+                        firstName: 1,
+                        lastName: 1,
+                        status: 1,
+                        referer: 1,
+                        refererEditable: 1,
+                        channel: 1,
+                    },
+                } as any,
+            )
+            .toArray();
+
+        return NextResponse.json(bookings);
+    } catch (error) {
+        console.error('Error in POST /api/bookings/byIds:', error);
+        return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+    }
+}
+

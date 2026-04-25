@@ -7,8 +7,9 @@ import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import { mergeAccountancyListQuery } from '@/lib/accountancyListServerFilter';
 
-export async function GET() {
+export async function GET(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
         if (!session || !session.user) {
@@ -25,11 +26,11 @@ export async function GET() {
         const db = await getDB();
         const expensesCollection = db.collection('expenses');
 
-        const filter: Record<string, unknown> = {};
+        const baseFilter: Record<string, unknown> = {};
         if (userRole !== 'admin' && userRole !== 'accountant') {
             if (hasCashflow && userId) {
                 const userPrefix = `user:${userId}`;
-                filter.$or = [
+                baseFilter.$or = [
                     { source: userPrefix },
                     { recipient: userPrefix },
                 ];
@@ -40,6 +41,8 @@ export async function GET() {
                 );
             }
         }
+
+        const filter = mergeAccountancyListQuery(baseFilter, request.nextUrl.searchParams);
 
         const expenses = await expensesCollection
             .find(filter)
@@ -167,6 +170,98 @@ export async function POST(request: NextRequest) {
         }
 
         const expensesCollection = db.collection('expenses');
+        const incomesCollection = db.collection('incomes');
+
+        const parentExpenseIdRaw =
+            expenseData.parentExpenseId != null && String(expenseData.parentExpenseId).trim() !== ''
+                ? String(expenseData.parentExpenseId).trim()
+                : null;
+        const parentIncomeIdRaw =
+            expenseData.parentIncomeId != null && String(expenseData.parentIncomeId).trim() !== ''
+                ? String(expenseData.parentIncomeId).trim()
+                : null;
+
+        if (parentExpenseIdRaw && parentIncomeIdRaw) {
+            return NextResponse.json(
+                { success: false, message: 'Укажите только один родитель: расход или доход' },
+                { status: 400 },
+            );
+        }
+
+        let parentExpenseIdBin: ObjectId | null = null;
+        let parentIncomeIdBin: ObjectId | null = null;
+
+        if (parentExpenseIdRaw) {
+            let parentOid: ObjectId;
+            try {
+                parentOid = new ObjectId(parentExpenseIdRaw);
+            } catch {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректный ID родительского расхода' },
+                    { status: 400 },
+                );
+            }
+            const parentDoc = await expensesCollection.findOne({ _id: parentOid, recordType: 'expense' });
+            if (!parentDoc) {
+                return NextResponse.json(
+                    { success: false, message: 'Родительский расход не найден' },
+                    { status: 400 },
+                );
+            }
+            if (parentDoc.parentExpenseId || parentDoc.parentIncomeId) {
+                return NextResponse.json(
+                    { success: false, message: 'Нельзя создать подтранзакцию для записи, которая уже является подтранзакцией' },
+                    { status: 400 },
+                );
+            }
+            if (Number(parentDoc.objectId) !== expenseData.objectId) {
+                return NextResponse.json(
+                    { success: false, message: 'Подтранзакция должна относиться к тому же объекту, что и родительская запись' },
+                    { status: 400 },
+                );
+            }
+            parentExpenseIdBin = parentOid;
+        }
+
+        if (parentIncomeIdRaw) {
+            let parentOid: ObjectId;
+            try {
+                parentOid = new ObjectId(parentIncomeIdRaw);
+            } catch {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректный ID родительского дохода' },
+                    { status: 400 },
+                );
+            }
+            const parentDoc = await incomesCollection.findOne({ _id: parentOid, recordType: 'income' });
+            if (!parentDoc) {
+                return NextResponse.json(
+                    { success: false, message: 'Родительский доход не найден' },
+                    { status: 400 },
+                );
+            }
+            if (parentDoc.parentExpenseId || parentDoc.parentIncomeId) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        message:
+                            'Нельзя создать подтранзакцию для записи, которая уже является подтранзакцией',
+                    },
+                    { status: 400 },
+                );
+            }
+            if (Number(parentDoc.objectId) !== expenseData.objectId) {
+                return NextResponse.json(
+                    {
+                        success: false,
+                        message:
+                            'Подтранзакция должна относиться к тому же объекту, что и родительская запись',
+                    },
+                    { status: 400 },
+                );
+            }
+            parentIncomeIdBin = parentOid;
+        }
 
         const expenseToInsert = {
             recordType: 'expense' as const,
@@ -189,9 +284,24 @@ export async function POST(request: NextRequest) {
             accountantName: accountant.name,
             createdAt: new Date(),
             autoCreated: expenseData.autoCreated ?? null,
+            parentExpenseId: parentExpenseIdBin,
+            parentIncomeId: parentIncomeIdBin,
         };
 
         const result = await expensesCollection.insertOne(expenseToInsert as any);
+
+        if (parentExpenseIdBin) {
+            await expensesCollection.updateOne(
+                { _id: parentExpenseIdBin },
+                { $push: { childExpenseIds: result.insertedId } as any },
+            );
+        }
+        if (parentIncomeIdBin) {
+            await incomesCollection.updateOne(
+                { _id: parentIncomeIdBin },
+                { $push: { childExpenseIds: result.insertedId } as any },
+            );
+        }
 
         // Логируем создание расхода
         await logAuditAction({
@@ -214,6 +324,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
             success: true,
             message: 'Расход успешно добавлен',
+            id: result.insertedId.toString(),
         });
     } catch (error) {
         console.error('Error in POST /api/expenses:', error);

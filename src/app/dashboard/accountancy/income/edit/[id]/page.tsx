@@ -525,6 +525,8 @@ export default function Page() {
                 onClose={handleCloseBookingModal}
                 onSelect={handleBookingSelect}
                 initialObjectId={income.objectId}
+                reportMonth={income.reportMonth ?? ""}
+                initialRoomId={income.roomId}
             />
         </>
     );

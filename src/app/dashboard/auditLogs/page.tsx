@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useMemo, useCallback } from "react";
+import Link from "next/link";
 import {
     Box,
     Button,
@@ -22,17 +23,67 @@ import {
 } from "@mui/material";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
+import { useSnackbar } from "@/providers/SnackbarContext";
 import { AuditLog, AuditLogAction, AuditLogEntity } from "@/lib/types";
+import { normalizeMongoIdString } from "@/lib/mongoId";
 import axios from "axios";
+
+function getAuditLogEditHref(log: AuditLog): string | null {
+    const id = log.entityId;
+    if (!id) return null;
+    switch (log.entity) {
+        case 'expense':
+            return `/dashboard/accountancy/expense/edit/${id}`;
+        case 'income':
+            return `/dashboard/accountancy/income/edit/${id}`;
+        case 'report':
+            return `/dashboard/accountancy/reports/edit/${id}`;
+        case 'user':
+            return `/dashboard/users/edit/${id}`;
+        case 'category':
+            return `/dashboard/accountancy/categories/edit/${id}`;
+        case 'cashflow':
+            return `/dashboard/accountancy/cashflow/edit/${id}`;
+        case 'booking':
+            return null;
+        case 'other': {
+            if (/контрагент/i.test(log.description)) {
+                return `/dashboard/accountancy/counterparties/edit/${id}`;
+            }
+            if (/правило кэшфлоу/i.test(log.description)) {
+                return `/dashboard/accountancy/auto-accounting`;
+            }
+            return null;
+        }
+        default:
+            return null;
+    }
+}
+
+function canRestoreFromAuditLog(log: AuditLog): boolean {
+    if (log.action !== 'delete' || log.oldData == null || !log.entityId) return false;
+    if (log.entity === 'booking') return false;
+    if (log.entity === 'other') {
+        const d = log.description ?? '';
+        return d.startsWith('Удалён контрагент') || d.startsWith('Удалено правило кэшфлоу');
+    }
+    return true;
+}
+
+function auditLogRestoredInDb(log: AuditLog): boolean {
+    return log.restoredAt != null && log.restoredAt !== '';
+}
 
 export default function AuditLogsPage() {
     const { t } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
+    const { setSnackbar } = useSnackbar();
 
     const [logs, setLogs] = useState<AuditLog[]>([]);
     const [loading, setLoading] = useState(true);
     const [total, setTotal] = useState(0);
     const [skip, setSkip] = useState(0);
+    const [restoringLogId, setRestoringLogId] = useState<string | null>(null);
     const limit = 50;
 
     // Фильтры
@@ -70,7 +121,7 @@ export default function AuditLogsPage() {
                 params.startDate = new Date(dateFromFilter).toISOString();
             }
             if (dateToFilter) {
-                params.dateTo = new Date(dateToFilter).toISOString();
+                params.endDate = new Date(dateToFilter).toISOString();
             }
 
             const response = await axios.get('/api/auditLogs', { params });
@@ -113,6 +164,40 @@ export default function AuditLogsPage() {
     const handleLoadMore = () => {
         setSkip((prev) => prev + limit);
         setTimeout(() => loadLogs(false), 100);
+    };
+
+    const handleRestore = async (log: AuditLog) => {
+        const logId = normalizeMongoIdString(log._id);
+        if (!logId) return;
+        try {
+            setRestoringLogId(logId);
+            const res = await axios.post('/api/auditLogs/restore', { auditLogId: logId });
+            if (res.data?.success) {
+                setSnackbar({
+                    open: true,
+                    message: res.data.message || t('auditLogs.restoreSuccess'),
+                    severity: 'success',
+                });
+                loadLogs(true);
+            } else {
+                setSnackbar({
+                    open: true,
+                    message: res.data?.message || t('auditLogs.restoreError'),
+                    severity: 'error',
+                });
+            }
+        } catch (err: unknown) {
+            const msg =
+                axios.isAxiosError(err) && err.response?.data?.message
+                    ? String(err.response.data.message)
+                    : t('auditLogs.restoreError');
+            setSnackbar({ open: true, message: msg, severity: 'error' });
+            if (axios.isAxiosError(err) && err.response?.status === 409) {
+                loadLogs(true);
+            }
+        } finally {
+            setRestoringLogId(null);
+        }
     };
 
     useEffect(() => {
@@ -267,6 +352,7 @@ export default function AuditLogsPage() {
                                     <TableCell>{t('auditLogs.columns.action')}</TableCell>
                                     <TableCell>{t('auditLogs.columns.user')}</TableCell>
                                     <TableCell>{t('auditLogs.columns.description')}</TableCell>
+                                    <TableCell align="right">{t('auditLogs.columns.actions')}</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -299,6 +385,58 @@ export default function AuditLogsPage() {
                                             {log.userName} ({log.userRole})
                                         </TableCell>
                                         <TableCell>{log.description}</TableCell>
+                                        <TableCell align="right">
+                                            {(() => {
+                                                const editHref =
+                                                    (log.action === 'create' || log.action === 'update') &&
+                                                    log.entityId
+                                                        ? getAuditLogEditHref(log)
+                                                        : null;
+                                                const showRestore = canRestoreFromAuditLog(log);
+                                                const rowLogId = normalizeMongoIdString(log._id);
+                                                if (!editHref && !showRestore) {
+                                                    return (
+                                                        <Typography variant="body2" color="text.secondary">
+                                                            —
+                                                        </Typography>
+                                                    );
+                                                }
+                                                return (
+                                                    <Stack
+                                                        direction="row"
+                                                        spacing={1}
+                                                        justifyContent="flex-end"
+                                                        flexWrap="wrap"
+                                                        useFlexGap
+                                                    >
+                                                        {editHref ? (
+                                                            <Button
+                                                                component={Link}
+                                                                href={editHref}
+                                                                size="small"
+                                                                variant="outlined"
+                                                            >
+                                                                {t('auditLogs.openEdit')}
+                                                            </Button>
+                                                        ) : null}
+                                                        {showRestore ? (
+                                                            <Button
+                                                                size="small"
+                                                                variant="contained"
+                                                                color="secondary"
+                                                                disabled={
+                                                                    restoringLogId === rowLogId ||
+                                                                    auditLogRestoredInDb(log)
+                                                                }
+                                                                onClick={() => handleRestore(log)}
+                                                            >
+                                                                {t('auditLogs.restore')}
+                                                            </Button>
+                                                        ) : null}
+                                                    </Stack>
+                                                );
+                                            })()}
+                                        </TableCell>
                                     </TableRow>
                                 ))}
                             </TableBody>

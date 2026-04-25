@@ -50,19 +50,47 @@ export async function GET(request: NextRequest) {
         const searchParams = request.nextUrl.searchParams;
 
         const objectIdParam = searchParams.get('objectId');
+        /** Список propertyId через запятую: один find вместо нескольких запросов. */
+        const objectIdsParam = (searchParams.get('objectIds') || '').trim();
         const textRaw = (searchParams.get('text') || searchParams.get('query') || '').trim();
         const from = searchParams.get('from');
         const to = searchParams.get('to');
         /** Пересечение проживания с [overlapFrom, overlapTo] (инкл. по календарным дням UTC); приоритетнее фильтра `from`/`to` по дате заезда. */
         const overlapFrom = searchParams.get('overlapFrom');
         const overlapTo = searchParams.get('overlapTo');
+        /** ID комнаты (room type / unit в справочнике объекта): совпадение с unitId или roomId в документе брони */
+        const roomIdParam = searchParams.get('roomId');
 
         const bookingsCollection = db.collection('bookings');
 
         const andParts: object[] = [];
 
-        if (objectIdParam) {
+        const objectIdsList = objectIdsParam
+            ? objectIdsParam
+                  .split(',')
+                  .map((s) => Number(s.trim()))
+                  .filter((n) => Number.isFinite(n))
+            : [];
+        if (objectIdsParam && objectIdsList.length === 0) {
+            return NextResponse.json([]);
+        }
+        if (objectIdsList.length > 0) {
+            andParts.push(
+                objectIdsList.length === 1
+                    ? { propertyId: objectIdsList[0]! }
+                    : { propertyId: { $in: objectIdsList } },
+            );
+        } else if (objectIdParam) {
             andParts.push({ propertyId: Number(objectIdParam) });
+        }
+
+        if (roomIdParam) {
+            const rid = Number(roomIdParam);
+            if (Number.isFinite(rid)) {
+                andParts.push({
+                    $or: [{ unitId: rid }, { roomId: rid }, { roomID: rid }],
+                });
+            }
         }
 
         /** В Mongo после синка Beds24 даты часто строки (YYYY-MM-DD); прямое $gte/$lte с BSON Date не совпадает по типу. */
@@ -130,10 +158,13 @@ export async function GET(request: NextRequest) {
         const filter: any =
             andParts.length === 0 ? {} : andParts.length === 1 ? andParts[0] : { $and: andParts };
 
+        /** Один PID — 200, как раньше; несколько — пропорционально, с потолком. */
+        const resultLimit = Math.min(5000, objectIdsList.length > 1 ? 200 * objectIdsList.length : 200);
+
         const bookings = await bookingsCollection
             .find(filter)
             .sort({ arrival: -1 })
-            .limit(200)
+            .limit(resultLimit)
             .toArray();
 
         return NextResponse.json(bookings);

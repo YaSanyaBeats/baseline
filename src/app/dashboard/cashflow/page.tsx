@@ -12,13 +12,12 @@ import {
     Typography,
     Alert,
     IconButton,
-    Chip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { useEffect, useState } from 'react';
-import { Expense, Income } from '@/lib/types';
+import { useEffect, useMemo, useState } from 'react';
+import { Booking, Expense, Income } from '@/lib/types';
 import { getExpenses, deleteExpense } from '@/lib/expenses';
 import { getIncomes, deleteIncome } from '@/lib/incomes';
 import { getCashflows } from '@/lib/cashflows';
@@ -27,6 +26,11 @@ import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import Link from 'next/link';
+import { getBookingsByIds } from '@/lib/bookings';
+import { getCounterparties } from '@/lib/counterparties';
+import { getUsersWithCashflow } from '@/lib/users';
+import { formatSourceRecipientLabel } from '@/components/accountancy/SourceRecipientSelect';
+import { useObjects } from '@/providers/ObjectsProvider';
 
 type RecordRow = {
     _id: string;
@@ -34,16 +38,23 @@ type RecordRow = {
     date: Date | string;
     category: string;
     amount: number;
-    status: string;
     canEdit: boolean;
+    bookingId?: number;
+    source?: string;
+    recipient?: string;
 };
 
 export default function Page() {
     const { t } = useTranslation();
+    const { objects } = useObjects();
     const { user, isAdmin, isAccountant } = useUser();
     const { setSnackbar } = useSnackbar();
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
+    const [bookings, setBookings] = useState<Booking[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
+    const [allCashflows, setAllCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
@@ -54,18 +65,45 @@ export default function Page() {
             setLoading(false);
             return;
         }
-        Promise.all([getExpenses(), getIncomes(), getCashflows()])
-            .then(([expList, incList, cfList]) => {
+        Promise.all([
+            getExpenses(),
+            getIncomes(),
+            getCashflows(),
+            getCounterparties(),
+            getUsersWithCashflow(),
+        ])
+            .then(async ([expList, incList, cfList, cpList, usersCf]) => {
                 const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
                 const userCf = uid ? cfList.find((cf) => cf.userId === uid) : undefined;
                 const cfId = userCf?._id;
 
+                setAllCashflows(cfList.map((c) => ({ _id: c._id!, name: c.name })));
+                setCounterparties(cpList.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
+
                 if (cfId) {
-                    setExpenses(expList.filter((e) => e.cashflowId === cfId));
-                    setIncomes(incList.filter((i) => i.cashflowId === cfId));
+                    const expFiltered = expList.filter((e) => e.cashflowId === cfId);
+                    const incFiltered = incList.filter((i) => i.cashflowId === cfId);
+                    setExpenses(expFiltered);
+                    setIncomes(incFiltered);
+
+                    const bookingIds = Array.from(
+                        new Set(
+                            [...expFiltered, ...incFiltered]
+                                .map((r) => r.bookingId)
+                                .filter((id): id is number => typeof id === 'number'),
+                        ),
+                    );
+                    if (bookingIds.length > 0) {
+                        const bookingList = await getBookingsByIds(bookingIds);
+                        setBookings(bookingList);
+                    } else {
+                        setBookings([]);
+                    }
                 } else {
                     setExpenses([]);
                     setIncomes([]);
+                    setBookings([]);
                 }
             })
             .catch((err) => {
@@ -79,6 +117,12 @@ export default function Page() {
             .finally(() => setLoading(false));
     }, [hasAccess, user?._id]);
 
+    const bookingsById = useMemo(() => {
+        const m = new Map<number, Booking>();
+        bookings.forEach((b) => m.set(b.id, b));
+        return m;
+    }, [bookings]);
+
     // Расходы — со знаком минус, доходы — со знаком плюс
     const balance =
         incomes.reduce((s, i) => s + getIncomeSum(i), 0) -
@@ -91,8 +135,10 @@ export default function Page() {
             date: e.date,
             category: e.category,
             amount: -getExpenseSum(e),
-            status: e.status ?? 'draft',
             canEdit: canEditOnlyDraft ? e.status === 'draft' : true,
+            bookingId: e.bookingId,
+            source: e.source,
+            recipient: e.recipient,
         })),
         ...incomes.map((i) => ({
             _id: i._id!,
@@ -100,8 +146,10 @@ export default function Page() {
             date: i.date,
             category: i.category,
             amount: getIncomeSum(i),
-            status: i.status ?? 'draft',
             canEdit: canEditOnlyDraft ? i.status === 'draft' : true,
+            bookingId: i.bookingId,
+            source: i.source,
+            recipient: i.recipient,
         })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -114,15 +162,38 @@ export default function Page() {
         });
     };
 
+    const formatAttachedBooking = (bookingId?: number): string => {
+        if (bookingId == null) return '—';
+        const b = bookingsById.get(bookingId);
+        if (!b) return `#${bookingId}`;
+        const parts = [
+            (b.title || '').trim(),
+            (b.firstName || '').trim(),
+            (b.lastName || '').trim(),
+            b.arrival ? formatDate(b.arrival) : '',
+            b.departure ? formatDate(b.departure) : '',
+        ].filter((p) => p.length > 0);
+        return parts.length > 0 ? parts.join(' · ') : `#${bookingId}`;
+    };
+
+    const roomFromBookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
+
+    const labelSource = (value: string | undefined) =>
+        formatSourceRecipientLabel(
+            value,
+            objects,
+            counterparties,
+            usersWithCashflow,
+            allCashflows,
+            roomFromBookingLabel,
+        );
+
     const formatAmount = (value: number): string => {
         const fixed = Number(value).toFixed(2);
         const [intPart, decPart] = fixed.split('.');
         const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
         return `${value >= 0 ? '+' : ''}${withSpaces}.${decPart ?? '00'}`;
     };
-
-    const getStatusLabel = (status: string) =>
-        status === 'draft' ? t('accountancy.statusDraft') : t('accountancy.statusConfirmed');
 
     const handleDeleteExpense = (id: string) => {
         if (!window.confirm(t('accountancy.deleteExpenseMessage'))) return;
@@ -207,8 +278,10 @@ export default function Page() {
                         <TableHead>
                             <TableRow>
                                 <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                <TableCell>{t('accountancy.category')}</TableCell>
-                                <TableCell>{t('common.status')}</TableCell>
+                                <TableCell sx={{ minWidth: 220 }}>{t('accountancy.attachedBookingColumn')}</TableCell>
+                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                <TableCell>{t('accountancy.source')}</TableCell>
+                                <TableCell>{t('accountancy.recipient')}</TableCell>
                                 <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
                                 <TableCell width={100} align="right">
                                     {t('accountancy.actions')}
@@ -219,22 +292,21 @@ export default function Page() {
                             {rows.map((row) => (
                                 <TableRow key={`${row.type}-${row._id}`}>
                                     <TableCell>{formatDate(row.date)}</TableCell>
-                                    <TableCell>
-                                        <Chip
-                                            size="small"
-                                            label={row.type === 'expense' ? t('accountancy.expense') : t('accountancy.income')}
-                                            variant="outlined"
-                                            sx={{ mr: 0.5 }}
-                                        />
-                                        {row.category}
+                                    <TableCell
+                                        sx={{
+                                            whiteSpace: 'normal',
+                                            wordBreak: 'break-word',
+                                            maxWidth: 360,
+                                        }}
+                                    >
+                                        {formatAttachedBooking(row.bookingId)}
                                     </TableCell>
-                                    <TableCell>
-                                        <Chip
-                                            size="small"
-                                            label={getStatusLabel(row.status)}
-                                            variant={row.status === 'confirmed' ? 'filled' : 'outlined'}
-                                            color={row.status === 'confirmed' ? 'success' : 'default'}
-                                        />
+                                    <TableCell>{row.category}</TableCell>
+                                    <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                        {labelSource(row.source)}
+                                    </TableCell>
+                                    <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                        {labelSource(row.recipient)}
                                     </TableCell>
                                     <TableCell
                                         align="right"

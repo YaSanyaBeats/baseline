@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
@@ -19,9 +19,6 @@ import {
     TableHead,
     TableRow,
     TextField,
-    Switch,
-    IconButton,
-    Chip,
     Tooltip,
     Dialog,
     DialogTitle,
@@ -30,10 +27,8 @@ import {
     DialogActions,
 } from "@mui/material";
 import {
-    Visibility,
-    Delete as DeleteIcon,
-    ExpandMore as ExpandMoreIcon,
     Warning as WarningIcon,
+    ExpandMore as ExpandMoreIcon,
 } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
 import { useSnackbar } from "@/providers/SnackbarContext";
@@ -50,10 +45,13 @@ import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
-import SourceRecipientSelect, {
+import {
+    buildSourceRecipientAutocompleteOptions,
     type SourceRecipientOptionValue,
 } from "@/components/accountancy/SourceRecipientSelect";
 import { AccountancyOverviewOperationTableRow, type AccountancyOverviewOperationRowModel } from "@/components/accountancy/AccountancyOverviewOperationTableRow";
+import { AccountancyObjectTreeTable } from "@/components/accountancy/AccountancyObjectTreeTable";
+import { resolveAccountancyObjectRoomRowHighlight } from "@/lib/accountancyObjectRoomRowHighlight";
 import { getBookingRefererDisplay } from "@/lib/format";
 import {
     NO_BOOKING_SUBGROUP_ORDER,
@@ -285,7 +283,7 @@ function normalizeUnitOrRoomId(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
-/** Одна строка заголовка группы: id · статус · check-in · check-out · title · source · name · surname */
+/** Одна строка заголовка группы: check-in · check-out · title · source · name · surname */
 function formatBookingOperationsGroupLabel(bookingId: number, bookings: Booking[]): string {
     const dash = '—';
     const segText = (v: unknown) => {
@@ -307,16 +305,12 @@ function formatBookingOperationsGroupLabel(bookingId: number, bookings: Booking[
         return getBookingRefererDisplay(String(raw).trim());
     };
 
-    const idSeg = `#${bookingId}`;
     const b = bookings.find((x) => normalizeUnitOrRoomId(x.id) === bookingId);
-    const statusSeg = b ? segText(b.status) : dash;
 
     if (!b) {
-        return [idSeg, statusSeg, dash, dash, dash, dash, dash, dash].join(' · ');
+        return [dash, dash, dash, dash, dash, dash].join(' · ');
     }
     return [
-        idSeg,
-        statusSeg,
         segDate(b.arrival),
         segDate(b.departure),
         segText(b.title),
@@ -351,6 +345,8 @@ type OperationListGroup = {
     rows: OperationRow[];
     /** Бронь привязана к другой комнате, чем в фильтре (только для групп `b-*`) */
     bookingRoomMismatch?: boolean;
+    /** `unitId` брони (нормализованный), только для групп `b-*` */
+    bookingUnitRoomId?: number | null;
 };
 
 export default function Page() {
@@ -359,25 +355,25 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const { objects } = useObjects();
 
-    // Функция для форматирования чисел с двумя знаками после запятой и разделителями разрядов
-    const formatAmount = (value: number): string => {
+    const formatAmount = useCallback((value: number): string => {
         return value.toLocaleString('ru-RU', {
             minimumFractionDigits: 2,
-            maximumFractionDigits: 2
+            maximumFractionDigits: 2,
         });
-    };
+    }, []);
 
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [bookings, setBookings] = useState<Booking[]>([]);
-    /** Брони выбранного отчётного месяца по объекту (пересечение с периодом), для пустых групп в списке операций */
-    const [monthBookingsForReportMonth, setMonthBookingsForReportMonth] = useState<Booking[]>([]);
+    /** Брони отчётного месяца по всем объектам (пересечение с периодом) — подсветка дерева и merge в labels */
+    const [allMonthBookingsInPeriod, setAllMonthBookingsInPeriod] = useState<Booking[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [categoriesExpense, setCategoriesExpense] = useState<AccountancyCategory[]>([]);
     const [categoriesIncome, setCategoriesIncome] = useState<AccountancyCategory[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [referenceLoading, setReferenceLoading] = useState(true);
+    const [transactionsLoading, setTransactionsLoading] = useState(false);
 
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedObjectId, setSelectedObjectId] = useState<number | 'all'>('all');
@@ -430,25 +426,72 @@ export default function Page() {
         return { hasAccess };
     }, [isAdmin, isAccountant]);
 
-    useEffect(() => {
-        if (!hasAccess) return;
+    /** Эффективный период: выбранный месяц (YYYY-MM) или кастомные dateFrom/dateTo */
+    const effectiveDateRange = useMemo(() => {
+        if (selectedMonth) {
+            const [y, m] = selectedMonth.split('-').map(Number);
+            const from = new Date(y, m - 1, 1);
+            const to = new Date(y, m, 0);
+            return { from: localCalendarYmd(from), to: localCalendarYmd(to) };
+        }
+        return { from: dateFrom, to: dateTo };
+    }, [selectedMonth, dateFrom, dateTo]);
 
-        const load = async () => {
+    useEffect(() => {
+        if (!hasAccess) {
+            setReferenceLoading(false);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
             try {
-                const [exp, inc, cps, cfs, usersCf, catExp, catInc] = await Promise.all([
-                    getExpenses(),
-                    getIncomes(),
+                const [cps, cfs, usersCf, catExp, catInc] = await Promise.all([
                     getCounterparties(),
                     getCashflows(),
                     getUsersWithCashflow(),
                     getAccountancyCategories('expense'),
                     getAccountancyCategories('income'),
                 ]);
+                if (cancelled) return;
                 setCategoriesExpense(catExp);
                 setCategoriesIncome(catInc);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
+            } finally {
+                if (!cancelled) setReferenceLoading(false);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [hasAccess]);
+
+    useEffect(() => {
+        if (!hasAccess || !filtersHydrated) return;
+
+        if (objects.length === 0) {
+            setExpenses([]);
+            setIncomes([]);
+            setBookings([]);
+            setTransactionsLoading(false);
+            return;
+        }
+
+        const objectIdsForApi = Array.from(new Set(objects.map((o) => o.id)));
+
+        const listQuery = {
+            objectIds: objectIdsForApi,
+            ...(effectiveDateRange.from ? { dateFrom: effectiveDateRange.from } : {}),
+            ...(effectiveDateRange.to ? { dateTo: effectiveDateRange.to } : {}),
+        };
+
+        let cancelled = false;
+        setTransactionsLoading(true);
+        (async () => {
+            try {
+                const [exp, inc] = await Promise.all([getExpenses(listQuery), getIncomes(listQuery)]);
+                if (cancelled) return;
                 setExpenses(exp);
                 setIncomes(inc);
 
@@ -463,30 +506,29 @@ export default function Page() {
 
                 if (bookingIds.length) {
                     const bookingsList = await getBookingsByIds(bookingIds);
-                    setBookings(bookingsList);
-                } else {
+                    if (!cancelled) setBookings(bookingsList);
+                } else if (!cancelled) {
+                    setBookings([]);
+                }
+            } catch (e) {
+                console.error('accountancy overview: transactions load failed', e);
+                if (!cancelled) {
+                    setExpenses([]);
+                    setIncomes([]);
                     setBookings([]);
                 }
             } finally {
-                setLoading(false);
+                if (!cancelled) setTransactionsLoading(false);
             }
+        })();
+
+        return () => {
+            cancelled = true;
         };
+    }, [hasAccess, filtersHydrated, objects, effectiveDateRange.from, effectiveDateRange.to]);
 
-        load();
-    }, [hasAccess]);
+    const loading = !filtersHydrated || referenceLoading || transactionsLoading;
 
-    /** Эффективный период: выбранный месяц (YYYY-MM) или кастомные dateFrom/dateTo */
-    const effectiveDateRange = useMemo(() => {
-        if (selectedMonth) {
-            const [y, m] = selectedMonth.split('-').map(Number);
-            const from = new Date(y, m - 1, 1);
-            const to = new Date(y, m, 0);
-            return { from: localCalendarYmd(from), to: localCalendarYmd(to) };
-        }
-        return { from: dateFrom, to: dateTo };
-    }, [selectedMonth, dateFrom, dateTo]);
-
-    
 
     const totalExpenses = expenses.reduce((sum, e) => sum + getExpenseSum(e), 0);
     const totalIncomes = incomes.reduce((sum, i) => sum + getIncomeSum(i), 0);
@@ -528,46 +570,65 @@ export default function Page() {
         : objects.find((o) => o.id === selectedObjectId);
 
     useEffect(() => {
-        if (!hasAccess || !selectedMonth || !selectedObject) {
-            setMonthBookingsForReportMonth([]);
+        if (!hasAccess || !selectedMonth) {
+            setAllMonthBookingsInPeriod([]);
             return;
         }
-        let cancelled = false;
-        const propertyIdForSearch = selectedObject.propertyId ?? selectedObject.id;
         const rangeFrom = effectiveDateRange.from;
         const rangeTo = effectiveDateRange.to;
         if (!rangeFrom || !rangeTo) {
-            setMonthBookingsForReportMonth([]);
+            setAllMonthBookingsInPeriod([]);
             return;
         }
+        const uniquePropertyIds = Array.from(new Set(objects.map((o) => o.propertyId ?? o.id)));
+        if (uniquePropertyIds.length === 0) {
+            setAllMonthBookingsInPeriod([]);
+            return;
+        }
+        let cancelled = false;
         (async () => {
             try {
                 const list = await searchBookings({
-                    objectId: propertyIdForSearch,
+                    objectIds: uniquePropertyIds,
                     overlapFrom: rangeFrom,
                     overlapTo: rangeTo,
                 });
-                let next = list;
-                if (selectedRoomId !== 'all') {
-                    next = list.filter((b) => normalizeUnitOrRoomId(b.unitId) === selectedRoomId);
+                if (cancelled) return;
+                const seen = new Set<number>();
+                const merged: Booking[] = [];
+                for (const b of list) {
+                    const id = normalizeUnitOrRoomId(b.id);
+                    if (id == null || seen.has(id)) continue;
+                    seen.add(id);
+                    merged.push(b);
                 }
-                if (!cancelled) setMonthBookingsForReportMonth(next);
+                setAllMonthBookingsInPeriod(merged);
             } catch (e) {
                 console.error('accountancy: month bookings load failed', e);
-                if (!cancelled) setMonthBookingsForReportMonth([]);
+                if (!cancelled) setAllMonthBookingsInPeriod([]);
             }
         })();
         return () => {
             cancelled = true;
         };
-    }, [
-        hasAccess,
-        selectedMonth,
-        selectedObject,
-        selectedRoomId,
-        effectiveDateRange.from,
-        effectiveDateRange.to,
-    ]);
+    }, [hasAccess, selectedMonth, objects, effectiveDateRange.from, effectiveDateRange.to]);
+
+    /** Брони месяца только для выбранного в сводке объекта (и комнаты), для списка операций */
+    const monthBookingsForReportMonth = useMemo(() => {
+        if (selectedObjectId === 'all' || !selectedObject) return [];
+        const objectId = selectedObject.id;
+        const objectPropertyId = selectedObject.propertyId;
+        const bookingBelongsToObject = (booking: Booking) => {
+            const bp = booking.propertyId;
+            if (bp === undefined || bp === null) return true;
+            return bp === objectPropertyId || bp === objectId;
+        };
+        let list = allMonthBookingsInPeriod.filter(bookingBelongsToObject);
+        if (selectedRoomId !== 'all') {
+            list = list.filter((b) => normalizeUnitOrRoomId(b.unitId) === selectedRoomId);
+        }
+        return list;
+    }, [allMonthBookingsInPeriod, selectedObjectId, selectedObject, selectedRoomId]);
 
     const roomsForSelectedObject = useMemo(
         () => (selectedObject ? selectedObject.roomTypes : []),
@@ -672,6 +733,35 @@ export default function Page() {
         return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomId === selectedRoomId);
     }, [selectedObject, roomsForSelectedObject, filteredByReportPeriod, bookings, selectedRoomId, t, objects]);
 
+    const getAccountancyObjectRoomRowHighlight = useMemo(() => {
+        return (objectId: number, roomId: number) => {
+            const objectRow = objects.find((o) => o.id === objectId);
+            if (!objectRow) return 'default' as const;
+            const monthForObject = allMonthBookingsInPeriod.filter((b) => {
+                const bp = b.propertyId;
+                if (bp === undefined || bp === null) return true;
+                return bp === objectRow.propertyId || bp === objectRow.id;
+            });
+            return resolveAccountancyObjectRoomRowHighlight({
+                objectRow,
+                roomId,
+                allObjects: objects,
+                selectedMonth,
+                bookings,
+                monthBookingsInPeriod: monthForObject,
+                expenses: filteredByReportPeriod.expenses,
+                incomes: filteredByReportPeriod.incomes,
+            });
+        };
+    }, [
+        objects,
+        selectedMonth,
+        bookings,
+        allMonthBookingsInPeriod,
+        filteredByReportPeriod.expenses,
+        filteredByReportPeriod.incomes,
+    ]);
+
     // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
     const reportMonthOptions = useMemo(() => {
         const options: { value: string; label: string }[] = [];
@@ -685,6 +775,43 @@ export default function Page() {
         }
         return options;
     }, []);
+
+    const categorySelectItemsExpense = useMemo(
+        () => buildCategoriesForSelect(categoriesExpense, 'expense'),
+        [categoriesExpense],
+    );
+    const categorySelectItemsIncome = useMemo(
+        () => buildCategoriesForSelect(categoriesIncome, 'income'),
+        [categoriesIncome],
+    );
+
+    const sourceRecipientOptionsTable = useMemo(
+        () =>
+            buildSourceRecipientAutocompleteOptions({
+                objects,
+                counterparties,
+                usersWithCashflow,
+                cashflows,
+                includeCashflows: false,
+                includeBookingRoomOption: false,
+                t,
+            }),
+        [objects, counterparties, usersWithCashflow, cashflows, t],
+    );
+
+    const recipientRecipientOptionsTable = useMemo(
+        () =>
+            buildSourceRecipientAutocompleteOptions({
+                objects,
+                counterparties,
+                usersWithCashflow,
+                cashflows,
+                includeCashflows: true,
+                includeBookingRoomOption: false,
+                t,
+            }),
+        [objects, counterparties, usersWithCashflow, cashflows, t],
+    );
 
     const filteredOperations = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
@@ -837,12 +964,17 @@ export default function Page() {
             return normalizeUnitOrRoomId(b.unitId) !== selectedRoomId;
         };
 
-        const bookingGroups: OperationListGroup[] = bookingEntries.map(([key, rows]) => ({
-            key,
-            label: formatBookingOperationsGroupLabel(Number(key.slice(2)), bookingsMergedForLabels),
-            rows,
-            bookingRoomMismatch: bookingRoomMismatchForKey(key),
-        }));
+        const bookingGroups: OperationListGroup[] = bookingEntries.map(([key, rows]) => {
+            const bid = Number(key.slice(2));
+            const b = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
+            return {
+                key,
+                label: formatBookingOperationsGroupLabel(bid, bookingsMergedForLabels),
+                rows,
+                bookingRoomMismatch: bookingRoomMismatchForKey(key),
+                bookingUnitRoomId: b != null ? normalizeUnitOrRoomId(b.unitId) : null,
+            };
+        });
 
         const bySub = new Map<string, OperationRow[]>();
         for (const sid of NO_BOOKING_SUBGROUP_ORDER) {
@@ -1453,6 +1585,49 @@ export default function Page() {
         return opts;
     }, []);
 
+    const sharedOperationRowProps = {
+        t,
+        opTableSelectFormSx,
+        opTableCatSelectFormSx,
+        opTableQtySelectFormSx,
+        opTableSelectSx,
+        opTableInlineSelectSx,
+        opTableSourceRecipientSx,
+        OP_TABLE_COMMENT_COL_WIDTH_PX,
+        handleStatusToggle,
+        statusUpdatingId,
+        inlinePatchUpdatingId,
+        handleReportMonthChange,
+        reportMonthUpdatingId,
+        reportMonthOptions,
+        categoryItemsExpense: categorySelectItemsExpense,
+        categoryItemsIncome: categorySelectItemsIncome,
+        sourceRecipientOptions: sourceRecipientOptionsTable,
+        recipientRecipientOptions: recipientRecipientOptionsTable,
+        handleCategoryChange,
+        quantityUpdatingId,
+        commentDraftByRowId,
+        setCommentDraftByRowId,
+        handleCommentCommit,
+        quantityOptions,
+        handleQuantityChange,
+        amountEditingId,
+        amountDraft,
+        setAmountDraft,
+        setAmountEditingId,
+        amountEditEscapeRef,
+        handleOperationAmountCommit,
+        amountUpdatingId,
+        formatAmount,
+        handleSourceChange,
+        handleRecipientChange,
+        counterparties,
+        usersWithCashflow,
+        cashflows,
+        operationDeletingId,
+        handleOperationDeleteClick,
+    };
+
     if (!hasAccess) {
         return (
             <Box>
@@ -1566,107 +1741,20 @@ export default function Page() {
                     <Typography variant="h6" sx={{ mb: 2 }}>
                         {t('accountancy.statsByObject')}
                     </Typography>
-                    <Table size="small" sx={{ fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 } }}>
-                        <TableBody>
-                            {objects.map((obj) => {
-                                const roomTypes = obj.roomTypes ?? [];
-                                const isObjectExpanded = selectedObjectId === obj.id;
-                                const isObjectRowSelected =
-                                    selectedObjectId !== 'all' &&
-                                    selectedObjectId === obj.id &&
-                                    selectedRoomId === 'all';
-                                return (
-                                    <Fragment key={`${obj.propertyName || 'obj'}-${obj.id}`}>
-                                        <TableRow
-                                            hover
-                                            selected={isObjectRowSelected}
-                                            onClick={() => {
-                                                setSelectedObjectId(obj.id);
-                                                setSelectedRoomId('all');
-                                            }}
-                                            sx={{
-                                                cursor: 'pointer',
-                                                '&.Mui-selected': {
-                                                    bgcolor: 'action.selected',
-                                                    '&:hover': { bgcolor: 'action.selected' },
-                                                },
-                                            }}
-                                        >
-                                            <TableCell sx={{ py: 0.5, px: 1 }}>
-                                                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
-                                                    {roomTypes.length > 0 ? (
-                                                        <ExpandMoreIcon
-                                                            fontSize="small"
-                                                            sx={{
-                                                                flexShrink: 0,
-                                                                transform: isObjectExpanded
-                                                                    ? 'rotate(0deg)'
-                                                                    : 'rotate(-90deg)',
-                                                                transition: (theme) =>
-                                                                    theme.transitions.create('transform', {
-                                                                        duration: theme.transitions.duration.shorter,
-                                                                    }),
-                                                            }}
-                                                        />
-                                                    ) : (
-                                                        <Box sx={{ width: 24, flexShrink: 0 }} />
-                                                    )}
-                                                    <Typography
-                                                        component="span"
-                                                        variant="body2"
-                                                        sx={{ fontSize: '0.75rem', overflow: 'hidden', textOverflow: 'ellipsis' }}
-                                                    >
-                                                        {obj.name}
-                                                    </Typography>
-                                                </Stack>
-                                            </TableCell>
-                                        </TableRow>
-                                        {isObjectExpanded &&
-                                            roomTypes.map((room) => {
-                                                const isRoomRowSelected =
-                                                    selectedObjectId === obj.id && selectedRoomId === room.id;
-                                                const roomLabel = room.name || `Room ${room.id}`;
-                                                return (
-                                                    <TableRow
-                                                        key={`room-${obj.id}-${room.id}`}
-                                                        hover
-                                                        selected={isRoomRowSelected}
-                                                        onClick={() => {
-                                                            setSelectedObjectId(obj.id);
-                                                            setSelectedRoomId(room.id);
-                                                        }}
-                                                        sx={{
-                                                            cursor: 'pointer',
-                                                            '&.Mui-selected': {
-                                                                bgcolor: 'action.selected',
-                                                                '&:hover': { bgcolor: 'action.selected' },
-                                                            },
-                                                        }}
-                                                    >
-                                                        <TableCell
-                                                            sx={{
-                                                                py: 0.4,
-                                                                pl: 3,
-                                                                pr: 1,
-                                                                borderLeft: 3,
-                                                                borderColor: 'divider',
-                                                            }}
-                                                        >
-                                                            <Typography
-                                                                variant="body2"
-                                                                sx={{ fontSize: '0.7rem', pl: 0.5, color: 'text.secondary' }}
-                                                            >
-                                                                {roomLabel}
-                                                            </Typography>
-                                                        </TableCell>
-                                                    </TableRow>
-                                                );
-                                            })}
-                                    </Fragment>
-                                );
-                            })}
-                        </TableBody>
-                    </Table>
+                    <AccountancyObjectTreeTable
+                        objects={objects}
+                        selectedObjectId={selectedObjectId}
+                        selectedRoomId={selectedRoomId}
+                        onSelectObject={(objectId) => {
+                            setSelectedObjectId(objectId);
+                            setSelectedRoomId('all');
+                        }}
+                        onSelectRoom={(objectId, roomId) => {
+                            setSelectedObjectId(objectId);
+                            setSelectedRoomId(roomId);
+                        }}
+                        getRoomRowHighlight={getAccountancyObjectRoomRowHighlight}
+                    />
                 </Paper>
 
                 <Paper sx={{ p: 1.5, flex: 2, minWidth: 0 }}>
@@ -1891,46 +1979,6 @@ export default function Page() {
                                                 {operationGroups.map((group) => {
                                                     const collapsed = collapsedOperationGroups.has(group.key);
                                                     const groupIsEmpty = group.rows.length === 0;
-                                                    const sharedOperationRowProps = {
-                                                        t,
-                                                        opTableSelectFormSx,
-                                                        opTableCatSelectFormSx,
-                                                        opTableQtySelectFormSx,
-                                                        opTableSelectSx,
-                                                        opTableInlineSelectSx,
-                                                        opTableSourceRecipientSx,
-                                                        OP_TABLE_COMMENT_COL_WIDTH_PX,
-                                                        handleStatusToggle,
-                                                        statusUpdatingId,
-                                                        inlinePatchUpdatingId,
-                                                        handleReportMonthChange,
-                                                        reportMonthUpdatingId,
-                                                        reportMonthOptions,
-                                                        categoriesExpense,
-                                                        categoriesIncome,
-                                                        handleCategoryChange,
-                                                        quantityUpdatingId,
-                                                        commentDraftByRowId,
-                                                        setCommentDraftByRowId,
-                                                        handleCommentCommit,
-                                                        quantityOptions,
-                                                        handleQuantityChange,
-                                                        amountEditingId,
-                                                        amountDraft,
-                                                        setAmountDraft,
-                                                        setAmountEditingId,
-                                                        amountEditEscapeRef,
-                                                        handleOperationAmountCommit,
-                                                        amountUpdatingId,
-                                                        formatAmount,
-                                                        handleSourceChange,
-                                                        handleRecipientChange,
-                                                        counterparties,
-                                                        usersWithCashflow,
-                                                        cashflows,
-                                                        operationDeletingId,
-                                                        handleOperationDeleteClick,
-                                                    };
                                                     return (
                                                     <Fragment key={group.key}>
                                                         <TableRow
@@ -1997,7 +2045,33 @@ export default function Page() {
                                                                     </Typography>
                                                                     {group.bookingRoomMismatch ? (
                                                                         <Tooltip
-                                                                            title={t('accountancy.bookingRoomFilterMismatch')}
+                                                                            title={t(
+                                                                                'accountancy.bookingRoomFilterMismatch',
+                                                                            )
+                                                                                .replace(
+                                                                                    '{{roomId}}',
+                                                                                    String(
+                                                                                        selectedRoomId === 'all'
+                                                                                            ? '—'
+                                                                                            : selectedRoomId,
+                                                                                    ),
+                                                                                )
+                                                                                .replace(
+                                                                                    '{{bookingId}}',
+                                                                                    String(
+                                                                                        Number(
+                                                                                            group.key.slice(2),
+                                                                                        ),
+                                                                                    ),
+                                                                                )
+                                                                                .replace(
+                                                                                    '{{bookingUnitRoomId}}',
+                                                                                    group.bookingUnitRoomId != null
+                                                                                        ? String(
+                                                                                              group.bookingUnitRoomId,
+                                                                                          )
+                                                                                        : '—',
+                                                                                )}
                                                                             arrow
                                                                         >
                                                                             <WarningIcon

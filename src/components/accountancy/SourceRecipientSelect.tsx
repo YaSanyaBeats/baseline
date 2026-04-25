@@ -3,7 +3,8 @@
 import Autocomplete, { createFilterOptions } from '@mui/material/Autocomplete';
 import ListSubheader from '@mui/material/ListSubheader';
 import TextField from '@mui/material/TextField';
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
+import type { Object as BedsObject } from '@/lib/types';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
@@ -30,7 +31,7 @@ const GROUP_COUNTERPARTIES = '3';
 const GROUP_USERS = '4';
 const GROUP_CASHFLOWS = '5';
 
-type SourceRecipientAutocompleteOption = {
+export type SourceRecipientAutocompleteOption = {
     value: SourceRecipientOptionValue | '';
     label: string;
     searchText: string;
@@ -40,6 +41,96 @@ type SourceRecipientAutocompleteOption = {
 const filterOptions = createFilterOptions<SourceRecipientAutocompleteOption>({
     stringify: (option) => option.searchText,
 });
+
+/** Один раз на страницу вместо N экземпляров Autocomplete (таблица операций). */
+export function buildSourceRecipientAutocompleteOptions(params: {
+    objects: BedsObject[];
+    counterparties: { _id: string; name: string }[];
+    usersWithCashflow: { _id: string; name: string }[];
+    cashflows: { _id: string; name: string }[];
+    includeCashflows: boolean;
+    includeBookingRoomOption: boolean;
+    t: (key: string) => string;
+}): SourceRecipientAutocompleteOption[] {
+    const {
+        objects,
+        counterparties,
+        usersWithCashflow,
+        cashflows,
+        includeCashflows,
+        includeBookingRoomOption,
+        t,
+    } = params;
+
+    const list: SourceRecipientAutocompleteOption[] = [];
+
+    list.push({
+        value: '',
+        label: '—',
+        searchText: '—',
+        groupKey: GROUP_BASE,
+    });
+
+    if (includeBookingRoomOption) {
+        const bookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
+        list.push({
+            value: ROOM_FROM_BOOKING_VALUE,
+            label: bookingLabel,
+            searchText: bookingLabel,
+            groupKey: GROUP_BASE,
+        });
+    }
+
+    objects.forEach((obj) => {
+        obj.roomTypes?.forEach((room) => {
+            const roomLabel = `${obj.name} — ${room.name || `Room ${room.id}`}`;
+            list.push({
+                value: `${PREFIX_ROOM}${obj.id}:${room.id}`,
+                label: roomLabel,
+                searchText: `${obj.name} ${room.name || ''} ${room.id}`.trim(),
+                groupKey: GROUP_OBJECTS,
+            });
+        });
+    });
+
+    const cpPrefix = t('accountancy.sourceRecipientCounterpartyPrefix');
+    counterparties.forEach((c) => {
+        const labelText = `${cpPrefix} ${c.name}`.trim();
+        list.push({
+            value: `${PREFIX_CP}${c._id}` as SourceRecipientOptionValue,
+            label: labelText,
+            searchText: `${c.name} ${cpPrefix}`,
+            groupKey: GROUP_COUNTERPARTIES,
+        });
+    });
+
+    const userPrefix = t('accountancy.sourceRecipientUserPrefix');
+    usersWithCashflow.forEach((u) => {
+        const idStr = typeof u._id === 'string' ? u._id : String(u._id);
+        const labelText = `${userPrefix} ${u.name}`.trim();
+        list.push({
+            value: `${PREFIX_USER}${idStr}` as SourceRecipientOptionValue,
+            label: labelText,
+            searchText: `${u.name} ${userPrefix}`,
+            groupKey: GROUP_USERS,
+        });
+    });
+
+    if (includeCashflows) {
+        const cfPrefix = t('accountancy.sourceRecipientCashflowPrefix');
+        cashflows.forEach((c) => {
+            const labelText = `${cfPrefix} ${c.name}`.trim();
+            list.push({
+                value: `${PREFIX_CF}${c._id}` as SourceRecipientOptionValue,
+                label: labelText,
+                searchText: `${c.name} ${cfPrefix}`,
+                groupKey: GROUP_CASHFLOWS,
+            });
+        });
+    }
+
+    return list;
+}
 
 export function formatSourceRecipientLabel(
     value: SourceRecipientOptionValue | undefined,
@@ -103,9 +194,11 @@ interface SourceRecipientSelectProps {
     hideLabel?: boolean;
     /** Минимальная ширина выпадающего попапа; если не задана — попап совпадает с шириной поля ввода */
     popperMinWidth?: number;
+    /** Список опций с родителя — без повторной сборки на каждую строку таблицы */
+    prefetchedOptions?: SourceRecipientAutocompleteOption[];
 }
 
-export default function SourceRecipientSelect({
+function SourceRecipientSelectInner({
     value,
     onChange,
     label,
@@ -120,80 +213,32 @@ export default function SourceRecipientSelect({
     disabled = false,
     hideLabel = false,
     popperMinWidth,
+    prefetchedOptions,
 }: SourceRecipientSelectProps) {
     const { objects } = useObjects();
     const { t } = useTranslation();
 
     const options = useMemo((): SourceRecipientAutocompleteOption[] => {
-        const list: SourceRecipientAutocompleteOption[] = [];
-
-        list.push({
-            value: '',
-            label: '—',
-            searchText: '—',
-            groupKey: GROUP_BASE,
+        if (prefetchedOptions) return prefetchedOptions;
+        return buildSourceRecipientAutocompleteOptions({
+            objects,
+            counterparties,
+            usersWithCashflow,
+            cashflows,
+            includeCashflows,
+            includeBookingRoomOption,
+            t,
         });
-
-        if (includeBookingRoomOption) {
-            const bookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
-            list.push({
-                value: ROOM_FROM_BOOKING_VALUE,
-                label: bookingLabel,
-                searchText: bookingLabel,
-                groupKey: GROUP_BASE,
-            });
-        }
-
-        objects.forEach((obj) => {
-            obj.roomTypes?.forEach((room) => {
-                const roomLabel = `${obj.name} — ${room.name || `Room ${room.id}`}`;
-                list.push({
-                    value: `${PREFIX_ROOM}${obj.id}:${room.id}`,
-                    label: roomLabel,
-                    searchText: `${obj.name} ${room.name || ''} ${room.id}`.trim(),
-                    groupKey: GROUP_OBJECTS,
-                });
-            });
-        });
-
-        const cpPrefix = t('accountancy.sourceRecipientCounterpartyPrefix');
-        counterparties.forEach((c) => {
-            const labelText = `${cpPrefix} ${c.name}`.trim();
-            list.push({
-                value: `${PREFIX_CP}${c._id}` as SourceRecipientOptionValue,
-                label: labelText,
-                searchText: `${c.name} ${cpPrefix}`,
-                groupKey: GROUP_COUNTERPARTIES,
-            });
-        });
-
-        const userPrefix = t('accountancy.sourceRecipientUserPrefix');
-        usersWithCashflow.forEach((u) => {
-            const idStr = typeof u._id === 'string' ? u._id : String(u._id);
-            const labelText = `${userPrefix} ${u.name}`.trim();
-            list.push({
-                value: `${PREFIX_USER}${idStr}` as SourceRecipientOptionValue,
-                label: labelText,
-                searchText: `${u.name} ${userPrefix}`,
-                groupKey: GROUP_USERS,
-            });
-        });
-
-        if (includeCashflows) {
-            const cfPrefix = t('accountancy.sourceRecipientCashflowPrefix');
-            cashflows.forEach((c) => {
-                const labelText = `${cfPrefix} ${c.name}`.trim();
-                list.push({
-                    value: `${PREFIX_CF}${c._id}` as SourceRecipientOptionValue,
-                    label: labelText,
-                    searchText: `${c.name} ${cfPrefix}`,
-                    groupKey: GROUP_CASHFLOWS,
-                });
-            });
-        }
-
-        return list;
-    }, [objects, counterparties, usersWithCashflow, cashflows, includeCashflows, includeBookingRoomOption, t]);
+    }, [
+        prefetchedOptions,
+        objects,
+        counterparties,
+        usersWithCashflow,
+        cashflows,
+        includeCashflows,
+        includeBookingRoomOption,
+        t,
+    ]);
 
     const normalizedValue = value ?? '';
     const selectedOption = useMemo((): SourceRecipientAutocompleteOption | undefined => {
@@ -269,3 +314,6 @@ export default function SourceRecipientSelect({
         />
     );
 }
+
+const SourceRecipientSelect = memo(SourceRecipientSelectInner);
+export default SourceRecipientSelect;

@@ -585,6 +585,8 @@ export default function ExpenseEditForm({
                 onClose={handleCloseBookingModal}
                 onSelect={handleBookingSelect}
                 initialObjectId={expense.objectId}
+                reportMonth={expense.reportMonth ?? ""}
+                initialRoomId={expense.roomId}
             />
         </>
     );

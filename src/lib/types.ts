@@ -165,6 +165,8 @@ export interface CommonResponse {
     message: string;
     /** Код ошибки для клиента (например запрет дублей по категории) */
     code?: string;
+    /** ID созданной сущности (например расхода после POST) */
+    id?: string;
 }
 
 export interface BusynessRow {
@@ -357,6 +359,14 @@ export interface Expense {
     createdAt?: Date;              // Дата создания записи
     /** Запись создана автоучётом; при ручном редактировании сбрасывается */
     autoCreated?: AutoCreatedMeta | null;
+    /** ID родительского расхода (Mongo), если запись — подтранзакция при делимости */
+    parentExpenseId?: string | null;
+    /** ID родительского дохода (Mongo), если расход — подтранзакция при делимости прихода */
+    parentIncomeId?: string | null;
+    /** ID дочерних расходов (Mongo), если расход разбит на подтранзакции */
+    childExpenseIds?: string[];
+    /** ID дочерних доходов (Mongo) при делимости родительского расхода */
+    childIncomeIds?: string[];
 }
 
 export interface Income {
@@ -382,6 +392,14 @@ export interface Income {
     createdAt?: Date;              // Дата создания записи
     /** Запись создана автоучётом; при ручном редактировании сбрасывается */
     autoCreated?: AutoCreatedMeta | null;
+    /** ID родительского расхода (Mongo), если доход создан как подтранзакция при делимости расхода */
+    parentExpenseId?: string | null;
+    /** ID родительского дохода (Mongo), если доход — подтранзакция при делимости прихода */
+    parentIncomeId?: string | null;
+    /** ID дочерних расходов (Mongo), если приход разбит на подтранзакции */
+    childExpenseIds?: string[];
+    /** ID дочерних доходов (Mongo), если приход разбит на подтранзакции */
+    childIncomeIds?: string[];
 }
 
 /** Тип записи в едином списке «Транзакции» (расход / доход) */
@@ -495,6 +513,8 @@ export interface AuditLog {
         userAgent?: string;
     };
     timestamp: Date;               // Дата и время действия
+    /** Для action=delete: сущность восстановлена из этого лога (кнопка «Восстановить» отключена) */
+    restoredAt?: Date | string;
 }
 
 

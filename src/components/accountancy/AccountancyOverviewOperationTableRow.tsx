@@ -1,6 +1,7 @@
 'use client';
 
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
+import { memo } from 'react';
 import {
     Box,
     Chip,
@@ -17,9 +18,11 @@ import {
 } from '@mui/material';
 import { Delete as DeleteIcon, Visibility } from '@mui/icons-material';
 import Link from 'next/link';
-import type { AccountancyCategory } from '@/lib/types';
-import SourceRecipientSelect, { type SourceRecipientOptionValue } from './SourceRecipientSelect';
-import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import type { CategorySelectItem } from '@/lib/accountancyCategoryUtils';
+import SourceRecipientSelect, {
+    type SourceRecipientAutocompleteOption,
+    type SourceRecipientOptionValue,
+} from './SourceRecipientSelect';
 
 /** Строка операции в сводке /dashboard/accountancy (таблица без брони / с бронью). */
 export type AccountancyOverviewOperationRowModel = {
@@ -55,8 +58,10 @@ export type AccountancyOverviewOperationTableRowProps = {
     handleReportMonthChange: (row: AccountancyOverviewOperationRowModel, value: string) => void;
     reportMonthUpdatingId: string | null;
     reportMonthOptions: { value: string; label: string }[];
-    categoriesExpense: AccountancyCategory[];
-    categoriesIncome: AccountancyCategory[];
+    categoryItemsExpense: CategorySelectItem[];
+    categoryItemsIncome: CategorySelectItem[];
+    sourceRecipientOptions: SourceRecipientAutocompleteOption[];
+    recipientRecipientOptions: SourceRecipientAutocompleteOption[];
     handleCategoryChange: (row: AccountancyOverviewOperationRowModel, value: string) => void | Promise<void>;
     quantityUpdatingId: string | null;
     commentDraftByRowId: Record<string, string>;
@@ -81,7 +86,7 @@ export type AccountancyOverviewOperationTableRowProps = {
     handleOperationDeleteClick: (row: AccountancyOverviewOperationRowModel) => void;
 };
 
-export function AccountancyOverviewOperationTableRow(p: AccountancyOverviewOperationTableRowProps) {
+function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperationTableRowProps) {
     const { row, t } = p;
     return (
         <TableRow
@@ -158,11 +163,8 @@ export function AccountancyOverviewOperationTableRow(p: AccountancyOverviewOpera
                                 <em>—</em>
                             </MenuItem>
                             {(() => {
-                                const catList = row.type === 'expense' ? p.categoriesExpense : p.categoriesIncome;
-                                const items = buildCategoriesForSelect(
-                                    catList,
-                                    row.type === 'expense' ? 'expense' : 'income',
-                                );
+                                const items =
+                                    row.type === 'expense' ? p.categoryItemsExpense : p.categoryItemsIncome;
                                 const names = new Set(items.map((it) => it.name));
                                 const orphan = !!(row.category && !names.has(row.category));
                                 return [
@@ -356,6 +358,7 @@ export function AccountancyOverviewOperationTableRow(p: AccountancyOverviewOpera
                     label={t('accountancy.source')}
                     counterparties={p.counterparties}
                     usersWithCashflow={p.usersWithCashflow}
+                    prefetchedOptions={p.sourceRecipientOptions}
                     hideLabel
                     popperMinWidth={240}
                     disabled={
@@ -376,6 +379,7 @@ export function AccountancyOverviewOperationTableRow(p: AccountancyOverviewOpera
                     usersWithCashflow={p.usersWithCashflow}
                     cashflows={p.cashflows}
                     includeCashflows
+                    prefetchedOptions={p.recipientRecipientOptions}
                     hideLabel
                     popperMinWidth={240}
                     disabled={
@@ -426,3 +430,5 @@ export function AccountancyOverviewOperationTableRow(p: AccountancyOverviewOpera
         </TableRow>
     );
 }
+
+export const AccountancyOverviewOperationTableRow = memo(AccountancyOverviewOperationTableRowInner);

@@ -254,6 +254,13 @@ export default function BulkAddTransactionsPage() {
         return r.selectedRoom[0].id;
     }, [bookingModalForKey, rows]);
 
+    const bookingModalRoomId = useMemo(() => {
+        if (!bookingModalForKey) return undefined;
+        const r = rows.find((x) => x.key === bookingModalForKey);
+        if (!r?.selectedRoom.length || !r.selectedRoom[0].rooms.length) return undefined;
+        return r.selectedRoom[0].rooms[0];
+    }, [bookingModalForKey, rows]);
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -724,6 +731,8 @@ export default function BulkAddTransactionsPage() {
                 onClose={handleCloseBookingModal}
                 onSelect={handleBookingSelect}
                 initialObjectId={bookingModalObjectId}
+                reportMonth={reportMonth}
+                initialRoomId={bookingModalRoomId}
             />
         </>
     );
