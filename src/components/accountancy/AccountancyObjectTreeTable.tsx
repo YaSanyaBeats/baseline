@@ -6,6 +6,9 @@ import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import type { Object as Obj } from '@/lib/types';
 import type { AccountancyObjectRoomRowHighlight } from '@/lib/accountancyObjectRoomRowHighlight';
 
+/** Подсветка «жёлтый» — не `palette.warning` (в MUI это оранжевый) */
+const ROOM_YELLOW = '#EAB308';
+
 export type AccountancyObjectTreeTableProps = {
     objects: Obj[];
     selectedObjectId: number | 'all';
@@ -29,7 +32,7 @@ function roomRowBackground(
         case 'red':
             return alpha(theme.palette.error.main, strong ? 0.3 : 0.18);
         case 'yellow':
-            return alpha(theme.palette.warning.main, strong ? 0.34 : 0.22);
+            return alpha(ROOM_YELLOW, strong ? 0.34 : 0.22);
         case 'blue':
             return alpha(theme.palette.info.main, strong ? 0.32 : 0.2);
         default:
@@ -122,7 +125,7 @@ export function AccountancyObjectTreeTable({
                                                         hl === 'red'
                                                             ? t.palette.error.main
                                                             : hl === 'yellow'
-                                                              ? t.palette.warning.main
+                                                              ? ROOM_YELLOW
                                                               : t.palette.info.main;
                                                     return alpha(c, 0.35);
                                                 },

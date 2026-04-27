@@ -45,16 +45,42 @@ const getMaxInvoice = (invoiceItems: InvoiceItem[] | undefined | null) => {
 const getBookingPrice = (booking: Booking) =>
     getMaxInvoice(booking.invoiceItems)?.lineTotal ?? 0;
 
-/** YYYY-MM → последний день месяца (YYYY-MM-DD) для input type="date" */
-function reportMonthToLastDayString(reportMonth: string): string {
-    if (!/^\d{4}-\d{2}$/.test(reportMonth)) return "";
-    const [yStr, mStr] = reportMonth.split("-");
+const toYmd = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+/** «От»/«До» от сегодня, если нет валидного месяца отчёта */
+function getDefaultBookingDateRangeFromToday(): { from: string; to: string } {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    return {
+        from: toYmd(new Date(y, m - 3, 1)),
+        to: toYmd(new Date(y, m + 1, 1)),
+    };
+}
+
+/**
+ * «От» — 1-е число (месяц отчёта − 3), «До» — 1-е число (месяц отчёта + 1).
+ * Пример: отчёт 2025-12 → 2025-09-01 .. 2026-01-01
+ */
+function getDefaultBookingDateRangeForReportMonth(
+    reportMonth: string | undefined | null,
+): { from: string; to: string } {
+    const valid =
+        reportMonth && /^\d{4}-\d{2}$/.test(reportMonth) ? reportMonth : null;
+    if (!valid) {
+        return getDefaultBookingDateRangeFromToday();
+    }
+    const [yStr, mStr] = valid.split("-");
     const y = Number(yStr);
-    const m = Number(mStr);
-    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) return "";
-    const last = new Date(y, m, 0);
-    const d = last.getDate();
-    return `${yStr}-${mStr}-${String(d).padStart(2, "0")}`;
+    const m0 = Number(mStr) - 1;
+    if (!Number.isFinite(y) || !Number.isFinite(m0) || m0 < 0 || m0 > 11) {
+        return getDefaultBookingDateRangeFromToday();
+    }
+    return {
+        from: toYmd(new Date(y, m0 - 3, 1)),
+        to: toYmd(new Date(y, m0 + 1, 1)),
+    };
 }
 
 interface BookingSelectModalProps {
@@ -62,7 +88,7 @@ interface BookingSelectModalProps {
     onClose: () => void;
     onSelect: (booking: Booking) => void;
     initialObjectId?: number;
-    /** Месяц отчёта YYYY-MM: «От» = 1-е число, «До» = последний день месяца */
+    /** YYYY-MM: диапазон дат «От»/«До» считается от этого месяца отчёта, не от сегодня */
     reportMonth?: string;
     /** Комната из формы (id в roomTypes объекта) — подставляется в фильтр при открытии */
     initialRoomId?: number;
@@ -124,10 +150,8 @@ export default function BookingSelectModal({
         if (open) {
             const justOpened = !wasOpenRef.current;
             if (justOpened) {
-                const validMonth =
-                    reportMonth && /^\d{4}-\d{2}$/.test(reportMonth) ? reportMonth : "";
-                const from = validMonth ? `${validMonth}-01` : "";
-                const to = validMonth ? reportMonthToLastDayString(validMonth) : "";
+                const { from, to } =
+                    getDefaultBookingDateRangeForReportMonth(reportMonth);
                 const next: BookingSearchParams = {
                     objectId: initialObjectId,
                     roomId:

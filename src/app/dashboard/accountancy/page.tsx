@@ -57,6 +57,11 @@ import {
     NO_BOOKING_SUBGROUP_ORDER,
     resolveNoBookingSubgroupId,
 } from "@/lib/noBookingCategorySubgroups";
+import {
+    BOOKING_GROUP_CATEGORY_ORDER,
+    getNoBookingSubgroupCategoryOrder,
+    sortRowsByAccountancyCategoryOrder,
+} from "@/lib/accountancyOperationGroupCategoryOrder";
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
@@ -283,8 +288,109 @@ function normalizeUnitOrRoomId(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
-/** Одна строка заголовка группы: check-in · check-out · title · source · name · surname */
-function formatBookingOperationsGroupLabel(bookingId: number, bookings: Booking[]): string {
+function ruNightsWord(n: number): string {
+    const m10 = n % 10;
+    const m100 = n % 100;
+    if (m100 >= 11 && m100 <= 14) return 'ночей';
+    if (m10 === 1) return 'ночь';
+    if (m10 >= 2 && m10 <= 4) return 'ночи';
+    return 'ночей';
+}
+
+/** Ночи проживания: «(N ночь/ночи/ночей)» по разнице календарных дней (Beds24). */
+function formatBookingNightsLabel(arrival: unknown, departure: unknown): string {
+    const dash = '—';
+    if (arrival == null || departure == null) return dash;
+    const aStr = String(arrival).trim();
+    const dStr = String(departure).trim();
+    const mA = aStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    const mD = dStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    let a: Date;
+    let d: Date;
+    if (mA && mD) {
+        a = new Date(Number(mA[1]), Number(mA[2]) - 1, Number(mA[3]));
+        d = new Date(Number(mD[1]), Number(mD[2]) - 1, Number(mD[3]));
+    } else {
+        a = new Date(aStr);
+        d = new Date(dStr);
+    }
+    if (Number.isNaN(a.getTime()) || Number.isNaN(d.getTime())) return dash;
+    const days = Math.round((d.getTime() - a.getTime()) / 86_400_000);
+    if (days < 0) return dash;
+    return `(${days} ${ruNightsWord(days)})`;
+}
+
+/** Сумма брони (бат): максимум по строкам charge в invoice (как в автоучёте / загрузка аналитики). */
+function getBookingLineChargeTotal(b: Booking): string {
+    const dash = '—';
+    const items = b.invoiceItems;
+    if (!items?.length) return dash;
+    let max = 0;
+    for (const item of items) {
+        if (item.type === 'charge' && typeof item.lineTotal === 'number' && item.lineTotal > max) {
+            max = item.lineTotal;
+        }
+    }
+    if (max <= 0) return dash;
+    return `${max.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} бат`;
+}
+
+const BOOKING_GROUP_COMMENT_MAX = 50;
+
+/** Полный комментарий к брони (без усечения) или null, если пусто. */
+function getBookingGroupCommentTextFull(b: Booking): string | null {
+    for (const key of [b.comments, b.notes, b.message] as const) {
+        if (key == null) continue;
+        const s = String(key).replace(/\s+/g, ' ').trim();
+        if (s !== '') return s;
+    }
+    return null;
+}
+
+/** Комментарий к брони: первое непустое из типичных полей Mongo/Beds24, до 50 символов. */
+function getBookingGroupCommentText(b: Booking): string {
+    const dash = '—';
+    const full = getBookingGroupCommentTextFull(b);
+    if (full == null) return dash;
+    if (full.length <= BOOKING_GROUP_COMMENT_MAX) return full;
+    return full.slice(0, BOOKING_GROUP_COMMENT_MAX - 1) + '…';
+}
+
+/** Кол-во гостей в скобках: (2), если в данных нет numAdult/numChild — «—». */
+function formatGuestCountInParens(b: Booking): string {
+    const dash = '—';
+    const hasA = typeof b.numAdult === 'number';
+    const hasC = typeof b.numChild === 'number';
+    if (!hasA && !hasC) return dash;
+    const n = (b.numAdult ?? 0) + (b.numChild ?? 0);
+    return `(${n})`;
+}
+
+type BookingGroupLineModel = {
+    segments: [
+        string,
+        string,
+        string,
+        string,
+        string,
+        string,
+        string,
+        string,
+        string,
+        string,
+    ];
+    /** Для подсказки: полный комментарий, если в строке он усечён. */
+    commentFull: string | null;
+};
+
+/**
+ * Заголовок группы брони: заезд · выезд · ночи · источник · заголовок · имя · фамилия · комментарий · (гостей) · сумма.
+ * `bookingGroupLine` — сегменты и полный комментарий для Tooltip.
+ */
+function buildBookingGroupLine(
+    bookingId: number,
+    bookings: Booking[],
+): { label: string; bookingGroupLine: BookingGroupLineModel | undefined } {
     const dash = '—';
     const segText = (v: unknown) => {
         if (v === undefined || v === null) return dash;
@@ -306,18 +412,29 @@ function formatBookingOperationsGroupLabel(bookingId: number, bookings: Booking[
     };
 
     const b = bookings.find((x) => normalizeUnitOrRoomId(x.id) === bookingId);
-
     if (!b) {
-        return [dash, dash, dash, dash, dash, dash].join(' · ');
+        return {
+            label: [dash, dash, dash, dash, dash, dash, dash, dash, dash, dash].join(' · '),
+            bookingGroupLine: undefined,
+        };
     }
-    return [
+    const commentFull = getBookingGroupCommentTextFull(b);
+    const segments: BookingGroupLineModel['segments'] = [
         segDate(b.arrival),
         segDate(b.departure),
-        segText(b.title),
+        formatBookingNightsLabel(b.arrival, b.departure),
         segSource(b),
+        segText(b.title),
         segText(b.firstName),
         segText(b.lastName),
-    ].join(' · ');
+        getBookingGroupCommentText(b),
+        formatGuestCountInParens(b),
+        getBookingLineChargeTotal(b),
+    ];
+    return {
+        label: segments.join(' · '),
+        bookingGroupLine: { segments, commentFull },
+    };
 }
 
 /**
@@ -347,6 +464,8 @@ type OperationListGroup = {
     bookingRoomMismatch?: boolean;
     /** `unitId` брони (нормализованный), только для групп `b-*` */
     bookingUnitRoomId?: number | null;
+    /** Сегменты заголовка и полный комментарий (Tooltip) — только для групп `b-*` с известной бронью. */
+    bookingGroupLine?: BookingGroupLineModel;
 };
 
 export default function Page() {
@@ -925,7 +1044,7 @@ export default function Page() {
         map.delete('none');
 
         for (const [, gRows] of map) {
-            gRows.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            sortRowsByAccountancyCategoryOrder(gRows, BOOKING_GROUP_CATEGORY_ORDER);
         }
 
         if (selectedMonth && monthBookingsForReportMonth.length > 0) {
@@ -967,9 +1086,11 @@ export default function Page() {
         const bookingGroups: OperationListGroup[] = bookingEntries.map(([key, rows]) => {
             const bid = Number(key.slice(2));
             const b = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
+            const { label, bookingGroupLine } = buildBookingGroupLine(bid, bookingsMergedForLabels);
             return {
                 key,
-                label: formatBookingOperationsGroupLabel(bid, bookingsMergedForLabels),
+                label,
+                ...(bookingGroupLine != null ? { bookingGroupLine } : {}),
                 rows,
                 bookingRoomMismatch: bookingRoomMismatchForKey(key),
                 bookingUnitRoomId: b != null ? normalizeUnitOrRoomId(b.unitId) : null,
@@ -985,7 +1106,7 @@ export default function Page() {
             bySub.get(sid)!.push(row);
         }
         for (const sid of NO_BOOKING_SUBGROUP_ORDER) {
-            bySub.get(sid)!.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            sortRowsByAccountancyCategoryOrder(bySub.get(sid)!, getNoBookingSubgroupCategoryOrder(sid));
         }
         const noBookingGroups: OperationListGroup[] = NO_BOOKING_SUBGROUP_ORDER.map((sid) => ({
             key: `nobook-${sid}`,
@@ -1979,6 +2100,13 @@ export default function Page() {
                                                 {operationGroups.map((group) => {
                                                     const collapsed = collapsedOperationGroups.has(group.key);
                                                     const groupIsEmpty = group.rows.length === 0;
+                                                    const line = group.bookingGroupLine;
+                                                    const longCommentForTooltip =
+                                                        line != null &&
+                                                        line.commentFull != null &&
+                                                        line.commentFull.length > BOOKING_GROUP_COMMENT_MAX
+                                                            ? line.commentFull
+                                                            : null;
                                                     return (
                                                     <Fragment key={group.key}>
                                                         <TableRow
@@ -2041,7 +2169,40 @@ export default function Page() {
                                                                             color: 'inherit',
                                                                         }}
                                                                     >
-                                                                        {group.label}
+                                                                        {line != null ? (
+                                                                            <>
+                                                                                {line.segments.map((seg, i) => (
+                                                                                    <Fragment key={i}>
+                                                                                        {i > 0 ? ' · ' : null}
+                                                                                        {i === 7 && longCommentForTooltip != null ? (
+                                                                                            <Tooltip
+                                                                                                title={longCommentForTooltip}
+                                                                                                enterDelay={200}
+                                                                                                slotProps={{
+                                                                                                    tooltip: {
+                                                                                                        sx: {
+                                                                                                            maxWidth: 480,
+                                                                                                            whiteSpace: 'pre-wrap',
+                                                                                                        },
+                                                                                                    },
+                                                                                                }}
+                                                                                            >
+                                                                                                <Box
+                                                                                                    component="span"
+                                                                                                    sx={{ display: 'inline' }}
+                                                                                                >
+                                                                                                    {seg}
+                                                                                                </Box>
+                                                                                            </Tooltip>
+                                                                                        ) : (
+                                                                                            <span>{seg}</span>
+                                                                                        )}
+                                                                                    </Fragment>
+                                                                                ))}
+                                                                            </>
+                                                                        ) : (
+                                                                            group.label
+                                                                        )}
                                                                     </Typography>
                                                                     {group.bookingRoomMismatch ? (
                                                                         <Tooltip

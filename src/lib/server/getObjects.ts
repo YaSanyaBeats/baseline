@@ -143,7 +143,7 @@ export function buildClientObjectRows(
             );
             return {
                 id: logicalId,
-                name: roomType.name || `Object ${logicalId}`,
+                name: propName || `Object ${propertyId}`,
                 propertyId,
                 propertyName: propName,
                 roomTypes: rooms,

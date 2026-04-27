@@ -54,6 +54,13 @@ export interface Booking {
     referer?: string,
     refererEditable?: string,
     channel?: string,
+    /** Гости Beds24; для подписи групп в бухгалтерии. */
+    numAdult?: number,
+    numChild?: number,
+    /** Примечания/комментарий к брони (Beds24 / Mongo). */
+    comments?: string,
+    notes?: string,
+    message?: string,
 }
 
 export interface InvoiceItem {
