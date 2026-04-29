@@ -364,6 +364,8 @@
     "balance": "Balance",
     "statsByObject": "Balance by object",
     "statsByRoom": "Balance by rooms of the object",
+    "openingBalanceColumn": "Opening balance",
+    "unallocatedRoomStats": "Unallocated to rooms",
     "noStatsForSelection": "No data for the selected filter",
     "operationsList": "Operations",
     "bookingRoomFilterMismatch": "The transaction room differs from the transaction booking room. Filter room ID: {{roomId}}. Booking ID: {{bookingId}} (booking room ID: {{bookingUnitRoomId}})",

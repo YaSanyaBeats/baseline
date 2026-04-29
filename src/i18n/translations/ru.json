@@ -363,6 +363,8 @@
     "balance": "Баланс",
     "statsByObject": "Список объектов",
     "statsByRoom": "Баланс по комнатам объекта",
+    "openingBalanceColumn": "Остаток на начало",
+    "unallocatedRoomStats": "Не распределено по комнатам",
     "noStatsForSelection": "Нет данных для выбранного фильтра",
     "operationsList": "Операции",
     "bookingRoomFilterMismatch": "Комната транзакции отличается от брони транзакции. ID комнаты (фильтр): {{roomId}}. ID брони: {{bookingId}} (ID комнаты брони: {{bookingUnitRoomId}})",

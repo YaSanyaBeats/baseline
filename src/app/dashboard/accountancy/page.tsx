@@ -281,6 +281,16 @@ function recordMatchesReportPeriod(
     return reportMonthsInFilter.has(rm);
 }
 
+/** Месяц YYYY-MM для накопления «остатка на начало»: отчётный месяц, иначе календарный по дате операции. */
+function ledgerMonthFromRecord(date: Date | string | undefined, reportMonth: string | undefined | null): string | null {
+    const rm = (reportMonth ?? '').trim();
+    if (/^\d{4}-\d{2}$/.test(rm)) return rm;
+    if (!date) return null;
+    const parsed = new Date(date as string | Date);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
+}
+
 /** Room/unit/booking id из API/Mongo может прийти строкой — иначе `===` с числовым room.id ломает строки сводки. */
 function normalizeUnitOrRoomId(value: unknown): number | null {
     if (value === undefined || value === null || value === '') return null;
@@ -599,10 +609,19 @@ export default function Page() {
 
         const objectIdsForApi = Array.from(new Set(objects.map((o) => o.id)));
 
+        const hasAnyPeriod =
+            Boolean(selectedMonth) || Boolean(effectiveDateRange.from) || Boolean(effectiveDateRange.to);
         const listQuery = {
             objectIds: objectIdsForApi,
-            ...(effectiveDateRange.from ? { dateFrom: effectiveDateRange.from } : {}),
-            ...(effectiveDateRange.to ? { dateTo: effectiveDateRange.to } : {}),
+            ...(hasAnyPeriod
+                ? {
+                      dateFrom: '2000-01-01',
+                      dateTo: effectiveDateRange.to || localCalendarYmd(new Date()),
+                  }
+                : {
+                      ...(effectiveDateRange.from ? { dateFrom: effectiveDateRange.from } : {}),
+                      ...(effectiveDateRange.to ? { dateTo: effectiveDateRange.to } : {}),
+                  }),
         };
 
         let cancelled = false;
@@ -644,7 +663,7 @@ export default function Page() {
         return () => {
             cancelled = true;
         };
-    }, [hasAccess, filtersHydrated, objects, effectiveDateRange.from, effectiveDateRange.to]);
+    }, [hasAccess, filtersHydrated, objects, effectiveDateRange.from, effectiveDateRange.to, selectedMonth]);
 
     const loading = !filtersHydrated || referenceLoading || transactionsLoading;
 
@@ -808,6 +827,48 @@ export default function Page() {
         const incomeRoomId = (i: Income) =>
             resolveRecordRoomId(i.objectId, i.roomId, i.bookingId);
 
+        type MonthRoomAgg = Map<string, Map<number, { exp: number; inc: number }>>;
+        const monthRoomAgg: MonthRoomAgg = new Map();
+
+        const bumpAgg = (month: string, roomKey: number, kind: 'exp' | 'inc', amount: number) => {
+            if (!monthRoomAgg.has(month)) monthRoomAgg.set(month, new Map());
+            const rm = monthRoomAgg.get(month)!;
+            const cur = rm.get(roomKey) ?? { exp: 0, inc: 0 };
+            cur[kind] += amount;
+            rm.set(roomKey, cur);
+        };
+
+        for (const e of expenses) {
+            if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) continue;
+            const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
+            if (!lm) continue;
+            const rid = expenseRoomId(e);
+            const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_ID : rid;
+            bumpAgg(lm, key, 'exp', getExpenseSum(e));
+        }
+        for (const i of incomes) {
+            if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) continue;
+            const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
+            if (!lm) continue;
+            const rid = incomeRoomId(i);
+            const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_ID : rid;
+            bumpAgg(lm, key, 'inc', getIncomeSum(i));
+        }
+
+        let openingByRoom = new Map<number, number>();
+        if (reportMonthsInFilter !== null && reportMonthsInFilter.size > 0) {
+            const firstPeriodMonth = Array.from(reportMonthsInFilter).sort()[0];
+            const running = new Map<number, number>();
+            for (const m of Array.from(monthRoomAgg.keys()).sort()) {
+                if (m >= firstPeriodMonth) break;
+                const roomMap = monthRoomAgg.get(m)!;
+                for (const [roomKey, v] of roomMap) {
+                    running.set(roomKey, (running.get(roomKey) ?? 0) + v.inc - v.exp);
+                }
+            }
+            openingByRoom = running;
+        }
+
         const roomRows = roomsForSelectedObject.map((room) => {
             let expenses = 0;
             let incomes = 0;
@@ -822,6 +883,7 @@ export default function Page() {
                 roomName: room.name || `Room ${room.id}`,
                 expenses,
                 incomes,
+                openingBalance: openingByRoom.get(room.id) ?? 0,
             };
         });
 
@@ -836,21 +898,43 @@ export default function Page() {
             if (incomeRoomId(i) === null) orphanInc += getIncomeSum(i);
         });
 
-        const rows: Array<{ roomId: number; roomName: string; expenses: number; incomes: number }> =
-            selectedRoomId === 'all' && (orphanExp > 0 || orphanInc > 0)
-                ? [
-                      ...roomRows,
-                      {
-                          roomId: ACCOUNTANCY_UNALLOCATED_ROOM_ID,
-                          roomName: t('accountancy.unallocatedRoomStats'),
-                          expenses: orphanExp,
-                          incomes: orphanInc,
-                      },
-                  ]
-                : roomRows;
+        const orphanOpening = openingByRoom.get(ACCOUNTANCY_UNALLOCATED_ROOM_ID) ?? 0;
+        const showUnallocatedRow =
+            selectedRoomId === 'all' &&
+            (orphanExp > 0 || orphanInc > 0 || orphanOpening !== 0);
+
+        const rows: Array<{
+            roomId: number;
+            roomName: string;
+            expenses: number;
+            incomes: number;
+            openingBalance: number;
+        }> = showUnallocatedRow
+            ? [
+                  ...roomRows,
+                  {
+                      roomId: ACCOUNTANCY_UNALLOCATED_ROOM_ID,
+                      roomName: t('accountancy.unallocatedRoomStats'),
+                      expenses: orphanExp,
+                      incomes: orphanInc,
+                      openingBalance: orphanOpening,
+                  },
+              ]
+            : roomRows;
 
         return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomId === selectedRoomId);
-    }, [selectedObject, roomsForSelectedObject, filteredByReportPeriod, bookings, selectedRoomId, t, objects]);
+    }, [
+        selectedObject,
+        roomsForSelectedObject,
+        filteredByReportPeriod,
+        bookings,
+        selectedRoomId,
+        t,
+        objects,
+        expenses,
+        incomes,
+        reportMonthsInFilter,
+    ]);
 
     const getAccountancyObjectRoomRowHighlight = useMemo(() => {
         return (objectId: number, roomId: number) => {
@@ -1999,6 +2083,7 @@ export default function Page() {
                                 <TableHead>
                                     <TableRow>
                                         <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('common.room')}</TableCell>
+                                        <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.openingBalanceColumn')}</TableCell>
                                         <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')} ({t('accountancy.expensesTitle')})</TableCell>
                                         <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.amountColumn')} ({t('accountancy.incomesTitle')})</TableCell>
                                         <TableCell sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}>{t('accountancy.balance')}</TableCell>
@@ -2006,7 +2091,7 @@ export default function Page() {
                                 </TableHead>
                                 <TableBody>
                                     {filteredRoomStats.map((row) => {
-                                        const balance = row.incomes - row.expenses;
+                                        const balance = row.openingBalance - row.expenses + row.incomes;
                                         const isUnallocatedRow = row.roomId === ACCOUNTANCY_UNALLOCATED_ROOM_ID;
                                         return (
                                             <TableRow
@@ -2024,6 +2109,7 @@ export default function Page() {
                                                 }}
                                             >
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{row.roomName}</TableCell>
+                                                <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.openingBalance)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.expenses)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.incomes)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1, color: balance >= 0 ? 'success.main' : 'error.main' }}>
