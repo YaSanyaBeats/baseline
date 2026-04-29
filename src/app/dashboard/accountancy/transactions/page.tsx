@@ -30,6 +30,7 @@ import {
     Chip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import LinkOffIcon from '@mui/icons-material/LinkOff';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
@@ -551,6 +552,11 @@ export default function Page() {
                     <Link href="/dashboard/accountancy/transactions/bulk-add">
                         <Button variant="outlined" startIcon={<AddIcon />}>
                             {t('accountancy.bulkAddTransactions')}
+                        </Button>
+                    </Link>
+                    <Link href="/dashboard/accountancy/transactions/unlink-bookings">
+                        <Button variant="outlined" startIcon={<LinkOffIcon />}>
+                            {t('accountancy.unlinkBookingsMenu')}
                         </Button>
                     </Link>
                 </Stack>

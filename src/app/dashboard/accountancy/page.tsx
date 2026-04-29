@@ -297,10 +297,9 @@ function ruNightsWord(n: number): string {
     return 'ночей';
 }
 
-/** Ночи проживания: «(N ночь/ночи/ночей)» по разнице календарных дней (Beds24). */
+/** Ночи проживания: «(N ночь/ночи/ночей)» по разнице календарных дней (Beds24). Пустая строка, если данных нет. */
 function formatBookingNightsLabel(arrival: unknown, departure: unknown): string {
-    const dash = '—';
-    if (arrival == null || departure == null) return dash;
+    if (arrival == null || departure == null) return '';
     const aStr = String(arrival).trim();
     const dStr = String(departure).trim();
     const mA = aStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -314,24 +313,23 @@ function formatBookingNightsLabel(arrival: unknown, departure: unknown): string 
         a = new Date(aStr);
         d = new Date(dStr);
     }
-    if (Number.isNaN(a.getTime()) || Number.isNaN(d.getTime())) return dash;
+    if (Number.isNaN(a.getTime()) || Number.isNaN(d.getTime())) return '';
     const days = Math.round((d.getTime() - a.getTime()) / 86_400_000);
-    if (days < 0) return dash;
+    if (days < 0) return '';
     return `(${days} ${ruNightsWord(days)})`;
 }
 
-/** Сумма брони (бат): максимум по строкам charge в invoice (как в автоучёте / загрузка аналитики). */
+/** Сумма брони (бат): максимум по строкам charge в invoice (как в автоучёте / загрузка аналитики). Пустая строка, если суммы нет. */
 function getBookingLineChargeTotal(b: Booking): string {
-    const dash = '—';
     const items = b.invoiceItems;
-    if (!items?.length) return dash;
+    if (!items?.length) return '';
     let max = 0;
     for (const item of items) {
         if (item.type === 'charge' && typeof item.lineTotal === 'number' && item.lineTotal > max) {
             max = item.lineTotal;
         }
     }
-    if (max <= 0) return dash;
+    if (max <= 0) return '';
     return `${max.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} бат`;
 }
 
@@ -347,21 +345,19 @@ function getBookingGroupCommentTextFull(b: Booking): string | null {
     return null;
 }
 
-/** Комментарий к брони: первое непустое из типичных полей Mongo/Beds24, до 50 символов. */
+/** Комментарий к брони: первое непустое из типичных полей Mongo/Beds24, до 50 символов. Пустая строка, если комментария нет. */
 function getBookingGroupCommentText(b: Booking): string {
-    const dash = '—';
     const full = getBookingGroupCommentTextFull(b);
-    if (full == null) return dash;
+    if (full == null) return '';
     if (full.length <= BOOKING_GROUP_COMMENT_MAX) return full;
     return full.slice(0, BOOKING_GROUP_COMMENT_MAX - 1) + '…';
 }
 
-/** Кол-во гостей в скобках: (2), если в данных нет numAdult/numChild — «—». */
+/** Кол-во гостей в скобках: (2); пустая строка, если numAdult/numChild не заданы. */
 function formatGuestCountInParens(b: Booking): string {
-    const dash = '—';
     const hasA = typeof b.numAdult === 'number';
     const hasC = typeof b.numChild === 'number';
-    if (!hasA && !hasC) return dash;
+    if (!hasA && !hasC) return '';
     const n = (b.numAdult ?? 0) + (b.numChild ?? 0);
     return `(${n})`;
 }
@@ -383,6 +379,11 @@ type BookingGroupLineModel = {
     commentFull: string | null;
 };
 
+/** Собирает заголовок группы брони: только непустые части через « · », без заполнителей для пропусков. */
+function joinBookingGroupSegments(parts: readonly string[]): string {
+    return parts.map((s) => String(s).trim()).filter((s) => s !== '').join(' · ');
+}
+
 /**
  * Заголовок группы брони: заезд · выезд · ночи · источник · заголовок · имя · фамилия · комментарий · (гостей) · сумма.
  * `bookingGroupLine` — сегменты и полный комментарий для Tooltip.
@@ -391,30 +392,29 @@ function buildBookingGroupLine(
     bookingId: number,
     bookings: Booking[],
 ): { label: string; bookingGroupLine: BookingGroupLineModel | undefined } {
-    const dash = '—';
     const segText = (v: unknown) => {
-        if (v === undefined || v === null) return dash;
+        if (v === undefined || v === null) return '';
         const s = String(v).trim();
-        return s !== '' ? s : dash;
+        return s !== '' ? s : '';
     };
     const segDate = (v: unknown) => {
-        if (v === undefined || v === null || v === '') return dash;
+        if (v === undefined || v === null || v === '') return '';
         const d = new Date(v as string | Date);
-        if (Number.isNaN(d.getTime())) return dash;
+        if (Number.isNaN(d.getTime())) return '';
         return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' });
     };
     const segSource = (booking: Booking) => {
         const raw = [booking.refererEditable, booking.referer, booking.channel].find(
             (s) => s != null && String(s).trim() !== '',
         );
-        if (raw == null) return dash;
+        if (raw == null) return '';
         return getBookingRefererDisplay(String(raw).trim());
     };
 
     const b = bookings.find((x) => normalizeUnitOrRoomId(x.id) === bookingId);
     if (!b) {
         return {
-            label: [dash, dash, dash, dash, dash, dash, dash, dash, dash, dash].join(' · '),
+            label: '',
             bookingGroupLine: undefined,
         };
     }
@@ -432,7 +432,7 @@ function buildBookingGroupLine(
         getBookingLineChargeTotal(b),
     ];
     return {
-        label: segments.join(' · '),
+        label: joinBookingGroupSegments(segments),
         bookingGroupLine: { segments, commentFull },
     };
 }
@@ -2171,9 +2171,12 @@ export default function Page() {
                                                                     >
                                                                         {line != null ? (
                                                                             <>
-                                                                                {line.segments.map((seg, i) => (
+                                                                                {line.segments
+                                                                                    .map((seg, i) => ({ seg, i }))
+                                                                                    .filter(({ seg }) => seg.trim() !== '')
+                                                                                    .map(({ seg, i }, idx) => (
                                                                                     <Fragment key={i}>
-                                                                                        {i > 0 ? ' · ' : null}
+                                                                                        {idx > 0 ? ' · ' : null}
                                                                                         {i === 7 && longCommentForTooltip != null ? (
                                                                                             <Tooltip
                                                                                                 title={longCommentForTooltip}

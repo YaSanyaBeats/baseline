@@ -1,10 +1,12 @@
 'use client';
 
-import { Fragment } from 'react';
-import { Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
+import { Fragment, useState } from 'react';
+import { IconButton, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
+import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import type { Object as Obj } from '@/lib/types';
 import type { AccountancyObjectRoomRowHighlight } from '@/lib/accountancyObjectRoomRowHighlight';
+import { useTranslation } from '@/i18n/useTranslation';
 
 /** Подсветка «жёлтый» — не `palette.warning` (в MUI это оранжевый) */
 const ROOM_YELLOW = '#EAB308';
@@ -49,12 +51,17 @@ export function AccountancyObjectTreeTable({
     getRoomRowHighlight,
 }: AccountancyObjectTreeTableProps) {
     const theme = useTheme();
+    const { t } = useTranslation();
+    /** Только для первого объекта: комнаты по умолчанию свёрнуты */
+    const [firstObjectRoomsExpanded, setFirstObjectRoomsExpanded] = useState(false);
 
     return (
         <Table size="small" sx={{ fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 } }}>
             <TableBody>
-                {objects.map((obj) => {
+                {objects.map((obj, objIndex) => {
                     const roomTypes = obj.roomTypes ?? [];
+                    const isFirstObject = objIndex === 0;
+                    const showRooms = !isFirstObject || firstObjectRoomsExpanded;
                     const isObjectRowSelected =
                         selectedObjectId !== 'all' && selectedObjectId === obj.id && selectedRoomId === 'all';
                     return (
@@ -86,17 +93,57 @@ export function AccountancyObjectTreeTable({
                                         component="span"
                                         variant="body2"
                                         sx={{
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: 0,
                                             fontSize: '0.75rem',
                                             overflow: 'hidden',
-                                            textOverflow: 'ellipsis',
                                             fontWeight: 600,
+                                            '& > span': {
+                                                overflow: 'hidden',
+                                                textOverflow: 'ellipsis',
+                                                minWidth: 0,
+                                                flex: 1,
+                                            },
                                         }}
                                     >
-                                        {obj.name}
+                                        {isFirstObject ? (
+                                            <IconButton
+                                                size="small"
+                                                aria-expanded={firstObjectRoomsExpanded}
+                                                aria-label={
+                                                    firstObjectRoomsExpanded
+                                                        ? t('accountancy.firstObjectRoomsCollapse')
+                                                        : t('accountancy.firstObjectRoomsExpand')
+                                                }
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setFirstObjectRoomsExpanded((v) => !v);
+                                                }}
+                                                sx={{
+                                                    p: 0.25,
+                                                    mr: 0.25,
+                                                    color: 'text.secondary',
+                                                    '& svg': {
+                                                        transition: (t) =>
+                                                            t.transitions.create('transform', {
+                                                                duration: t.transitions.duration.shorter,
+                                                            }),
+                                                        transform: firstObjectRoomsExpanded
+                                                            ? 'rotate(180deg)'
+                                                            : 'rotate(0deg)',
+                                                    },
+                                                }}
+                                            >
+                                                <ExpandMoreIcon fontSize="small" />
+                                            </IconButton>
+                                        ) : null}
+                                        <span>{obj.name}</span>
                                     </Typography>
                                 </TableCell>
                             </TableRow>
-                            {roomTypes.map((room) => {
+                            {showRooms &&
+                                roomTypes.map((room) => {
                                 const isRoomRowSelected =
                                     selectedObjectId === obj.id && selectedRoomId === room.id;
                                 const roomLabel = room.name || `Room ${room.id}`;
@@ -153,7 +200,7 @@ export function AccountancyObjectTreeTable({
                                         </TableCell>
                                     </TableRow>
                                 );
-                            })}
+                                })}
                         </Fragment>
                     );
                 })}
