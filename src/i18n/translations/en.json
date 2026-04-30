@@ -327,6 +327,7 @@
     "noFilteredExpenses": "No expenses match the selected filters",
     "noFilteredIncomes": "No incomes match the selected filters",
     "dateColumn": "Date",
+    "transactionDate": "Transaction date",
     "categoryColumn": "Category",
     "amountColumn": "Sum",
     "bookingColumn": "Booking",

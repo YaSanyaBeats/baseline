@@ -326,6 +326,7 @@
     "noFilteredExpenses": "Нет расходов, соответствующих выбранным фильтрам",
     "noFilteredIncomes": "Нет доходов, соответствующих выбранным фильтрам",
     "dateColumn": "Дата",
+    "transactionDate": "Дата транзакции",
     "categoryColumn": "Категория",
     "amountColumn": "Сумма",
     "bookingColumn": "Бронь",

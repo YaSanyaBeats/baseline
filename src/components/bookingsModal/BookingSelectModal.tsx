@@ -23,28 +23,12 @@ import {
     MenuItem,
     Typography,
 } from "@mui/material";
-import { Booking, InvoiceItem, Object as Obj } from "@/lib/types";
+import { BookingGroupLineText } from "@/components/accountancy/BookingGroupLineText";
+import { buildBookingGroupLineModel } from "@/lib/bookingGroupLine";
+import { Booking } from "@/lib/types";
 import { searchBookings, BookingSearchParams } from "@/lib/bookings";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useObjects } from "@/providers/ObjectsProvider";
-import { formatDate, formatTitle } from "@/lib/format";
-
-const getMaxInvoice = (invoiceItems: InvoiceItem[] | undefined | null) => {
-    let maxInvoice: InvoiceItem | undefined;
-    (invoiceItems ?? []).forEach((invoiceItem) => {
-        if (invoiceItem.type !== "charge") {
-            return;
-        }
-        if (!maxInvoice || invoiceItem.lineTotal > maxInvoice.lineTotal) {
-            maxInvoice = invoiceItem;
-        }
-    });
-    return maxInvoice;
-};
-
-const getBookingPrice = (booking: Booking) =>
-    getMaxInvoice(booking.invoiceItems)?.lineTotal ?? 0;
-
 const toYmd = (d: Date) =>
     `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -216,77 +200,6 @@ export default function BookingSelectModal({
             }));
         };
 
-    const getRoomNameForBooking = (booking: Booking, objs: Obj[]) => {
-        const pid = booking.propertyId;
-        const uid =
-            booking.unitId != null ? Number(booking.unitId) : null;
-        const bRoomRaw = booking.roomId ?? booking.roomID;
-        const bRoom = bRoomRaw != null ? Number(bRoomRaw) : null;
-        const pidNum = pid != null ? Number(pid) : NaN;
-
-        /** Объекты с тем же property (в т.ч. несколько строк room type с одним propertyId). */
-        let scope: Obj[] =
-            pid == null || Number.isNaN(pidNum)
-                ? objs
-                : objs.filter(
-                      (o) =>
-                          Number(o.propertyId ?? o.id) === pidNum ||
-                          Number(o.id) === pidNum,
-                  );
-        if (pid != null && !Number.isNaN(pidNum) && scope.length === 0) {
-            scope = objs;
-        }
-
-        const roomNameFromRoomTypes = (
-            roomNumericId: number | null,
-            searchIn: Obj[],
-        ): string | null => {
-            if (roomNumericId == null || Number.isNaN(roomNumericId)) {
-                return null;
-            }
-            for (const o of searchIn) {
-                const unit = o.roomTypes?.find(
-                    (r) => Number(r.id) === roomNumericId,
-                );
-                if (unit) {
-                    const n = unit.name?.trim();
-                    return n || `Room ${unit.id}`;
-                }
-            }
-            return null;
-        };
-
-        const byUnit = roomNameFromRoomTypes(uid, scope);
-        if (byUnit) return byUnit;
-
-        const byUnitGlobal =
-            scope !== objs ? roomNameFromRoomTypes(uid, objs) : null;
-        if (byUnitGlobal) return byUnitGlobal;
-
-        const byRoomId = roomNameFromRoomTypes(bRoom, scope);
-        if (byRoomId) return byRoomId;
-
-        const byRoomIdGlobal =
-            scope !== objs ? roomNameFromRoomTypes(bRoom, objs) : null;
-        if (byRoomIdGlobal) return byRoomIdGlobal;
-
-        if (bRoom != null && !Number.isNaN(bRoom)) {
-            const obj = objs.find((o) => Number(o.id) === bRoom);
-            const propertyIdNum = Number(obj?.propertyId ?? obj?.id);
-            if (
-                obj &&
-                Number(obj.id) !== propertyIdNum &&
-                obj.name?.trim()
-            ) {
-                return obj.name.trim();
-            }
-        }
-
-        if (uid != null && !Number.isNaN(uid)) return String(uid);
-        if (bRoom != null && !Number.isNaN(bRoom)) return String(bRoom);
-        return "—";
-    };
-
     return (
         <Dialog
             open={open}
@@ -373,43 +286,26 @@ export default function BookingSelectModal({
                     <Table size="small">
                         <TableHead>
                             <TableRow>
-                                <TableCell>ID</TableCell>
                                 <TableCell>{t("common.name")}</TableCell>
-                                <TableCell>{t("common.roomName")}</TableCell>
-                                <TableCell>{t("common.period")}</TableCell>
-                                <TableCell>{t("common.price")}</TableCell>
-                                <TableCell align="right">{t("common.actions")}</TableCell>
+                                <TableCell align="right">{t("common.select")}</TableCell>
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {results.length === 0 ? (
                                 <TableRow>
-                                    <TableCell colSpan={6} align="center">
+                                    <TableCell colSpan={2} align="center">
                                         <Typography sx={{ py: 2 }}>
                                             {t("accountancy.noFilteredReports")}
                                         </Typography>
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                results.map((booking) => (
+                                results.map((booking) => {
+                                    const groupLine = buildBookingGroupLineModel(booking);
+                                    return (
                                     <TableRow key={booking.id} hover>
-                                        <TableCell>{booking.id}</TableCell>
                                         <TableCell>
-                                            {formatTitle(
-                                                (booking as any).firstName,
-                                                (booking as any).lastName,
-                                                booking.title,
-                                            )}
-                                        </TableCell>
-                                        <TableCell>
-                                            {getRoomNameForBooking(booking, objects)}
-                                        </TableCell>
-                                        <TableCell>
-                                            {formatDate(booking.arrival)} -{" "}
-                                            {formatDate(booking.departure)}
-                                        </TableCell>
-                                        <TableCell>
-                                            {getBookingPrice(booking)} ฿
+                                            <BookingGroupLineText line={groupLine} />
                                         </TableCell>
                                         <TableCell align="right">
                                             <Button
@@ -421,7 +317,8 @@ export default function BookingSelectModal({
                                             </Button>
                                         </TableCell>
                                     </TableRow>
-                                ))
+                                    );
+                                })
                             )}
                         </TableBody>
                     </Table>
