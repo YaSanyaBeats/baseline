@@ -13,7 +13,7 @@ const icon = <CheckBoxOutlineBlankIcon fontSize="small" />;
 const checkedIcon = <CheckBoxIcon fontSize="small" />;
 
 interface Option {
-    value: number,
+    value: string | number,
     title: string,
     objectValue: number,
     objectName: string
@@ -34,15 +34,22 @@ const groupByObjectValue = (data: Option[]): UserObject[] => {
         const id = parseInt(objectValueStr, 10);
         const rooms = items
         .map(item => item.value)
-        .sort((a, b) => a - b);
+        .sort((a, b) => (typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))));
 
         return { id, rooms };
     });
 };
 
 
-export default function RoomsMultiSelect(props: {value: UserObject[], onChange: (value: UserObject[]) => void, label?: string, multiple?: boolean}) {
-    const { value, onChange, label, multiple = true } = props;
+export default function RoomsMultiSelect(props: {
+    value: UserObject[],
+    onChange: (value: UserObject[]) => void,
+    label?: string,
+    multiple?: boolean,
+    /** По умолчанию — имя юнита (стабильная привязка). `id` — для отчётов (roomIds как числа). */
+    roomValueMode?: 'name' | 'id',
+}) {
+    const { value, onChange, label, multiple = true, roomValueMode = 'name' } = props;
     const {objects} = useObjects();
     const { t } = useTranslation();
     const [options, setOptions] = useState<Option[]>();
@@ -52,16 +59,17 @@ export default function RoomsMultiSelect(props: {value: UserObject[], onChange: 
         const currentOptons: Option[] = [];
         objects.forEach((object) => {
             object.roomTypes.forEach((room) => {
+                const val = roomValueMode === 'id' ? room.id : (room.name != null && String(room.name).trim() !== '' ? String(room.name).trim() : `Unit ${room.id}`);
                 currentOptons.push({
                     title: `${object.name}: ${room.name ? room.name : 'Room ' + room.id}`,
-                    value: room.id,
+                    value: val,
                     objectValue: object.id,
                     objectName: object.propertyName || object.name  // Используем propertyName для группировки
                 })
             })
         })
         setOptions(currentOptons);
-    }, [objects]);
+    }, [objects, roomValueMode]);
 
     useEffect(() => {
         if(!value) {

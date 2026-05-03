@@ -82,7 +82,7 @@ export default function Page() {
         return acc;
     }, {});
 
-    const getRoomLinksLabel = (roomLinks: { id: number; rooms: number[] }[]) => {
+    const getRoomLinksLabel = (roomLinks: { id: number; rooms: (string | number)[] }[]) => {
         if (!roomLinks?.length) return '—';
         return roomLinks
             .map((link) => {
@@ -90,6 +90,7 @@ export default function Page() {
                 const objName = obj?.name ?? `Объект ${link.id}`;
                 const roomNames = link.rooms
                     .map((rid) => {
+                        if (typeof rid === 'string') return rid;
                         const room = obj?.roomTypes?.find((r) => r.id === rid);
                         return room?.name ?? rid;
                     })

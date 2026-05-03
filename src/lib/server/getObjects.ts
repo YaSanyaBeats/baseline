@@ -3,6 +3,7 @@ import { getDB } from "../db/getDB";
 import { getInternalObjects } from "./internalObjects";
 import { getAllObjectMetadata, getAllRoomMetadata } from "./objectRoomMetadata";
 import type { ObjectType } from "../types";
+import { roomMetadataMapKey } from "../roomBinding";
 
 /** Внутренние объекты (id < 0) и документы без id у roomType — одна строка; Beds24 с roomType.id — по строке на каждый roomType. */
 export function shouldExpandToRoomTypesPerRawObject(object: any): boolean {
@@ -47,6 +48,10 @@ function mapRoomsForProperty(
 ) {
     const assignmentSet = new Set(userAssignmentIds);
     return (units || []).map((room: any) => {
+        const unitName =
+            room?.name != null && String(room.name).trim() !== ''
+                ? String(room.name).trim()
+                : `Unit ${room?.id ?? ''}`;
         const roomAccessUsers = users
             .filter((user: any) => {
                 if (!Array.isArray(user.objects)) return false;
@@ -54,17 +59,18 @@ function mapRoomsForProperty(
                     (uo: any) =>
                         assignmentSet.has(+uo.id) &&
                         Array.isArray(uo.rooms) &&
-                        uo.rooms.includes(room?.id)
+                        uo.rooms.includes(unitName)
                 );
             })
             .map((user: any) => user.name || user.login);
 
-        const metaKey = `${propertyId}_${room?.id}`;
+        const metaKey = roomMetadataMapKey(propertyId, unitName);
+        const altKey =
+            logicalObjectIdForUsers !== propertyId
+                ? roomMetadataMapKey(logicalObjectIdForUsers, unitName)
+                : null;
         const roomMeta =
-            roomMetadataMap[metaKey] ??
-            (logicalObjectIdForUsers !== propertyId
-                ? roomMetadataMap[`${logicalObjectIdForUsers}_${room?.id}`]
-                : undefined);
+            roomMetadataMap[metaKey] ?? (altKey ? roomMetadataMap[altKey] : undefined);
         return {
             id: room?.id,
             name: room?.name,
@@ -159,7 +165,7 @@ export function buildClientObjectRows(
 /** Фильтрация строк для эндпоинта «объекты пользователя» (по записи user.objects). */
 export function filterClientRowsByUserAssignments(
     rows: ClientObjectRow[],
-    objectInfo: { id: number; rooms: number[] }[]
+    objectInfo: { id: number; rooms: (string | number)[] }[]
 ): ClientObjectRow[] {
     if (!Array.isArray(objectInfo) || objectInfo.length === 0) return [];
     return rows
@@ -173,9 +179,16 @@ export function filterClientRowsByUserAssignments(
             if (!Array.isArray(oi.rooms) || oi.rooms.length === 0) {
                 return row;
             }
+            const nameSet = new Set(oi.rooms.map((s) => String(s)));
             return {
                 ...row,
-                roomTypes: row.roomTypes.filter((r: { id: number }) => oi.rooms.includes(r.id)),
+                roomTypes: row.roomTypes.filter((r: { id?: number; name?: string }) =>
+                    nameSet.has(
+                        r.name != null && String(r.name).trim() !== ''
+                            ? String(r.name).trim()
+                            : `Unit ${r.id ?? ''}`
+                    )
+                ),
             };
         })
         .filter((row) => row.roomTypes.length > 0);
@@ -247,7 +260,7 @@ function hasFullObjectsAccess(session: { user?: { role?: string; hasCashflow?: b
 /** Фильтрует список объектов по доступу пользователя (user.objects). */
 function filterObjectsByUserObjects(
     objects: { id: number; propertyId: number; name: string; roomTypes: { id: number; name: string; [k: string]: unknown }[]; [k: string]: unknown }[],
-    userObjects: { id: number; rooms: number[] }[]
+    userObjects: { id: number; rooms: string[] }[]
 ): typeof objects {
     if (!Array.isArray(userObjects) || userObjects.length === 0) return [];
     return objects
@@ -258,8 +271,14 @@ function filterObjectsByUserObjects(
             const uo =
                 userObjects.find((o) => o.id === obj.id) ??
                 userObjects.find((o) => o.id === obj.propertyId);
-            const roomIds = uo && Array.isArray(uo.rooms) ? new Set(uo.rooms) : new Set<number>();
-            const roomTypes = (obj.roomTypes || []).filter((r: { id: number }) => roomIds.has(r.id));
+            const roomNames = uo && Array.isArray(uo.rooms) ? new Set(uo.rooms.map((s) => String(s))) : new Set<string>();
+            const roomTypes = (obj.roomTypes || []).filter((r: { id: number; name?: string }) => {
+                const label =
+                    r.name != null && String(r.name).trim() !== ''
+                        ? String(r.name).trim()
+                        : `Unit ${r.id}`;
+                return roomNames.has(label);
+            });
             return { ...obj, roomTypes };
         });
 }

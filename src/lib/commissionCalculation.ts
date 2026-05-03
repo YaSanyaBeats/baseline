@@ -378,7 +378,8 @@ export function calculateBookingCommission(
 
 export interface CommissionCalculationParams {
     objectId: number;
-    roomId: number | 'all';
+    /** Имя юнита (стабильная метка) или все комнаты */
+    roomFilter: string | 'all';
     monthKey: string; // YYYY-MM
     schemeId: CommissionSchemeId;
 }
@@ -405,10 +406,10 @@ function buildCategoryDivisibilityMap(categories: AccountancyCategory[]): Catego
 /**
  * Собирает данные для расчёта комиссии: бронирования, доходы и расходы за месяц.
  * @param categories — категории расходов (type='expense') для определения divisibility
- */
-/**
- * @param accountingObjectId — id «объекта» в учёте (после миграции — roomType id): фильтр доходов/расходов.
+ * @param accountingObjectId — id объекта в учёте: фильтр доходов/расходов.
+ * @param roomFilter — имя юнита (как в Beds24 / objects) или 'all'.
  * @param propertyIdForBookings — id property в Beds24 для фильтра броней; если не задан, используется accountingObjectId (legacy).
+ * @param roomsForFilter — строки roomTypes объекта: сопоставляют roomFilter с текущим unitId брони.
  */
 export function prepareCommissionData(
     bookings: Booking[],
@@ -416,23 +417,27 @@ export function prepareCommissionData(
     expenses: Expense[],
     categories: AccountancyCategory[],
     accountingObjectId: number,
-    roomId: number | 'all',
+    roomFilter: string | 'all',
     monthKey: string,
-    propertyIdForBookings?: number
+    propertyIdForBookings?: number,
+    roomsForFilter?: { id: number; name?: string }[]
 ): BookingCommissionInput[] {
     const categoryDivisibilityMap = buildCategoryDivisibilityMap(
         categories.filter((c) => c.type === 'expense')
     );
-    const [y, m] = monthKey.split('-').map(Number);
-    const monthStart = new Date(y, m - 1, 1);
-    const monthEnd = new Date(y, m, 0, 23, 59, 59);
-
     const bookingPropertyId = propertyIdForBookings ?? accountingObjectId;
 
     const filteredBookings = bookings.filter((b) => {
         if (b.propertyId !== bookingPropertyId) return false;
-        if (roomId !== 'all' && b.unitId !== roomId) return false;
-        return true;
+        if (roomFilter === 'all') return true;
+        const uid = b.unitId;
+        const row = roomsForFilter?.find((r) => {
+            const label =
+                r.name != null && String(r.name).trim() !== '' ? String(r.name).trim() : `Unit ${r.id}`;
+            return label === roomFilter;
+        });
+        if (!row) return false;
+        return uid === row.id;
     });
 
     return filteredBookings.map((booking) => {

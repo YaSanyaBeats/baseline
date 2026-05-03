@@ -38,7 +38,6 @@ import { getUsersWithCashflow } from '@/lib/users';
 import FileAttachments from '@/components/accountancy/FileAttachments';
 import SourceRecipientSelect, {
     type SourceRecipientOptionValue,
-    PREFIX_ROOM,
 } from '@/components/accountancy/SourceRecipientSelect';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
@@ -48,6 +47,8 @@ import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { formatRoomSourceRecipient } from '@/lib/roomBinding';
+import { useObjects } from '@/providers/ObjectsProvider';
 
 type LineFields = {
     category: string;
@@ -95,6 +96,32 @@ function createDefaultSubItem(defaultRecordKind: 'expense' | 'income' = 'expense
     };
 }
 
+/** Подстрока: тип противоположен форме; «От кого»/«Кому» — поменять местами с родителем, если хотя бы одно заполнено. */
+function buildSubItemFromParent(
+    parent: LineFields,
+    formType: 'expense' | 'income',
+    objectId: number | undefined,
+    roomName: string | undefined,
+    sharedReportMonth: string,
+): SubItemForm {
+    const recordKind: 'expense' | 'income' = formType === 'expense' ? 'income' : 'expense';
+    const sub = createDefaultSubItem(recordKind);
+    const hasParties =
+        String(parent.source ?? '').trim() !== '' || String(parent.recipient ?? '').trim() !== '';
+    if (hasParties) {
+        sub.source = parent.recipient as SourceRecipientOptionValue | '';
+        sub.recipient = parent.source as SourceRecipientOptionValue | '';
+    } else if (objectId != null && roomName != null) {
+        const roomValue = formatRoomSourceRecipient(objectId, roomName);
+        if (recordKind === 'expense') sub.source = roomValue;
+        else sub.recipient = roomValue;
+    }
+    if (sharedReportMonth) {
+        sub.date = reportMonthToFirstDayString(sharedReportMonth);
+    }
+    return sub;
+}
+
 function createDefaultItem(): ItemForm {
     return {
         ...createDefaultLineFields(),
@@ -109,6 +136,12 @@ function reportMonthToFirstDayString(reportMonth: string): string {
     return `${reportMonth}-01`;
 }
 
+function stableTxnRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
+
 interface TransactionAddFormProps {
     type: 'expense' | 'income';
 }
@@ -117,9 +150,10 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
     const { t } = useTranslation();
     const router = useRouter();
     const { isAdmin, isAccountant, user } = useUser();
+    const { objects } = useObjects();
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [objectId, setObjectId] = useState<number | undefined>();
-    const [roomId, setRoomId] = useState<number | undefined>();
+    const [roomName, setRoomName] = useState<string | undefined>();
     const [items, setItems] = useState<ItemForm[]>([createDefaultItem()]);
     const [bookingModalTarget, setBookingModalTarget] = useState<
         | { kind: 'main'; index: number }
@@ -215,11 +249,12 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
         const objId = value.length > 0 ? value[0].id : undefined;
-        const rId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        const rPick = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        const rName = rPick !== undefined ? String(rPick) : undefined;
         setObjectId(objId);
-        setRoomId(rId);
+        setRoomName(rName);
         const roomValue: SourceRecipientOptionValue | '' =
-            objId != null && rId != null ? `${PREFIX_ROOM}${objId}:${rId}` : '';
+            objId != null && rName != null ? formatRoomSourceRecipient(objId, rName) : '';
         setItems((prev) =>
             prev.map((item) => ({
                 ...item,
@@ -227,8 +262,9 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                 recipient: type === 'income' ? roomValue : item.recipient,
                 subItems: item.subItems.map((sub) => ({
                     ...sub,
-                    source: type === 'expense' ? roomValue : sub.source,
-                    recipient: type === 'income' ? roomValue : sub.recipient,
+                    ...(sub.recordKind === 'expense'
+                        ? { source: roomValue }
+                        : { recipient: roomValue }),
                 })),
             }))
         );
@@ -241,9 +277,9 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
 
     const handleAddItem = () => {
         const newItem = createDefaultItem();
-        if (objectId != null && roomId != null) {
-            if (type === 'expense') newItem.source = `${PREFIX_ROOM}${objectId}:${roomId}`;
-            else newItem.recipient = `${PREFIX_ROOM}${objectId}:${roomId}`;
+        if (objectId != null && roomName != null) {
+            if (type === 'expense') newItem.source = formatRoomSourceRecipient(objectId, roomName);
+            else newItem.recipient = formatRoomSourceRecipient(objectId, roomName);
         }
         if (sharedReportMonth) {
             newItem.date = reportMonthToFirstDayString(sharedReportMonth);
@@ -309,18 +345,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                 if (!checked) return { ...item, splittable: false, subItems: [] };
                 let subItems = item.subItems;
                 if (subItems.length === 0) {
-                    const sub = createDefaultSubItem(type);
-                    if (objectId != null && roomId != null) {
-                        if (type === 'expense') {
-                            sub.source = `${PREFIX_ROOM}${objectId}:${roomId}`;
-                        } else {
-                            sub.recipient = `${PREFIX_ROOM}${objectId}:${roomId}`;
-                        }
-                    }
-                    if (sharedReportMonth) {
-                        sub.date = reportMonthToFirstDayString(sharedReportMonth);
-                    }
-                    subItems = [sub];
+                    subItems = [buildSubItemFromParent(item, type, objectId, roomName, sharedReportMonth)];
                 }
                 return { ...item, splittable: true, subItems };
             })
@@ -377,21 +402,18 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
     };
 
     const handleAddSubItem = (parentIndex: number) => {
-        const newSub = createDefaultSubItem(type);
-        if (objectId != null && roomId != null) {
-            if (type === 'expense') {
-                newSub.source = `${PREFIX_ROOM}${objectId}:${roomId}`;
-            } else {
-                newSub.recipient = `${PREFIX_ROOM}${objectId}:${roomId}`;
-            }
-        }
-        if (sharedReportMonth) {
-            newSub.date = reportMonthToFirstDayString(sharedReportMonth);
-        }
         setItems((prev) =>
-            prev.map((item, i) =>
-                i === parentIndex ? { ...item, subItems: [...item.subItems, newSub] } : item
-            )
+            prev.map((item, i) => {
+                if (i !== parentIndex) return item;
+                const newSub = buildSubItemFromParent(
+                    item,
+                    type,
+                    objectId,
+                    roomName,
+                    sharedReportMonth,
+                );
+                return { ...item, subItems: [...item.subItems, newSub] };
+            }),
         );
     };
 
@@ -519,7 +541,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                     if (type === 'expense') {
                         const basePayload: Omit<Expense, 'parentExpenseId' | 'parentIncomeId'> = {
                             objectId,
-                            roomId,
+                            roomName,
                             bookingId: item.bookingId,
                             source: item.source || undefined,
                             recipient: item.recipient || undefined,
@@ -551,7 +573,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                     if (sub.recordKind === 'expense') {
                                         const subPayload: Expense = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
@@ -577,7 +599,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                     } else {
                                         const subPayload: Income = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             cashflowId: userCashflowId,
                                             category: sub.category,
@@ -614,7 +636,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                     } else {
                         const baseIncomePayload: Omit<Income, 'parentExpenseId' | 'parentIncomeId'> = {
                             objectId,
-                            roomId,
+                            roomName,
                             bookingId: item.bookingId,
                             cashflowId: userCashflowId,
                             category: item.category,
@@ -646,7 +668,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                     if (sub.recordKind === 'expense') {
                                         const subPayload: Expense = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
@@ -672,7 +694,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                     } else {
                                         const subPayload: Income = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             cashflowId: userCashflowId,
                                             category: sub.category,
@@ -735,6 +757,14 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
             setLoading(false);
         }
     };
+
+    const bookingModalInitialRoomId = useMemo(() => {
+        if (!objectId || roomName == null || roomName === '') return undefined;
+        const o = objects.find((x) => x.id === objectId);
+        const want = String(roomName).trim();
+        const rt = o?.roomTypes?.find((r) => stableTxnRoomLabel(r) === want);
+        return rt?.id;
+    }, [objects, objectId, roomName]);
 
     const titleKey = type === 'expense' ? 'accountancy.addExpense' : 'accountancy.addIncome';
     const dateLabelKey = type === 'expense' ? 'accountancy.expenseDate' : 'accountancy.incomeDate';
@@ -1401,7 +1431,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                 onSelect={handleBookingSelect}
                 initialObjectId={objectId}
                 reportMonth={sharedReportMonth}
-                initialRoomId={roomId}
+                initialRoomId={bookingModalInitialRoomId}
             />
         </>
     );

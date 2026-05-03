@@ -7,6 +7,7 @@
 import { getDB } from '../db/getDB';
 import type { ObjectType, RoomLevel } from '../types';
 import type { CommissionSchemeId } from '../commissionCalculation';
+import { roomMetadataMapKey } from '../roomBinding';
 
 export interface ObjectMetadataDoc {
     objectId: number;
@@ -16,7 +17,8 @@ export interface ObjectMetadataDoc {
 
 export interface RoomMetadataDoc {
     objectId: number;
-    roomId: number;
+    /** Стабильный ключ: имя юнита (как в Beds24 objects), не unit id */
+    roomName: string;
     bedrooms?: number;
     bathrooms?: number;
     livingRoomSofas?: number;
@@ -47,7 +49,8 @@ export async function getAllRoomMetadata(): Promise<Record<string, RoomMetadataD
     const docs = await collection.find({}).toArray();
     const result: Record<string, RoomMetadataDoc> = {};
     for (const doc of docs) {
-        result[`${doc.objectId}_${doc.roomId}`] = doc;
+        if (!doc.roomName) continue;
+        result[roomMetadataMapKey(doc.objectId, doc.roomName)] = doc;
     }
     return result;
 }
@@ -74,18 +77,18 @@ export async function upsertObjectMetadata(
 
 export async function upsertRoomMetadata(
     objectId: number,
-    roomId: number,
-    data: Partial<Omit<RoomMetadataDoc, 'objectId' | 'roomId'>>,
+    roomName: string,
+    data: Partial<Omit<RoomMetadataDoc, 'objectId' | 'roomName'>>,
     options?: { unset?: (keyof RoomMetadataDoc)[] }
 ): Promise<void> {
     const db = await getDB();
     const collection = db.collection<RoomMetadataDoc>(ROOMS_COLLECTION);
-    const toSet = filterUndefined({ objectId, roomId, ...data });
+    const toSet = filterUndefined({ objectId, roomName, ...data });
     const update: Record<string, unknown> = {};
     if (Object.keys(toSet).length > 0) update.$set = toSet;
     if (options?.unset?.length) {
         update.$unset = Object.fromEntries(options.unset.map((k) => [String(k), '']));
     }
     if (Object.keys(update).length === 0) return;
-    await collection.updateOne({ objectId, roomId }, update, { upsert: true });
+    await collection.updateOne({ objectId, roomName }, update, { upsert: true });
 }

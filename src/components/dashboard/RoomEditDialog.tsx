@@ -33,7 +33,7 @@ interface RoomEditDialogProps {
     room: Room | null;
     onSave: (
         objectId: number,
-        roomId: number,
+        roomName: string,
         data: {
             bedrooms?: number;
             bathrooms?: number;
@@ -91,7 +91,11 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
         if (!object || !room) return;
         setSaving(true);
         try {
-            await onSave(object.propertyId ?? object.id, room.id, {
+            const roomName =
+                room.name != null && String(room.name).trim() !== ''
+                    ? String(room.name).trim()
+                    : `Unit ${room.id}`;
+            await onSave(object.id, roomName, {
                 bedrooms: bedrooms !== '' ? parseInt(bedrooms, 10) : undefined,
                 bathrooms: bathrooms !== '' ? parseInt(bathrooms, 10) : undefined,
                 livingRoomSofas: livingRoomSofas !== '' ? parseInt(livingRoomSofas, 10) : undefined,

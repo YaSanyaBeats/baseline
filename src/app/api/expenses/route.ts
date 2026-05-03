@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
             await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                 objectId: expenseData.objectId,
                 category: expenseData.category,
-                roomId: expenseData.roomId ?? null,
+                roomName: expenseData.roomName ?? null,
                 reportMonth: expenseData.reportMonth,
             })
         ) {
@@ -266,7 +266,7 @@ export async function POST(request: NextRequest) {
         const expenseToInsert = {
             recordType: 'expense' as const,
             objectId: expenseData.objectId,
-            roomId: expenseData.roomId ?? null,
+            roomName: expenseData.roomName ?? null,
             bookingId: expenseData.bookingId ?? null,
             counterpartyId: expenseData.counterpartyId ?? null,
             source: expenseData.source ?? null,

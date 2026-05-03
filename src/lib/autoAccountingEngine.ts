@@ -10,21 +10,28 @@ import {
     buildPropertyIdToFirstRoomTypeIdMap,
     buildRoomTypeIdToPropertyIdMap,
 } from '@/lib/migrations/migratePropertyObjectIdsToRoomTypeIds';
-import { parseSourceRecipientValue, PREFIX_ROOM } from '@/lib/sourceRecipientParse';
+import { parseSourceRecipientValue } from '@/lib/sourceRecipientParse';
+import {
+    formatRoomSourceRecipient,
+    roomMetadataMapKey,
+    resolveUnitNameForAccountingObject,
+    type RawBedsObjectForRoom,
+} from '@/lib/roomBinding';
 import { parseAutoAccountingDistrictsStored } from '@/lib/autoAccountingDistricts';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 
-/** Подставляет «комнату из брони» в значение room:objectId:roomId для создаваемой транзакции */
+/** Подставляет «комнату из брони» в значение room:objectId:encodedName для создаваемой транзакции */
 function resolveAutoRuleSourceRecipient(
     raw: string | undefined,
     accountingObjectId: number,
-    bookingRoomId: number | undefined | null
+    bookingUnitName: string | null | undefined
 ): string | undefined {
     if (!raw) return undefined;
     const parsed = parseSourceRecipientValue(raw);
     if (parsed?.type === 'room_from_booking') {
-        if (bookingRoomId == null || Number.isNaN(Number(bookingRoomId))) return undefined;
-        return `${PREFIX_ROOM}${accountingObjectId}:${bookingRoomId}`;
+        const n = bookingUnitName?.trim();
+        if (!n) return undefined;
+        return formatRoomSourceRecipient(accountingObjectId, n);
     }
     return raw;
 }
@@ -176,6 +183,8 @@ export async function runRulesForBookings(
     const bookings = await bookingsCollection.find({ id: { $in: bookingIds } }).toArray();
     const bookingMap = new Map(bookings.map((b) => [b.id, b]));
 
+    const rawObjects = (await db.collection('objects').find({}).toArray()) as RawBedsObjectForRoom[];
+
     const categoryCache = new Map<string, number>();
     const getCategoryPricePerUnit = async (categoryName: string): Promise<number> => {
         if (categoryCache.has(categoryName)) return categoryCache.get(categoryName)!;
@@ -193,17 +202,29 @@ export async function runRulesForBookings(
     const OBJECTS_META_COLLECTION = 'objectRoomMetadata_objects';
 
     const roomMetaCache = new Map<string, number>();
-    const getInternetCostForRoom = async (objectId: number, roomId: number | undefined): Promise<number> => {
-        if (roomId == null) return 0;
-        const key = `${objectId}_${roomId}`;
-        if (roomMetaCache.has(key)) return roomMetaCache.get(key)!;
-        const roomMeta = await db.collection(ROOMS_META_COLLECTION).findOne(
-            { objectId, roomId },
+    const getInternetCostForRoom = async (
+        propertyId: number,
+        accountingObjectId: number,
+        roomName: string | undefined
+    ): Promise<number> => {
+        const n = roomName?.trim();
+        if (!n) return 0;
+        const cacheKey = `${propertyId}|${accountingObjectId}|${n}`;
+        if (roomMetaCache.has(cacheKey)) return roomMetaCache.get(cacheKey)!;
+        const coll = db.collection(ROOMS_META_COLLECTION);
+        let roomMeta = await coll.findOne(
+            { objectId: propertyId, roomName: n },
             { projection: { internetCostPerMonth: 1 } }
         );
+        if (!roomMeta && propertyId !== accountingObjectId) {
+            roomMeta = await coll.findOne(
+                { objectId: accountingObjectId, roomName: n },
+                { projection: { internetCostPerMonth: 1 } }
+            );
+        }
         const raw = (roomMeta as { internetCostPerMonth?: number } | null)?.internetCostPerMonth;
         const value = typeof raw === 'number' ? raw : 0;
-        roomMetaCache.set(key, value);
+        roomMetaCache.set(cacheKey, value);
         return value;
     };
 
@@ -216,8 +237,10 @@ export async function runRulesForBookings(
     for (const d of objectMetaList as unknown as { objectId: number; district?: string; objectType?: string }[]) {
         objectMetaMap.set(d.objectId, { district: d.district, objectType: d.objectType });
     }
-    for (const d of roomMetaList as unknown as { objectId: number; roomId: number; [k: string]: unknown }[]) {
-        roomMetaMap.set(`${d.objectId}_${d.roomId}`, d);
+    for (const d of roomMetaList as unknown as { objectId: number; roomName?: string; [k: string]: unknown }[]) {
+        const rn = d.roomName;
+        if (typeof rn !== 'string' || !rn.trim()) continue;
+        roomMetaMap.set(roomMetadataMapKey(d.objectId, rn.trim()), d as Record<string, unknown>);
     }
 
     const matchObjectMetadata = (
@@ -241,11 +264,16 @@ export async function runRulesForBookings(
 
     const matchRoomMetadata = (
         rule: AutoAccountingRule & { _id?: ObjectId },
-        objectId: number,
-        roomId: number | undefined
+        propertyId: number,
+        accountingObjectId: number,
+        roomName: string | undefined
     ): boolean => {
-        if (!rule.roomMetadataField || rule.roomMetadataValue === undefined || roomId == null) return true;
-        const meta = roomMetaMap.get(`${objectId}_${roomId}`) as Record<string, unknown> | undefined;
+        if (!rule.roomMetadataField || rule.roomMetadataValue === undefined || !roomName?.trim()) return true;
+        const n = roomName.trim();
+        const meta = (roomMetaMap.get(roomMetadataMapKey(propertyId, n)) ??
+            (propertyId !== accountingObjectId
+                ? roomMetaMap.get(roomMetadataMapKey(accountingObjectId, n))
+                : undefined)) as Record<string, unknown> | undefined;
         const field = rule.roomMetadataField;
         let actual: number | string | undefined;
         if (field === 'bedrooms') actual = (meta?.bedrooms as number) ?? undefined;
@@ -272,15 +300,16 @@ export async function runRulesForBookings(
     const resolveAmount = async (
         rule: AutoAccountingRule & { _id?: ObjectId },
         booking: BookingDoc,
-        objectId: number,
-        roomId: number | undefined
+        propertyId: number,
+        accountingObjectId: number,
+        roomName: string | undefined
     ): Promise<number> => {
         const source: AutoAccountingAmountSource = rule.amountSource ?? 'manual';
         switch (source) {
             case 'booking_price':
                 return getBookingPrice(booking);
             case 'internet_cost':
-                return await getInternetCostForRoom(objectId, roomId);
+                return await getInternetCostForRoom(propertyId, accountingObjectId, roomName);
             case 'category':
                 return await getCategoryPricePerUnit(rule.category);
             case 'manual':
@@ -302,27 +331,34 @@ export async function runRulesForBookings(
         }
 
         const bookingPropertyId = booking.propertyId ?? 0;
-        const roomId = booking.unitId ?? undefined;
+        const unitId = booking.unitId ?? undefined;
         const arrival = new Date(booking.arrival);
         const departure = new Date(booking.departure);
         const accountingObjectId =
             propertyToFirstRoomTypeId.get(bookingPropertyId) ?? bookingPropertyId;
+
+        const bookingUnitName =
+            unitId == null
+                ? undefined
+                : resolveUnitNameForAccountingObject(rawObjects, accountingObjectId, unitId) ??
+                  resolveUnitNameForAccountingObject(rawObjects, bookingPropertyId, unitId) ??
+                  undefined;
 
         for (const rule of rules) {
             const ruleObjId = rule.objectId;
             if (!ruleObjectMatchesBooking(ruleObjId, bookingPropertyId)) continue;
             if (!matchObjectMetadata(rule, bookingPropertyId)) continue;
 
-            const ruleRoomId = rule.roomId;
-            if (ruleRoomId !== undefined && ruleRoomId !== 'all' && ruleRoomId !== roomId) continue;
-            if (!matchRoomMetadata(rule, bookingPropertyId, roomId)) continue;
+            const ruleRoomName = rule.roomName;
+            if (ruleRoomName !== undefined && ruleRoomName !== 'all' && ruleRoomName !== bookingUnitName) continue;
+            if (!matchRoomMetadata(rule, bookingPropertyId, accountingObjectId, bookingUnitName)) continue;
 
             const quantity = resolveQuantity(rule, booking);
-            const amount = await resolveAmount(rule, booking, bookingPropertyId, roomId);
+            const amount = await resolveAmount(rule, booking, bookingPropertyId, accountingObjectId, bookingUnitName);
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
             const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;
-            const resolvedSource = resolveAutoRuleSourceRecipient(rule.source, accountingObjectId, roomId);
-            const resolvedRecipient = resolveAutoRuleSourceRecipient(rule.recipient, accountingObjectId, roomId);
+            const resolvedSource = resolveAutoRuleSourceRecipient(rule.source, accountingObjectId, bookingUnitName);
+            const resolvedRecipient = resolveAutoRuleSourceRecipient(rule.recipient, accountingObjectId, bookingUnitName);
             const sourceRecipientFields =
                 resolvedSource || resolvedRecipient
                     ? {
@@ -338,7 +374,7 @@ export async function runRulesForBookings(
                         await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                             objectId: accountingObjectId,
                             category: rule.category,
-                            roomId: roomId ?? null,
+                            roomName: bookingUnitName ?? null,
                             reportMonth: reportMonthBooking,
                         })
                     ) {
@@ -348,7 +384,7 @@ export async function runRulesForBookings(
                         await expensesCollection.insertOne({
                             recordType: 'expense',
                             objectId: accountingObjectId,
-                            roomId: roomId ?? null,
+                            roomName: bookingUnitName ?? null,
                             bookingId: bid,
                             ...sourceRecipientFields,
                             category: rule.category,
@@ -377,7 +413,7 @@ export async function runRulesForBookings(
                             await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                                 objectId: accountingObjectId,
                                 category: rule.category,
-                                roomId: roomId ?? null,
+                                roomName: bookingUnitName ?? null,
                                 reportMonth,
                             })
                         ) {
@@ -387,7 +423,7 @@ export async function runRulesForBookings(
                             await expensesCollection.insertOne({
                                 recordType: 'expense',
                                 objectId: accountingObjectId,
-                                roomId: roomId ?? null,
+                                roomName: bookingUnitName ?? null,
                                 bookingId: bid,
                                 ...sourceRecipientFields,
                                 category: rule.category,
@@ -416,7 +452,7 @@ export async function runRulesForBookings(
                         await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                             objectId: accountingObjectId,
                             category: rule.category,
-                            roomId: roomId ?? null,
+                            roomName: bookingUnitName ?? null,
                             reportMonth: reportMonthBookingInc,
                         })
                     ) {
@@ -426,7 +462,7 @@ export async function runRulesForBookings(
                         await incomesCollection.insertOne({
                             recordType: 'income',
                             objectId: accountingObjectId,
-                            roomId: roomId ?? null,
+                            roomName: bookingUnitName ?? null,
                             bookingId: bid,
                             ...sourceRecipientFields,
                             category: rule.category,
@@ -455,7 +491,7 @@ export async function runRulesForBookings(
                             await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                                 objectId: accountingObjectId,
                                 category: rule.category,
-                                roomId: roomId ?? null,
+                                roomName: bookingUnitName ?? null,
                                 reportMonth,
                             })
                         ) {
@@ -465,7 +501,7 @@ export async function runRulesForBookings(
                             await incomesCollection.insertOne({
                                 recordType: 'income',
                                 objectId: accountingObjectId,
-                                roomId: roomId ?? null,
+                                roomName: bookingUnitName ?? null,
                                 bookingId: bid,
                                 ...sourceRecipientFields,
                                 category: rule.category,

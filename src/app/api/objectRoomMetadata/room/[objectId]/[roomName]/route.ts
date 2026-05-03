@@ -6,15 +6,15 @@ import { upsertRoomMetadata } from '@/lib/server/objectRoomMetadata';
 import type { RoomMetadataDoc } from '@/lib/server/objectRoomMetadata';
 import type { RoomLevel } from '@/lib/types';
 import type { CommissionSchemeId } from '@/lib/commissionCalculation';
+import { decodeRoomNameSegment } from '@/lib/roomBinding';
 
 /**
- * PUT /api/objectRoomMetadata/room/[objectId]/[roomId]
- * Обновляет метаданные комнаты.
- * Доступ: только администраторы.
+ * PUT /api/objectRoomMetadata/room/[objectId]/[roomName]
+ * roomName в пути — encodeURIComponent(имя юнита).
  */
 export async function PUT(
     request: NextRequest,
-    { params }: { params: Promise<{ objectId: string; roomId: string }> }
+    { params }: { params: Promise<{ objectId: string; roomName: string }> }
 ) {
     try {
         const session = await getServerSession(authOptions);
@@ -33,12 +33,12 @@ export async function PUT(
             );
         }
 
-        const { objectId, roomId } = await params;
+        const { objectId, roomName: roomNameParam } = await params;
         const objectIdNum = parseInt(objectId, 10);
-        const roomIdNum = parseInt(roomId, 10);
-        if (Number.isNaN(objectIdNum) || Number.isNaN(roomIdNum)) {
+        const roomName = decodeRoomNameSegment(roomNameParam);
+        if (Number.isNaN(objectIdNum) || !roomName.trim()) {
             return NextResponse.json(
-                { success: false, message: 'Некорректный ID объекта или комнаты' },
+                { success: false, message: 'Некорректный ID объекта или имя комнаты' },
                 { status: 400 }
             );
         }
@@ -135,13 +135,13 @@ export async function PUT(
 
         await upsertRoomMetadata(
             objectIdNum,
-            roomIdNum,
+            roomName,
             data as any,
             unsetFields.length ? { unset: unsetFields } : undefined
         );
         return NextResponse.json({ success: true });
     } catch (error) {
-        console.error('Error in PUT /api/objectRoomMetadata/room/[objectId]/[roomId]:', error);
+        console.error('Error in PUT /api/objectRoomMetadata/room/[objectId]/[roomName]:', error);
         return NextResponse.json(
             { success: false, message: 'Внутренняя ошибка сервера' },
             { status: 500 }

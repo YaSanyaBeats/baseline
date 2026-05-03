@@ -38,14 +38,14 @@ function getDefaultBookingDateRangeFromToday(): { from: string; to: string } {
     const y = now.getFullYear();
     const m = now.getMonth();
     return {
-        from: toYmd(new Date(y, m - 3, 1)),
-        to: toYmd(new Date(y, m + 1, 1)),
+        from: toYmd(new Date(y, m - 2, 1)),
+        to: toYmd(new Date(y, m + 2, 1)),
     };
 }
 
 /**
- * «От» — 1-е число (месяц отчёта − 3), «До» — 1-е число (месяц отчёта + 1).
- * Пример: отчёт 2025-12 → 2025-09-01 .. 2026-01-01
+ * «От» — 1-е число (месяц отчёта − 2), «До» — 1-е число (месяц отчёта + 2).
+ * Пример: отчёт 2025-12 → 2025-10-01 .. 2026-02-01
  */
 function getDefaultBookingDateRangeForReportMonth(
     reportMonth: string | undefined | null,
@@ -62,8 +62,8 @@ function getDefaultBookingDateRangeForReportMonth(
         return getDefaultBookingDateRangeFromToday();
     }
     return {
-        from: toYmd(new Date(y, m0 - 3, 1)),
-        to: toYmd(new Date(y, m0 + 1, 1)),
+        from: toYmd(new Date(y, m0 - 2, 1)),
+        to: toYmd(new Date(y, m0 + 2, 1)),
     };
 }
 

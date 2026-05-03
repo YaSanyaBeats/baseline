@@ -52,6 +52,38 @@ export interface RuleMatchContext {
     bookingsMap?: Map<number, BookingForRule>;
 }
 
+function recordRoomMatchesCashflowLinks(
+    objectId: number,
+    roomName: string | null | undefined,
+    roomLinks: { id: number; rooms: (string | number)[] }[] | undefined,
+    obj: ObjectWithMeta | undefined
+): boolean {
+    if (!roomLinks?.length) return false;
+    const name = (roomName ?? '').trim();
+    if (!name) return false;
+    return roomLinks.some((link) => {
+        if (link.id !== objectId) return false;
+        return link.rooms.some((x) => {
+            if (typeof x === 'string') return x.trim() === name;
+            if (typeof x === 'number' && obj?.roomTypes) {
+                const unit = obj.roomTypes.find((r) => r.id === x);
+                const un = unit?.name != null ? String(unit.name).trim() : '';
+                return un === name;
+            }
+            return false;
+        });
+    });
+}
+
+function findRoomMetaRow(
+    obj: ObjectWithMeta | undefined,
+    roomName: string | null | undefined
+): RoomWithMeta | undefined {
+    const n = (roomName ?? '').trim();
+    if (!obj?.roomTypes?.length || !n) return undefined;
+    return obj.roomTypes.find((r) => (r.name != null ? String(r.name).trim() : '') === n);
+}
+
 function compareNumber(
     op: CashflowRuleCompareOperator | undefined,
     actual: number,
@@ -126,10 +158,8 @@ function expenseMatchesFilter(
     switch (filter.type) {
         case 'rooms': {
             if (!filter.roomLinks?.length) return false;
-            const roomId = expense.roomId ?? 0;
-            return filter.roomLinks.some(
-                (link) => link.id === expense.objectId && link.rooms.includes(roomId)
-            );
+            const obj = objectsMap.get(expense.objectId);
+            return recordRoomMatchesCashflowLinks(expense.objectId, expense.roomName, filter.roomLinks, obj);
         }
         case 'metadata': {
             if (!filter.metadataField || filter.metadataValue === undefined) return false;
@@ -162,9 +192,7 @@ function expenseMatchesFilter(
         case 'roomMetadata': {
             if (!filter.roomMetadataField || filter.roomMetadataValue === undefined) return false;
             const obj = objectsMap.get(expense.objectId);
-            const roomId = expense.roomId;
-            if (!obj?.roomTypes?.length || roomId == null) return false;
-            const room = obj.roomTypes.find((r) => r.id === roomId);
+            const room = findRoomMetaRow(obj, expense.roomName);
             if (!room) return false;
             const raw =
                 filter.roomMetadataField === 'bedrooms'
@@ -265,10 +293,8 @@ function incomeMatchesFilter(
     switch (filter.type) {
         case 'rooms': {
             if (!filter.roomLinks?.length) return false;
-            const roomId = income.roomId ?? 0;
-            return filter.roomLinks.some(
-                (link) => link.id === income.objectId && link.rooms.includes(roomId)
-            );
+            const obj = objectsMap.get(income.objectId);
+            return recordRoomMatchesCashflowLinks(income.objectId, income.roomName, filter.roomLinks, obj);
         }
         case 'metadata': {
             if (!filter.metadataField || filter.metadataValue === undefined) return false;
@@ -301,9 +327,7 @@ function incomeMatchesFilter(
         case 'roomMetadata': {
             if (!filter.roomMetadataField || filter.roomMetadataValue === undefined) return false;
             const obj = objectsMap.get(income.objectId);
-            const roomId = income.roomId;
-            if (!obj?.roomTypes?.length || roomId == null) return false;
-            const room = obj.roomTypes.find((r) => r.id === roomId);
+            const room = findRoomMetaRow(obj, income.roomName);
             if (!room) return false;
             const raw =
                 filter.roomMetadataField === 'bedrooms'

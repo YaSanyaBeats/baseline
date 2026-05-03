@@ -86,3 +86,15 @@ export function resolveNoBookingSubgroupId(categoryName: string | null | undefin
     if (!name) return 'other';
     return CATEGORY_TO_SUBGROUP.get(name) ?? 'other';
 }
+
+/** Не входят в суммы таблицы «Баланс по комнатам объекта» за период и в накопление остатка на начало. */
+const ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES = new Set([
+    'Выплата владельцу',
+    'Остаток на начало (отрицательный)',
+    'Остаток на начало (положительный)',
+]);
+
+export function isExcludedFromAccountancyRoomStatsSum(categoryName: string | null | undefined): boolean {
+    const n = (categoryName ?? '').trim();
+    return n !== '' && ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES.has(n);
+}

@@ -39,12 +39,10 @@ export async function GET() {
     }
 }
 
-function parseRoomId(b: Record<string, unknown>): number | 'all' | undefined {
-    if (b.roomId === 'all') return 'all';
-    if (typeof b.roomId === 'number' && !Number.isNaN(b.roomId)) return b.roomId;
-    if (typeof b.roomId === 'string' && b.roomId.trim() !== '' && b.roomId !== 'all') {
-        const n = Number(b.roomId);
-        if (!Number.isNaN(n)) return n;
+function parseRoomName(b: Record<string, unknown>): string | 'all' | undefined {
+    if (b.roomName === 'all') return 'all';
+    if (typeof b.roomName === 'string' && b.roomName.trim() !== '' && b.roomName !== 'all') {
+        return b.roomName.trim();
     }
     return undefined;
 }
@@ -72,7 +70,7 @@ type ParsedRule = {
     name?: string;
     ruleType: 'expense' | 'income';
     objectId: number | 'all';
-    roomId?: number | 'all';
+    roomName?: string | 'all';
     objectMetadataField?: 'district' | 'objectType';
     objectMetadataValue?: string;
     roomMetadataField?: string;
@@ -100,7 +98,7 @@ function parseRuleBody(body: unknown): ParsedRule | null {
         const n = Number(b.objectId);
         if (!Number.isNaN(n)) objectId = n;
     }
-    const roomId = parseRoomId(b);
+    const roomName = parseRoomName(b);
     const category = typeof b.category === 'string' ? b.category.trim() : '';
     const quantity = typeof b.quantity === 'number' && b.quantity >= 1 ? b.quantity : 1;
     const amount = typeof b.amount === 'number' && b.amount >= 0 ? b.amount : undefined;
@@ -138,7 +136,7 @@ function parseRuleBody(body: unknown): ParsedRule | null {
         } else return null;
     }
     if (name !== undefined) result.name = name;
-    if (roomId !== undefined) result.roomId = roomId;
+    if (roomName !== undefined) result.roomName = roomName;
     if (amountSource !== undefined) result.amountSource = amountSource;
     if (quantitySource !== undefined) result.quantitySource = quantitySource;
     if (objectMetadataField !== undefined) result.objectMetadataField = objectMetadataField;
@@ -190,7 +188,7 @@ export async function POST(request: NextRequest) {
             order,
             ...(parsed.name !== undefined && { name: parsed.name }),
             ...(parsed.amount !== undefined && { amount: parsed.amount }),
-            ...(parsed.roomId !== undefined && { roomId: parsed.roomId }),
+            ...(parsed.roomName !== undefined && { roomName: parsed.roomName }),
             ...(parsed.amountSource !== undefined && { amountSource: parsed.amountSource }),
             ...(parsed.quantitySource !== undefined && { quantitySource: parsed.quantitySource }),
             ...(parsed.objectMetadataField !== undefined && { objectMetadataField: parsed.objectMetadataField }),

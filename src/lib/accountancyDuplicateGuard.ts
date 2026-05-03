@@ -12,11 +12,10 @@ function normalizeObjectId(obj: unknown): string {
     return Number.isFinite(n) ? String(n) : String(obj);
 }
 
-/** Единый ключ комнаты: null/undefined/'' → одно значение для сравнения с документами в БД. */
-function normalizeRoomId(room: unknown): string {
+/** Единый ключ комнаты по имени юнита */
+function normalizeRoomName(room: unknown): string {
     if (room == null || room === '') return '';
-    const n = Number(room);
-    return Number.isFinite(n) ? String(n) : String(room);
+    return String(room).trim();
 }
 
 /** Есть ли категория с таким именем и флагом «запретить дубли». */
@@ -44,14 +43,14 @@ export async function findDuplicateCategoryObjectRoomMonthRow(
     params: {
         objectId: number;
         category: string;
-        roomId: number | null | undefined;
+        roomName: string | null | undefined;
         reportMonth: unknown;
         excludeObjectId?: ObjectId;
     },
 ): Promise<{ _id: unknown } | null> {
     const trimmed = params.category.trim();
     const targetMonth = normalizeReportMonth(params.reportMonth);
-    const targetRoom = normalizeRoomId(params.roomId);
+    const targetRoom = normalizeRoomName(params.roomName);
     const targetObject = normalizeObjectId(params.objectId);
     const coll = db.collection(collectionName);
     const objectIdNum = Number(params.objectId);
@@ -67,7 +66,7 @@ export async function findDuplicateCategoryObjectRoomMonthRow(
             continue;
         if (normalizeObjectId(doc.objectId) !== targetObject) continue;
         if (normalizeReportMonth(doc.reportMonth) !== targetMonth) continue;
-        if (normalizeRoomId(doc.roomId) !== targetRoom) continue;
+        if (normalizeRoomName(doc.roomName) !== targetRoom) continue;
         return doc;
     }
     return null;
@@ -81,7 +80,7 @@ export async function hasDuplicateForForbidCategory(
     params: {
         objectId: number;
         category: string;
-        roomId: number | null | undefined;
+        roomName: string | null | undefined;
         reportMonth: unknown;
         excludeObjectId?: ObjectId;
     },

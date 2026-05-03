@@ -120,9 +120,9 @@ export default function Page() {
         setSelectedObjects(value);
         // Извлекаем objectId и roomIds из первого выбранного объекта
         const objectId = value.length > 0 ? value[0].id : undefined;
-        const roomIds = value.length > 0 && value[0].rooms && value[0].rooms.length > 0 
-            ? value[0].rooms 
-            : undefined;
+        const rawRooms =
+            value.length > 0 && value[0].rooms && value[0].rooms.length > 0 ? value[0].rooms : undefined;
+        const roomIds = rawRooms?.filter((r): r is number => typeof r === 'number');
         setReport({ ...report, objectId: objectId, roomIds: roomIds });
         const newErrors = { ...errors };
         if (objectId) {
@@ -274,6 +274,7 @@ export default function Page() {
                             onChange={handleChangeObjects}
                             label={t('accountancy.object')}
                             multiple={false}
+                            roomValueMode="id"
                         />
                         {errors.objectId && (
                             <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>

@@ -81,7 +81,7 @@ export default function AutoAccountingPage() {
         name: '',
         ruleType: 'expense' as 'expense' | 'income',
         objectId: 'all' as number | 'all',
-        roomId: 'all' as number | 'all',
+        roomName: 'all' as string | 'all',
         objectMetadataField: '' as '' | 'district' | 'objectType',
         objectMetadataDistricts: [] as string[],
         objectMetadataValue: '',
@@ -172,13 +172,14 @@ export default function AutoAccountingPage() {
             return;
         }
         const objectId = form.objectId === 'all' ? 'all' : Number(form.objectId);
-        const roomId = form.objectId === 'all' ? undefined : (form.roomId === 'all' ? 'all' : Number(form.roomId));
+        const roomName =
+            form.objectId === 'all' ? undefined : form.roomName === 'all' ? 'all' : String(form.roomName);
         const amount = form.amountSource === 'manual' && form.amount !== '' ? Number(form.amount) : undefined;
         const payload = {
             name: form.name.trim() || undefined,
             ruleType: form.ruleType,
             objectId: objectId === 'all' ? 'all' : objectId,
-            ...(roomId !== undefined && { roomId }),
+            ...(roomName !== undefined && { roomName }),
             ...(form.objectMetadataField
                 ? {
                       objectMetadataField: form.objectMetadataField,
@@ -290,7 +291,7 @@ export default function AutoAccountingPage() {
             name: '',
             ruleType: 'expense',
             objectId: 'all',
-            roomId: 'all',
+            roomName: 'all',
             objectMetadataField: '',
             objectMetadataDistricts: [],
             objectMetadataValue: '',
@@ -317,7 +318,7 @@ export default function AutoAccountingPage() {
             name: r.name ?? '',
             ruleType: r.ruleType,
             objectId: r.objectId,
-            roomId: r.roomId ?? 'all',
+            roomName: r.roomName ?? 'all',
             objectMetadataField: (r.objectMetadataField ?? '') as '' | 'district' | 'objectType',
             objectMetadataDistricts:
                 r.objectMetadataField === 'district'
@@ -355,13 +356,11 @@ export default function AutoAccountingPage() {
     };
 
     const roomLabel = (rule: AutoRule) => {
-        if (rule.objectId === 'all' || rule.roomId === undefined) return '—';
+        if (rule.objectId === 'all' || rule.roomName === undefined) return '—';
         let base: string;
-        if (rule.roomId === 'all') base = t('accountancy.autoAccounting.roomAll');
+        if (rule.roomName === 'all') base = t('accountancy.autoAccounting.roomAll');
         else {
-            const obj = objects.find((o) => o.id === rule.objectId);
-            const room = obj?.roomTypes?.find((rt) => rt.id === rule.roomId);
-            base = room?.name ?? String(rule.roomId);
+            base = rule.roomName;
         }
         if (rule.roomMetadataField && rule.roomMetadataValue !== undefined) {
             let v: string;
@@ -460,7 +459,7 @@ export default function AutoAccountingPage() {
                                 label={t('accountancy.autoAccounting.objectFilter')}
                                 onChange={(e) => {
                                     const v = e.target.value;
-                                    setForm((f) => ({ ...f, objectId: v === 'all' ? 'all' : Number(v), roomId: 'all' }));
+                                    setForm((f) => ({ ...f, objectId: v === 'all' ? 'all' : Number(v), roomName: 'all' }));
                                 }}
                             >
                                 <MenuItem value="all">{t('accountancy.autoAccounting.objectAll')}</MenuItem>
@@ -473,17 +472,25 @@ export default function AutoAccountingPage() {
                             <FormControl sx={{ minWidth: 180 }}>
                                 <InputLabel>{t('accountancy.autoAccounting.roomFilter')}</InputLabel>
                                 <Select
-                                    value={form.roomId === 'all' ? 'all' : String(form.roomId)}
+                                    value={form.roomName === 'all' ? 'all' : String(form.roomName)}
                                     label={t('accountancy.autoAccounting.roomFilter')}
                                     onChange={(e) => {
                                         const v = e.target.value;
-                                        setForm((f) => ({ ...f, roomId: v === 'all' ? 'all' : Number(v) }));
+                                        setForm((f) => ({ ...f, roomName: v === 'all' ? 'all' : v }));
                                     }}
                                 >
                                     <MenuItem value="all">{t('accountancy.autoAccounting.roomAll')}</MenuItem>
-                                    {rooms.map((room) => (
-                                        <MenuItem key={room.id} value={String(room.id)}>{room.name || String(room.id)}</MenuItem>
-                                    ))}
+                                    {rooms.map((room) => {
+                                        const stable =
+                                            room.name != null && String(room.name).trim() !== ''
+                                                ? String(room.name).trim()
+                                                : `Unit ${room.id}`;
+                                        return (
+                                            <MenuItem key={room.id} value={stable}>
+                                                {room.name || String(room.id)}
+                                            </MenuItem>
+                                        );
+                                    })}
                                 </Select>
                             </FormControl>
                         )}

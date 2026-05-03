@@ -187,11 +187,11 @@ export default function Page() {
 
     const handleSaveRoom = async (
         objectId: number,
-        roomId: number,
+        roomName: string,
         data: Parameters<typeof updateRoomMetadata>[2]
     ) => {
         try {
-            await updateRoomMetadata(objectId, roomId, data);
+            await updateRoomMetadata(objectId, roomName, data);
             await refreshObjects();
             setSnackbar({ open: true, message: t('dashboard.roomSaved'), severity: 'success' });
         } catch {

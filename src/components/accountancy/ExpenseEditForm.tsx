@@ -17,7 +17,7 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from '@/lib/types';
 import { getExpenses, updateExpense } from '@/lib/expenses';
 import { getCounterparties } from '@/lib/counterparties';
@@ -28,11 +28,18 @@ import SourceRecipientSelect, { type SourceRecipientOptionValue } from '@/compon
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useObjects } from '@/providers/ObjectsProvider';
 import { useRouter, useParams } from 'next/navigation';
 import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+
+function stableExpenseRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
 
 type ExpenseForm = Omit<Expense, '_id' | 'accountantId' | 'accountantName' | 'createdAt' | 'date'> & {
     _id?: string;
@@ -55,6 +62,7 @@ export default function ExpenseEditForm({
     const params = useParams();
     const expenseId = params?.id as string;
     const { isAdmin, isAccountant, user } = useUser();
+    const { objects } = useObjects();
     const [expense, setExpense] = useState<Partial<ExpenseForm>>({});
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -120,7 +128,14 @@ export default function ExpenseEditForm({
                 setExpense({
                     _id: found._id,
                     objectId: found.objectId,
-                    roomId: found.roomId,
+                    roomName: (() => {
+                        if (found.roomName) return found.roomName;
+                        const legacy = (found as Expense & { roomId?: number }).roomId;
+                        if (legacy == null || !found.objectId) return undefined;
+                        const o = objects.find((x) => x.id === found.objectId);
+                        const rt = o?.roomTypes?.find((r) => r.id === legacy);
+                        return rt ? stableExpenseRoomLabel(rt) : undefined;
+                    })(),
                     bookingId: found.bookingId,
                     source: found.source ?? '',
                     recipient: found.recipient ?? '',
@@ -137,10 +152,19 @@ export default function ExpenseEditForm({
                     attachments: found.attachments ?? [],
                 });
                 if (found.objectId) {
+                    const rn = found.roomName
+                        ? found.roomName
+                        : (() => {
+                              const legacy = (found as Expense & { roomId?: number }).roomId;
+                              if (legacy == null) return undefined;
+                              const o = objects.find((x) => x.id === found.objectId);
+                              const rt = o?.roomTypes?.find((r) => r.id === legacy);
+                              return rt ? stableExpenseRoomLabel(rt) : undefined;
+                          })();
                     setSelectedObjects([
                         {
                             id: found.objectId,
-                            rooms: found.roomId ? [found.roomId] : [],
+                            rooms: rn ? [rn] : [],
                         },
                     ]);
                 }
@@ -164,13 +188,15 @@ export default function ExpenseEditForm({
             cancelled = true;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasAccess, expenseId, router, notFoundRedirect, requireMatchingUserCashflow, user?._id]);
+    }, [hasAccess, expenseId, router, notFoundRedirect, requireMatchingUserCashflow, user?._id, objects]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
         const objectId = value.length > 0 ? value[0].id : undefined;
-        const roomId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
-        setExpense((prev) => ({ ...prev, objectId, roomId }));
+        const roomPick =
+            value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        const roomName = roomPick !== undefined ? String(roomPick) : undefined;
+        setExpense((prev) => ({ ...prev, objectId, roomName }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             if (objectId) {
@@ -283,6 +309,17 @@ export default function ExpenseEditForm({
         setExpense((prev) => ({ ...prev, bookingId: undefined }));
     };
 
+    const handleDetachCashflow = () => {
+        setExpense((prev) => ({ ...prev, cashflowId: undefined }));
+    };
+
+    const linkedCashflowLabel = useMemo(() => {
+        const id = expense.cashflowId;
+        if (!id) return null;
+        const cf = cashflows.find((c) => c._id === id);
+        return cf?.name ?? `${t('accountancy.cashflowUnknown')} (${id})`;
+    }, [expense.cashflowId, cashflows, t]);
+
     const handleSubmit = () => {
         if (!validate()) return;
 
@@ -291,11 +328,11 @@ export default function ExpenseEditForm({
         const payload: Expense = {
             _id: expense._id as string,
             objectId: expense.objectId as number,
-            roomId: expense.roomId,
+            roomName: expense.roomName,
             bookingId: expense.bookingId,
             source: expense.source || undefined,
             recipient: expense.recipient || undefined,
-            cashflowId: expense.cashflowId,
+            cashflowId: expense.cashflowId ?? null,
             category: expense.category as string,
             amount: getEffectiveCost(),
             quantity: expense.quantity ?? 1,
@@ -328,6 +365,14 @@ export default function ExpenseEditForm({
             })
             .finally(() => setLoading(false));
     };
+
+    const bookingModalInitialRoomId = useMemo(() => {
+        if (!expense.objectId || expense.roomName == null || expense.roomName === '') return undefined;
+        const o = objects.find((x) => x.id === expense.objectId);
+        const want = String(expense.roomName).trim();
+        const rt = o?.roomTypes?.find((r) => stableExpenseRoomLabel(r) === want);
+        return rt?.id;
+    }, [objects, expense.objectId, expense.roomName]);
 
     if (!hasAccess) {
         return (
@@ -437,6 +482,24 @@ export default function ExpenseEditForm({
                             sx={{ width: '100%' }}
                         />
                     </Box>
+                    {linkedCashflowLabel && expense.cashflowId && (
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.transactionCashflow')}: {linkedCashflowLabel}
+                                </Typography>
+                                <IconButton
+                                    size="small"
+                                    color="secondary"
+                                    onClick={handleDetachCashflow}
+                                    title={t('accountancy.detachCashflow')}
+                                    aria-label={t('accountancy.detachCashflow')}
+                                >
+                                    <CloseIcon fontSize="small" />
+                                </IconButton>
+                            </Stack>
+                        </Box>
+                    )}
                     <Box>
                         <TextField
                             id="amount"
@@ -586,7 +649,7 @@ export default function ExpenseEditForm({
                 onSelect={handleBookingSelect}
                 initialObjectId={expense.objectId}
                 reportMonth={expense.reportMonth ?? ""}
-                initialRoomId={expense.roomId}
+                initialRoomId={bookingModalInitialRoomId}
             />
         </>
     );

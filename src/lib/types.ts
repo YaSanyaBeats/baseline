@@ -164,7 +164,8 @@ export interface User {
 
 export interface UserObject {
     id: number,
-    rooms: number[]
+    /** Имена юнитов (пользователи после миграции). В контрагентах до миграции могут остаться числовые unit id. */
+    rooms: (string | number)[],
 }
 
 export interface CommonResponse {
@@ -339,20 +340,21 @@ export interface AutoCreatedMeta {
     ruleId?: string;               // ID правила из конструктора
 }
 
-/** Значение поля «От кого»/«Кому»: "room:objectId:roomId", "room:from_booking" (только в правилах автоучёта), "cp:…", "user:…", "cf:…" */
+/** Значение поля «От кого»/«Кому»: "room:objectId:encodedRoomName", "room:from_booking" (только в правилах автоучёта), "cp:…", "user:…", "cf:…" */
 export type SourceRecipientValue = string;
 
 export interface Expense {
     _id?: string;
     objectId: number;              // ID объекта
-    roomId?: number;               // ID комнаты (опционально)
+    /** Имя юнита в объекте (стабильная привязка); вместо бывшего roomId (unit id) */
+    roomName?: string | null;
     bookingId?: number;            // ID бронирования (опционально)
     counterpartyId?: string;       // ID контрагента (опционально)
-    /** От кого: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** От кого: объект+комната (room:objectId:encodedName) или контрагент (cp:id) */
     source?: SourceRecipientValue;
-    /** Кому: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** Кому: объект+комната или контрагент (cp:id) */
     recipient?: SourceRecipientValue;
-    cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
+    cashflowId?: string | null;    // ID кэшфлоу — учётный центр (опционально; null при снятии привязки)
     category: string;              // Категория расхода
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
@@ -379,13 +381,13 @@ export interface Expense {
 export interface Income {
     _id?: string;
     objectId: number;              // ID объекта
-    roomId?: number;               // ID комнаты (опционально)
+    roomName?: string | null;
     bookingId?: number;            // ID бронирования (опционально)
-    /** От кого: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** От кого: объект+комната (room:objectId:encodedName) или контрагент (cp:id) */
     source?: SourceRecipientValue;
-    /** Кому: объект+комната (room:objectId:roomId) или контрагент (cp:id) */
+    /** Кому: объект+комната или контрагент (cp:id) */
     recipient?: SourceRecipientValue;
-    cashflowId?: string;           // ID кэшфлоу — учётный центр (опционально)
+    cashflowId?: string | null;    // ID кэшфлоу — учётный центр (опционально; null при снятии привязки)
     date: Date;                    // Дата дохода
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
@@ -435,8 +437,8 @@ export interface AutoAccountingRule {
     ruleType: 'expense' | 'income';
     /** ID объекта или 'all' для всех объектов */
     objectId: number | 'all';
-    /** ID комнаты или 'all' для всех комнат объекта (имеет смысл при заданном objectId) */
-    roomId?: number | 'all';
+    /** Имя юнита или 'all' для всех комнат объекта (имеет смысл при заданном objectId) */
+    roomName?: string | 'all';
     /** Фильтр по метаданным объекта: поле (district, objectType) */
     objectMetadataField?: 'district' | 'objectType';
     /** Значение метаданных объекта для совпадения */

@@ -18,6 +18,12 @@ function normalizeUnitOrRoomId(value: unknown): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
+function roomUnitName(room: Room): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
+
 function recordObjectMatchesRowObject(
     recordObjectId: number,
     objectRow: { id: number; propertyId: number },
@@ -32,15 +38,15 @@ function recordObjectMatchesRowObject(
 }
 
 /**
- * См. `resolveRecordRoomId` в accountancy page: комната для проводки (с учётом брони).
+ * См. `resolveRecordRoomName` в accountancy page: комната для проводки (с учётом брони) — имя юнита.
  */
-function createRecordRoomIdResolver(
+function createRecordRoomNameResolver(
     objectRow: { id: number; propertyId: number },
     allObjects: { id: number; propertyId: number }[],
     rooms: Room[],
     bookings: Booking[],
 ) {
-    const roomIdSet = new Set(rooms.map((r) => r.id));
+    const nameSet = new Set(rooms.map((r) => roomUnitName(r)));
 
     const bookingBelongsToObject = (booking: Booking) => {
         const bp = booking.propertyId;
@@ -48,11 +54,11 @@ function createRecordRoomIdResolver(
         return bp === objectRow.propertyId || bp === objectRow.id;
     };
 
-    return (recordObjectId: number, recordRoomId?: number, bookingId?: number): number | null => {
+    return (recordObjectId: number, recordRoomName?: string | null, bookingId?: number): string | null => {
         if (!recordObjectMatchesRowObject(recordObjectId, objectRow, allObjects)) return null;
 
-        const ridExplicit = normalizeUnitOrRoomId(recordRoomId);
-        if (ridExplicit != null && roomIdSet.has(ridExplicit)) {
+        const ridExplicit = (recordRoomName ?? '').trim();
+        if (ridExplicit && nameSet.has(ridExplicit)) {
             return ridExplicit;
         }
 
@@ -61,13 +67,17 @@ function createRecordRoomIdResolver(
             const booking = bookings.find((b) => normalizeUnitOrRoomId(b.id) === bid);
             if (booking && bookingBelongsToObject(booking)) {
                 const uid = normalizeUnitOrRoomId(booking.unitId);
-                if (uid != null && roomIdSet.has(uid)) {
-                    return uid;
+                if (uid != null) {
+                    const matchRoom = rooms.find((r) => r.id === uid);
+                    if (matchRoom) {
+                        const un = roomUnitName(matchRoom);
+                        if (nameSet.has(un)) return un;
+                    }
                 }
             }
         }
 
-        if (ridExplicit != null) return ridExplicit;
+        if (ridExplicit) return ridExplicit;
         return null;
     };
 }
@@ -108,17 +118,17 @@ function sumCategoryForBooking(
 function sumCategoryForRoom(
     exps: Expense[],
     incs: Income[],
-    resolveRoom: (e: Expense) => number | null,
-    resolveRoomI: (i: Income) => number | null,
-    roomId: number,
+    resolveRoom: (e: Expense) => string | null,
+    resolveRoomI: (i: Income) => string | null,
+    roomName: string,
     category: string,
 ): number {
     let s = 0;
     for (const e of exps) {
-        if (resolveRoom(e) === roomId && (e.category ?? '') === category) s += getExpenseSum(e);
+        if (resolveRoom(e) === roomName && (e.category ?? '') === category) s += getExpenseSum(e);
     }
     for (const i of incs) {
-        if (resolveRoomI(i) === roomId && (i.category ?? '') === category) s += getIncomeSum(i);
+        if (resolveRoomI(i) === roomName && (i.category ?? '') === category) s += getIncomeSum(i);
     }
     return s;
 }
@@ -129,7 +139,7 @@ function sumCategoryForRoom(
  */
 export function resolveAccountancyObjectRoomRowHighlight(params: {
     objectRow: Obj;
-    roomId: number;
+    roomName: string;
     allObjects: Obj[];
     /** «Месяц отчёта» YYYY-MM; без него — default */
     selectedMonth: string;
@@ -139,27 +149,32 @@ export function resolveAccountancyObjectRoomRowHighlight(params: {
     expenses: Expense[];
     incomes: Income[];
 }): AccountancyObjectRoomRowHighlight {
-    const { objectRow, roomId, allObjects, selectedMonth, bookings, monthBookingsInPeriod, expenses, incomes } =
+    const { objectRow, roomName, allObjects, selectedMonth, bookings, monthBookingsInPeriod, expenses, incomes } =
         params;
 
     if (!selectedMonth.trim()) return 'default';
 
     const rooms = objectRow.roomTypes ?? [];
-    const resolveRid = createRecordRoomIdResolver(
+    const resolveRid = createRecordRoomNameResolver(
         { id: objectRow.id, propertyId: objectRow.propertyId },
         allObjects,
         rooms,
         bookings,
     );
-    const er = (e: Expense) => resolveRid(e.objectId, e.roomId, e.bookingId);
-    const ir = (i: Income) => resolveRid(i.objectId, i.roomId, i.bookingId);
+    const er = (e: Expense) => resolveRid(e.objectId, e.roomName, e.bookingId);
+    const ir = (i: Income) => resolveRid(i.objectId, i.roomName, i.bookingId);
 
     const exForObj = expenses.filter((e) => recordObjectMatchesRowObject(e.objectId, objectRow, allObjects));
     const incForObj = incomes.filter((i) => recordObjectMatchesRowObject(i.objectId, objectRow, allObjects));
 
-    const roomBookings = monthBookingsInPeriod.filter(
-        (b) => bookingBelongsToObjectForRow(b, objectRow) && normalizeUnitOrRoomId(b.unitId) === roomId,
-    );
+    const roomRow = rooms.find((r) => roomUnitName(r) === roomName);
+    const roomUnitId = roomRow?.id;
+
+    const roomBookings = monthBookingsInPeriod.filter((b) => {
+        if (!bookingBelongsToObjectForRow(b, objectRow)) return false;
+        if (roomUnitId == null) return false;
+        return normalizeUnitOrRoomId(b.unitId) === roomUnitId;
+    });
 
     // Red / yellow: по бронированиям, попавшим в месяц
     for (const b of roomBookings) {
@@ -177,7 +192,7 @@ export function resolveAccountancyObjectRoomRowHighlight(params: {
 
     // Blue: коммунальные объекта/комнаты (без привязки к брони)
     for (const cat of ACC_STAT_CATS_OBJECT_UTIL) {
-        const sumU = sumCategoryForRoom(exForObj, incForObj, er, ir, roomId, cat);
+        const sumU = sumCategoryForRoom(exForObj, incForObj, er, ir, roomName, cat);
         if (isZeroish(sumU)) return 'blue';
     }
 

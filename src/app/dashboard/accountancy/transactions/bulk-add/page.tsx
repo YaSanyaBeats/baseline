@@ -56,6 +56,7 @@ import SourceRecipientSelect, {
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useObjects } from '@/providers/ObjectsProvider';
 import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
@@ -66,6 +67,12 @@ function newRowKey(): string {
         return crypto.randomUUID();
     }
     return `row-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function stableBulkRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
 }
 
 type BulkSubRow = {
@@ -113,10 +120,11 @@ function createDefaultBulkSub(
     row: BulkRow,
     reportMonthForDefault: string,
 ): BulkSubRow {
+    const opp: 'expense' | 'income' = transactionType === 'expense' ? 'income' : 'expense';
     const roomPrefix = roomPrefixFromRow(row);
     const base: BulkSubRow = {
         key: newRowKey(),
-        recordKind: transactionType,
+        recordKind: opp,
         category: '',
         amount: undefined,
         comment: '',
@@ -130,8 +138,15 @@ function createDefaultBulkSub(
         status: 'draft',
         attachments: [],
     };
-    if (transactionType === 'expense' && roomPrefix) base.source = roomPrefix;
-    if (transactionType === 'income' && roomPrefix) base.recipient = roomPrefix;
+    const hasParties =
+        String(row.source ?? '').trim() !== '' || String(row.recipient ?? '').trim() !== '';
+    if (hasParties) {
+        base.source = row.recipient;
+        base.recipient = row.source;
+    } else {
+        if (opp === 'expense' && roomPrefix) base.source = roomPrefix;
+        if (opp === 'income' && roomPrefix) base.recipient = roomPrefix;
+    }
     return base;
 }
 
@@ -207,6 +222,7 @@ export default function BulkAddTransactionsPage() {
     const { t } = useTranslation();
     const router = useRouter();
     const { isAdmin, isAccountant, user } = useUser();
+    const { objects } = useObjects();
     const { setSnackbar } = useSnackbar();
 
     const [transactionType, setTransactionType] = useState<AccountancyCategoryType>('expense');
@@ -348,8 +364,10 @@ export default function BulkAddTransactionsPage() {
                 }
                 next.subItems = r.subItems.map((sub) => {
                     const sn = { ...sub };
-                    if (transactionType === 'expense' && roomPrefix) sn.source = roomPrefix;
-                    if (transactionType === 'income' && roomPrefix) sn.recipient = roomPrefix;
+                    if (roomPrefix) {
+                        if (sub.recordKind === 'expense') sn.source = roomPrefix;
+                        else sn.recipient = roomPrefix;
+                    }
                     return sn;
                 });
                 return next;
@@ -491,12 +509,17 @@ export default function BulkAddTransactionsPage() {
         return r.selectedRoom[0].id;
     }, [bookingModalTarget, rows]);
 
-    const bookingModalRoomId = useMemo(() => {
+    const bookingModalInitialRoomId = useMemo(() => {
         if (!bookingModalTarget) return undefined;
         const r = rows.find((x) => x.key === bookingModalTarget.rowKey);
         if (!r?.selectedRoom.length || !r.selectedRoom[0].rooms.length) return undefined;
-        return r.selectedRoom[0].rooms[0];
-    }, [bookingModalTarget, rows]);
+        const oid = r.selectedRoom[0].id;
+        const roomPick = r.selectedRoom[0].rooms[0];
+        const roomName = String(roomPick);
+        const o = objects.find((x) => x.id === oid);
+        const rt = o?.roomTypes?.find((room) => stableBulkRoomLabel(room) === roomName);
+        return rt?.id;
+    }, [bookingModalTarget, rows, objects]);
 
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
@@ -566,7 +589,7 @@ export default function BulkAddTransactionsPage() {
         try {
             for (const row of rows) {
                 const objectId = row.selectedRoom[0].id;
-                const roomId = row.selectedRoom[0].rooms[0];
+                const roomName = String(row.selectedRoom[0].rooms[0]);
                 const effectiveCat = getEffectiveRowCategory(row, category);
                 const effectiveCost = getEffectiveCost(row);
                 const rowDate =
@@ -580,7 +603,7 @@ export default function BulkAddTransactionsPage() {
                           : 'draft';
                     const basePayload: Expense = {
                         objectId,
-                        roomId,
+                        roomName,
                         bookingId: row.bookingId,
                         source: (sourceLockedForCashflow ? currentUserSourceValue : row.source) || undefined,
                         recipient: row.recipient || undefined,
@@ -616,7 +639,7 @@ export default function BulkAddTransactionsPage() {
                                     if (sub.recordKind === 'expense') {
                                         const subPayload: Expense = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
@@ -642,7 +665,7 @@ export default function BulkAddTransactionsPage() {
                                     } else {
                                         const subPayload: Income = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             cashflowId: userCashflowId,
                                             category: sub.category,
@@ -697,7 +720,7 @@ export default function BulkAddTransactionsPage() {
                           : 'draft';
                     const baseIncomePayload: Income = {
                         objectId,
-                        roomId,
+                        roomName,
                         bookingId: row.bookingId,
                         cashflowId: userCashflowId,
                         category: effectiveCat,
@@ -735,7 +758,7 @@ export default function BulkAddTransactionsPage() {
                                     if (sub.recordKind === 'expense') {
                                         const subPayload: Expense = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
@@ -761,7 +784,7 @@ export default function BulkAddTransactionsPage() {
                                     } else {
                                         const subPayload: Income = {
                                             objectId,
-                                            roomId,
+                                            roomName,
                                             bookingId: sub.bookingId,
                                             cashflowId: userCashflowId,
                                             category: sub.category,
@@ -1604,7 +1627,7 @@ export default function BulkAddTransactionsPage() {
                 onSelect={handleBookingSelect}
                 initialObjectId={bookingModalObjectId}
                 reportMonth={reportMonth}
-                initialRoomId={bookingModalRoomId}
+                initialRoomId={bookingModalInitialRoomId}
             />
         </>
     );

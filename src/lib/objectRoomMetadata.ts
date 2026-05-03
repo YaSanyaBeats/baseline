@@ -6,6 +6,7 @@
 
 import type { ObjectType, RoomLevel } from './types';
 import type { CommissionSchemeId } from './commissionCalculation';
+import { encodeRoomNameSegment } from './roomBinding';
 
 export interface ObjectMetadata {
     objectId: number;
@@ -15,7 +16,7 @@ export interface ObjectMetadata {
 
 export interface RoomMetadata {
     objectId: number;
-    roomId: number;
+    roomName: string;
     bedrooms?: number;
     bathrooms?: number;
     livingRoomSofas?: number;
@@ -28,7 +29,7 @@ export interface RoomMetadata {
 
 export interface ObjectRoomMetadataResponse {
     objects: Record<number, ObjectMetadata>;
-    rooms: Record<string, RoomMetadata>; // key: `${objectId}_${roomId}`
+    rooms: Record<string, RoomMetadata>; // key: roomMetadataMapKey(objectId, roomName)
 }
 
 export async function getObjectRoomMetadata(): Promise<ObjectRoomMetadataResponse> {
@@ -58,10 +59,11 @@ export type RoomMetadataPatch = Omit<Partial<RoomMetadata>, 'internetProviderCou
 
 export async function updateRoomMetadata(
     objectId: number,
-    roomId: number,
+    roomName: string,
     data: RoomMetadataPatch
 ): Promise<void> {
-    const res = await fetch(`/api/objectRoomMetadata/room/${objectId}/${roomId}`, {
+    const enc = encodeRoomNameSegment(roomName);
+    const res = await fetch(`/api/objectRoomMetadata/room/${objectId}/${enc}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),

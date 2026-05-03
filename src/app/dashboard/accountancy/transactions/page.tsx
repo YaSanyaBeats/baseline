@@ -57,6 +57,12 @@ import { useTranslation } from '@/i18n/useTranslation';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 
+function stableListRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
+
 const STORAGE_KEY = 'accountancy-transactions-filters';
 
 type FilterRecordType = '' | 'expense' | 'income';
@@ -279,13 +285,13 @@ export default function Page() {
     };
 
     const getRoomName = (row: TransactionListRow): string => {
-        const roomId =
-            row.roomId ?? (row.bookingId ? bookings.find((b) => b.id === row.bookingId)?.unitId : undefined);
-        if (roomId == null) return '-';
+        const explicit = row.roomName?.trim();
+        if (explicit) return explicit;
+        const unitId = row.bookingId ? bookings.find((b) => b.id === row.bookingId)?.unitId : undefined;
+        if (unitId == null) return '-';
         const object = objects.find((obj) => obj.id === row.objectId);
-        const room = object?.roomTypes?.find((r) => r.id === roomId);
-        const name = room?.name?.trim();
-        return name ? name : String(roomId);
+        const room = object?.roomTypes?.find((r) => r.id === unitId);
+        return room ? stableListRoomLabel(room) : String(unitId);
     };
 
     const getStatusLabel = (status: ExpenseStatus | IncomeStatus) => {
@@ -325,12 +331,19 @@ export default function Page() {
         }
 
         if (filterRoomId) {
-            const roomIdNum = Number(filterRoomId);
+            const numFilter = /^\d+$/.test(filterRoomId) ? Number(filterRoomId) : null;
             filtered = filtered.filter((e) => {
-                if (e.roomId === roomIdNum) return true;
+                const rn = (e.roomName ?? '').trim();
+                if (rn && rn === filterRoomId) return true;
                 if (!e.bookingId) return false;
                 const booking = bookings.find((b) => b.id === e.bookingId);
-                return booking && (booking.unitId ?? null) === roomIdNum;
+                const uid = booking?.unitId ?? null;
+                if (numFilter != null && uid === numFilter) return true;
+                const object = objects.find((obj) => obj.id === e.objectId);
+                const room =
+                    uid != null ? object?.roomTypes?.find((r) => r.id === uid) : undefined;
+                const labelFromBooking = room ? stableListRoomLabel(room) : '';
+                return labelFromBooking !== '' && labelFromBooking === filterRoomId;
             });
         }
 
@@ -364,6 +377,7 @@ export default function Page() {
         filterStatus,
         filterRoomId,
         bookings,
+        objects,
         sortByAmountAsc,
         sortByDateAsc,
     ]);
@@ -614,7 +628,7 @@ export default function Page() {
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
                                     {filterObjectId &&
                                         roomsForSelectedObject.map((room) => (
-                                            <MenuItem key={room.id} value={String(room.id)}>
+                                            <MenuItem key={room.id} value={stableListRoomLabel(room)}>
                                                 {room.name || `Room ${room.id}`}
                                             </MenuItem>
                                         ))}

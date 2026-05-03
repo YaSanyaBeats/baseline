@@ -60,6 +60,7 @@ import {
 } from "@/lib/bookingGroupLine";
 import {
     NO_BOOKING_SUBGROUP_ORDER,
+    isExcludedFromAccountancyRoomStatsSum,
     resolveNoBookingSubgroupId,
 } from "@/lib/noBookingCategorySubgroups";
 import {
@@ -70,8 +71,32 @@ import {
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
-/** Строка сводки: расходы/доходы объекта, не привязанные ни к одной комнате (см. resolveRecordRoomId). */
-const ACCOUNTANCY_UNALLOCATED_ROOM_ID = -900_000_001;
+/** Ключ строки сводки: проводки без привязки к известной комнате объекта. */
+const ACCOUNTANCY_UNALLOCATED_ROOM_KEY = '\u0000__unallocated__';
+
+function stableAccountancyRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
+
+/** Legacy в localStorage: число unit id; после загрузки объектов превращаем в стабильное имя. */
+function normalizeStoredRoomFilter(
+    raw: unknown,
+    rooms: { id: number; name?: string }[],
+): string | 'all' {
+    if (raw === 'all' || raw === null || raw === undefined || raw === '') return 'all';
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        const row = rooms.find((r) => r.id === raw);
+        return row ? stableAccountancyRoomLabel(row) : 'all';
+    }
+    const s = String(raw);
+    if (/^\d+$/.test(s)) {
+        const row = rooms.find((r) => r.id === Number(s));
+        return row ? stableAccountancyRoomLabel(row) : 'all';
+    }
+    return s;
+}
 
 /** YYYY-MM-DD по локальному календарю — границы периода и даты операций без сдвига UTC. */
 function localCalendarYmd(d: Date): string {
@@ -198,12 +223,6 @@ function parseOverviewObjectId(v: unknown): number | 'all' {
     return Number.isFinite(n) ? n : 'all';
 }
 
-function parseOverviewRoomId(v: unknown): number | 'all' {
-    if (v === 'all' || v === null || v === undefined || v === '') return 'all';
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 'all';
-}
-
 function loadOverviewFilters() {
     if (typeof window === 'undefined') return null;
     try {
@@ -212,7 +231,7 @@ function loadOverviewFilters() {
         const parsed = JSON.parse(raw);
         return {
             selectedObjectId: parseOverviewObjectId(parsed.selectedObjectId),
-            selectedRoomId: parseOverviewRoomId(parsed.selectedRoomId),
+            selectedRoomIdRaw: parsed.selectedRoomId,
             dateFrom: String(parsed.dateFrom ?? ''),
             dateTo: String(parsed.dateTo ?? ''),
             selectedMonth: String(parsed.selectedMonth ?? ''),
@@ -224,7 +243,7 @@ function loadOverviewFilters() {
 
 function saveOverviewFilters(state: {
     selectedObjectId: number | 'all';
-    selectedRoomId: number | 'all';
+    selectedRoomId: string | 'all';
     dateFrom: string;
     dateTo: string;
     selectedMonth: string;
@@ -378,9 +397,11 @@ export default function Page() {
     const [referenceLoading, setReferenceLoading] = useState(true);
     const [transactionsLoading, setTransactionsLoading] = useState(false);
 
+    const overviewFiltersLoadedRef = useRef(false);
+
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedObjectId, setSelectedObjectId] = useState<number | 'all'>('all');
-    const [selectedRoomId, setSelectedRoomId] = useState<number | 'all'>('all');
+    const [selectedRoomId, setSelectedRoomId] = useState<string | 'all'>('all');
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
     // '' = кастомный период по dateFrom/dateTo; 'YYYY-MM' = выбранный месяц
@@ -402,16 +423,25 @@ export default function Page() {
         () => new Set(),
     );
     useEffect(() => {
+        if (overviewFiltersLoadedRef.current) return;
         const s = loadOverviewFilters();
-        if (s) {
-            setSelectedObjectId(s.selectedObjectId);
-            setSelectedRoomId(s.selectedRoomId);
-            setDateFrom(s.dateFrom);
-            setDateTo(s.dateTo);
-            setSelectedMonth(s.selectedMonth);
+        if (!s) {
+            overviewFiltersLoadedRef.current = true;
+            setFiltersHydrated(true);
+            return;
         }
+        if (objects.length === 0) return;
+
+        setSelectedObjectId(s.selectedObjectId);
+        setDateFrom(s.dateFrom);
+        setDateTo(s.dateTo);
+        setSelectedMonth(s.selectedMonth);
+        const obj = s.selectedObjectId !== 'all' ? objects.find((o) => o.id === s.selectedObjectId) : null;
+        const rooms = obj?.roomTypes ?? [];
+        setSelectedRoomId(normalizeStoredRoomFilter(s.selectedRoomIdRaw, rooms));
+        overviewFiltersLoadedRef.current = true;
         setFiltersHydrated(true);
-    }, []);
+    }, [objects]);
 
     useEffect(() => {
         if (!filtersHydrated) return;
@@ -625,6 +655,11 @@ export default function Page() {
         };
     }, [hasAccess, selectedMonth, objects, effectiveDateRange.from, effectiveDateRange.to]);
 
+    const roomsForSelectedObject = useMemo(
+        () => (selectedObject ? selectedObject.roomTypes : []),
+        [selectedObject],
+    );
+
     /** Брони месяца только для выбранного в сводке объекта (и комнаты), для списка операций */
     const monthBookingsForReportMonth = useMemo(() => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
@@ -637,15 +672,17 @@ export default function Page() {
         };
         let list = allMonthBookingsInPeriod.filter(bookingBelongsToObject);
         if (selectedRoomId !== 'all') {
-            list = list.filter((b) => normalizeUnitOrRoomId(b.unitId) === selectedRoomId);
+            const roomRow = roomsForSelectedObject.find(
+                (r) => stableAccountancyRoomLabel(r) === selectedRoomId,
+            );
+            if (roomRow) {
+                list = list.filter((b) => normalizeUnitOrRoomId(b.unitId) === roomRow.id);
+            } else {
+                list = [];
+            }
         }
         return list;
-    }, [allMonthBookingsInPeriod, selectedObjectId, selectedObject, selectedRoomId]);
-
-    const roomsForSelectedObject = useMemo(
-        () => (selectedObject ? selectedObject.roomTypes : []),
-        [selectedObject],
-    );
+    }, [allMonthBookingsInPeriod, selectedObjectId, selectedObject, selectedRoomId, roomsForSelectedObject]);
 
     const filteredRoomStats = useMemo(() => {
         if (!selectedObject) return [];
@@ -661,22 +698,22 @@ export default function Page() {
         };
 
         /**
-         * Комната для строки сводки:
-         * 1) roomId из проводки, если он есть в справочнике комнат объекта — приоритет бух. привязки;
-         * 2) иначе unitId брони Beds24, если он в справочнике;
-         * 3) иначе roomId проводки даже вне справочника (как запасной якорь).
+         * Имя юнита для строки сводки (стабильная метка):
+         * 1) roomName из проводки, если есть в справочнике комнат объекта;
+         * 2) иначе unitId брони Beds24 → имя из справочника;
+         * 3) иначе сырой roomName проводки (запасной якорь).
          */
-        const roomIdSet = new Set(roomsForSelectedObject.map((r) => r.id));
+        const nameSet = new Set(roomsForSelectedObject.map((r) => stableAccountancyRoomLabel(r)));
 
-        const resolveRecordRoomId = (
+        const resolveRecordRoomName = (
             recordObjectId: number,
-            recordRoomId?: number,
+            recordRoomName?: string | null,
             bookingId?: number,
-        ): number | null => {
+        ): string | null => {
             if (!recordObjectMatchesSelected(recordObjectId, selectedObject, objects)) return null;
 
-            const ridExplicit = normalizeUnitOrRoomId(recordRoomId);
-            if (ridExplicit != null && roomIdSet.has(ridExplicit)) {
+            const ridExplicit = (recordRoomName ?? '').trim();
+            if (ridExplicit && nameSet.has(ridExplicit)) {
                 return ridExplicit;
             }
 
@@ -685,26 +722,30 @@ export default function Page() {
                 const booking = bookings.find((b) => normalizeUnitOrRoomId(b.id) === bid);
                 if (booking && bookingBelongsToObject(booking)) {
                     const uid = normalizeUnitOrRoomId(booking.unitId);
-                    if (uid != null && roomIdSet.has(uid)) {
-                        return uid;
+                    if (uid != null) {
+                        const matchRoom = roomsForSelectedObject.find((r) => r.id === uid);
+                        if (matchRoom) {
+                            const un = stableAccountancyRoomLabel(matchRoom);
+                            if (nameSet.has(un)) return un;
+                        }
                     }
                 }
             }
 
-            if (ridExplicit != null) return ridExplicit;
+            if (ridExplicit) return ridExplicit;
             return null;
         };
 
-        const expenseRoomId = (e: Expense) =>
-            resolveRecordRoomId(e.objectId, e.roomId, e.bookingId);
+        const expenseRoomName = (e: Expense) =>
+            resolveRecordRoomName(e.objectId, e.roomName, e.bookingId);
 
-        const incomeRoomId = (i: Income) =>
-            resolveRecordRoomId(i.objectId, i.roomId, i.bookingId);
+        const incomeRoomName = (i: Income) =>
+            resolveRecordRoomName(i.objectId, i.roomName, i.bookingId);
 
-        type MonthRoomAgg = Map<string, Map<number, { exp: number; inc: number }>>;
+        type MonthRoomAgg = Map<string, Map<string, { exp: number; inc: number }>>;
         const monthRoomAgg: MonthRoomAgg = new Map();
 
-        const bumpAgg = (month: string, roomKey: number, kind: 'exp' | 'inc', amount: number) => {
+        const bumpAgg = (month: string, roomKey: string, kind: 'exp' | 'inc', amount: number) => {
             if (!monthRoomAgg.has(month)) monthRoomAgg.set(month, new Map());
             const rm = monthRoomAgg.get(month)!;
             const cur = rm.get(roomKey) ?? { exp: 0, inc: 0 };
@@ -714,25 +755,27 @@ export default function Page() {
 
         for (const e of expenses) {
             if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) continue;
+            if (isExcludedFromAccountancyRoomStatsSum(e.category)) continue;
             const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
             if (!lm) continue;
-            const rid = expenseRoomId(e);
-            const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_ID : rid;
+            const rid = expenseRoomName(e);
+            const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_KEY : rid;
             bumpAgg(lm, key, 'exp', getExpenseSum(e));
         }
         for (const i of incomes) {
             if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) continue;
+            if (isExcludedFromAccountancyRoomStatsSum(i.category)) continue;
             const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
             if (!lm) continue;
-            const rid = incomeRoomId(i);
-            const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_ID : rid;
+            const rid = incomeRoomName(i);
+            const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_KEY : rid;
             bumpAgg(lm, key, 'inc', getIncomeSum(i));
         }
 
-        let openingByRoom = new Map<number, number>();
+        let openingByRoom = new Map<string, number>();
         if (reportMonthsInFilter !== null && reportMonthsInFilter.size > 0) {
             const firstPeriodMonth = Array.from(reportMonthsInFilter).sort()[0];
-            const running = new Map<number, number>();
+            const running = new Map<string, number>();
             for (const m of Array.from(monthRoomAgg.keys()).sort()) {
                 if (m >= firstPeriodMonth) break;
                 const roomMap = monthRoomAgg.get(m)!;
@@ -744,20 +787,23 @@ export default function Page() {
         }
 
         const roomRows = roomsForSelectedObject.map((room) => {
-            let expenses = 0;
-            let incomes = 0;
+            const roomKey = stableAccountancyRoomLabel(room);
+            let expSum = 0;
+            let incSum = 0;
             filteredByReportPeriod.expenses.forEach((e) => {
-                if (expenseRoomId(e) === room.id) expenses += getExpenseSum(e);
+                if (isExcludedFromAccountancyRoomStatsSum(e.category)) return;
+                if (expenseRoomName(e) === roomKey) expSum += getExpenseSum(e);
             });
             filteredByReportPeriod.incomes.forEach((i) => {
-                if (incomeRoomId(i) === room.id) incomes += getIncomeSum(i);
+                if (isExcludedFromAccountancyRoomStatsSum(i.category)) return;
+                if (incomeRoomName(i) === roomKey) incSum += getIncomeSum(i);
             });
             return {
-                roomId: room.id,
+                roomKey,
                 roomName: room.name || `Room ${room.id}`,
-                expenses,
-                incomes,
-                openingBalance: openingByRoom.get(room.id) ?? 0,
+                expenses: expSum,
+                incomes: incSum,
+                openingBalance: openingByRoom.get(roomKey) ?? 0,
             };
         });
 
@@ -765,20 +811,22 @@ export default function Page() {
         let orphanInc = 0;
         filteredByReportPeriod.expenses.forEach((e) => {
             if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) return;
-            if (expenseRoomId(e) === null) orphanExp += getExpenseSum(e);
+            if (isExcludedFromAccountancyRoomStatsSum(e.category)) return;
+            if (expenseRoomName(e) === null) orphanExp += getExpenseSum(e);
         });
         filteredByReportPeriod.incomes.forEach((i) => {
             if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) return;
-            if (incomeRoomId(i) === null) orphanInc += getIncomeSum(i);
+            if (isExcludedFromAccountancyRoomStatsSum(i.category)) return;
+            if (incomeRoomName(i) === null) orphanInc += getIncomeSum(i);
         });
 
-        const orphanOpening = openingByRoom.get(ACCOUNTANCY_UNALLOCATED_ROOM_ID) ?? 0;
+        const orphanOpening = openingByRoom.get(ACCOUNTANCY_UNALLOCATED_ROOM_KEY) ?? 0;
         const showUnallocatedRow =
             selectedRoomId === 'all' &&
             (orphanExp > 0 || orphanInc > 0 || orphanOpening !== 0);
 
         const rows: Array<{
-            roomId: number;
+            roomKey: string;
             roomName: string;
             expenses: number;
             incomes: number;
@@ -787,7 +835,7 @@ export default function Page() {
             ? [
                   ...roomRows,
                   {
-                      roomId: ACCOUNTANCY_UNALLOCATED_ROOM_ID,
+                      roomKey: ACCOUNTANCY_UNALLOCATED_ROOM_KEY,
                       roomName: t('accountancy.unallocatedRoomStats'),
                       expenses: orphanExp,
                       incomes: orphanInc,
@@ -796,7 +844,7 @@ export default function Page() {
               ]
             : roomRows;
 
-        return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomId === selectedRoomId);
+        return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomKey === selectedRoomId);
     }, [
         selectedObject,
         roomsForSelectedObject,
@@ -811,7 +859,7 @@ export default function Page() {
     ]);
 
     const getAccountancyObjectRoomRowHighlight = useMemo(() => {
-        return (objectId: number, roomId: number) => {
+        return (objectId: number, roomName: string) => {
             const objectRow = objects.find((o) => o.id === objectId);
             if (!objectRow) return 'default' as const;
             const monthForObject = allMonthBookingsInPeriod.filter((b) => {
@@ -821,7 +869,7 @@ export default function Page() {
             });
             return resolveAccountancyObjectRoomRowHighlight({
                 objectRow,
-                roomId,
+                roomName,
                 allObjects: objects,
                 selectedMonth,
                 bookings,
@@ -893,18 +941,53 @@ export default function Page() {
     const filteredOperations = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
 
-        const matchRoom = (roomId?: number, bookingId?: number) => {
+        const objectId = selectedObject.id;
+        const objectPropertyId = selectedObject.propertyId;
+        const bookingBelongsToObject = (booking: Booking) => {
+            const bp = booking.propertyId;
+            if (bp === undefined || bp === null) return true;
+            return bp === objectPropertyId || bp === objectId;
+        };
+        const nameSet = new Set(roomsForSelectedObject.map((r) => stableAccountancyRoomLabel(r)));
+
+        const resolveRecordRoomName = (
+            recordObjectId: number,
+            recordRoomName?: string | null,
+            bookingId?: number,
+        ): string | null => {
+            if (!recordObjectMatchesSelected(recordObjectId, selectedObject, objects)) return null;
+
+            const ridExplicit = (recordRoomName ?? '').trim();
+            if (ridExplicit && nameSet.has(ridExplicit)) {
+                return ridExplicit;
+            }
+
+            const bid = normalizeUnitOrRoomId(bookingId);
+            if (bid != null) {
+                const booking = bookings.find((b) => normalizeUnitOrRoomId(b.id) === bid);
+                if (booking && bookingBelongsToObject(booking)) {
+                    const uid = normalizeUnitOrRoomId(booking.unitId);
+                    if (uid != null) {
+                        const matchRoomRow = roomsForSelectedObject.find((r) => r.id === uid);
+                        if (matchRoomRow) {
+                            const un = stableAccountancyRoomLabel(matchRoomRow);
+                            if (nameSet.has(un)) return un;
+                        }
+                    }
+                }
+            }
+
+            if (ridExplicit) return ridExplicit;
+            return null;
+        };
+
+        const matchRoom = (
+            recordObjectId: number,
+            roomName: string | null | undefined,
+            bookingId?: number,
+        ) => {
             if (selectedRoomId === 'all') return true;
-            // Прямая привязка к комнате
-            if (roomId === selectedRoomId) return true;
-            // Привязка через бронирование
-            if (!bookingId) return false;
-            const booking = bookings.find((b) => b.id === bookingId);
-            if (!booking) return false;
-            return (
-                (booking.propertyId ?? null) === selectedObjectId &&
-                (booking.unitId ?? null) === selectedRoomId
-            );
+            return resolveRecordRoomName(recordObjectId, roomName, bookingId) === selectedRoomId;
         };
 
         const rows: OperationRow[] = [];
@@ -913,7 +996,7 @@ export default function Page() {
             .filter(
                 (e) =>
                     recordObjectMatchesSelected(e.objectId, selectedObject, objects) &&
-                    matchRoom(e.roomId, e.bookingId) &&
+                    matchRoom(e.objectId, e.roomName ?? null, e.bookingId) &&
                     recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
             )
             .forEach((e) => {
@@ -940,7 +1023,7 @@ export default function Page() {
             .filter(
                 (i) =>
                     recordObjectMatchesSelected(i.objectId, selectedObject, objects) &&
-                    matchRoom(i.roomId, i.bookingId) &&
+                    matchRoom(i.objectId, i.roomName ?? null, i.bookingId) &&
                     recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
             )
             .forEach((i) => {
@@ -975,6 +1058,7 @@ export default function Page() {
         isDateInRange,
         reportMonthsInFilter,
         objects,
+        roomsForSelectedObject,
     ]);
 
     const bookingsMergedForLabels = useMemo(() => {
@@ -1034,11 +1118,15 @@ export default function Page() {
             (a, b) => bookingGroupSortTime(b[0], b[1]) - bookingGroupSortTime(a[0], a[1]),
         );
         const bookingRoomMismatchForKey = (bookingKey: string): boolean => {
-            if (selectedRoomId === 'all' || !bookingKey.startsWith('b-')) return false;
+            if (selectedRoomId === 'all' || !bookingKey.startsWith('b-') || !selectedObject) return false;
             const bid = Number(bookingKey.slice(2));
             const b = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
             if (!b) return false;
-            return normalizeUnitOrRoomId(b.unitId) !== selectedRoomId;
+            const roomRow = roomsForSelectedObject.find(
+                (r) => stableAccountancyRoomLabel(r) === selectedRoomId,
+            );
+            if (!roomRow) return false;
+            return normalizeUnitOrRoomId(b.unitId) !== roomRow.id;
         };
 
         const bookingGroups: OperationListGroup[] = bookingEntries.map(([key, rows]) => {
@@ -1080,6 +1168,8 @@ export default function Page() {
         selectedMonth,
         selectedRoomId,
         t,
+        roomsForSelectedObject,
+        selectedObject,
     ]);
 
     const toggleOperationGroupCollapsed = (groupKey: string) => {
@@ -1828,9 +1918,9 @@ export default function Page() {
                             setSelectedObjectId(objectId);
                             setSelectedRoomId('all');
                         }}
-                        onSelectRoom={(objectId, roomId) => {
+                        onSelectRoom={(objectId, roomName) => {
                             setSelectedObjectId(objectId);
-                            setSelectedRoomId(roomId);
+                            setSelectedRoomId(roomName);
                         }}
                         getRoomRowHighlight={getAccountancyObjectRoomRowHighlight}
                     />
@@ -1928,15 +2018,18 @@ export default function Page() {
                                 <InputLabel>{t('common.room')}</InputLabel>
                                 <Select
                                     label={t('common.room')}
-                                    value={selectedRoomId === 'all' ? '' : String(selectedRoomId)}
+                                    value={selectedRoomId === 'all' ? '' : selectedRoomId}
                                     onChange={(e) => {
                                         const value = e.target.value;
-                                        setSelectedRoomId(value ? Number(value) : 'all');
+                                        setSelectedRoomId(value ? String(value) : 'all');
                                     }}
                                 >
                                     <MenuItem value="">{t('accountancy.all')}</MenuItem>
                                     {roomsForSelectedObject.map((room) => (
-                                        <MenuItem key={room.id} value={String(room.id)}>
+                                        <MenuItem
+                                            key={room.id}
+                                            value={stableAccountancyRoomLabel(room)}
+                                        >
                                             {room.name || `Room ${room.id}`}
                                         </MenuItem>
                                     ))}
@@ -1966,14 +2059,14 @@ export default function Page() {
                                 <TableBody>
                                     {filteredRoomStats.map((row) => {
                                         const balance = row.openingBalance - row.expenses + row.incomes;
-                                        const isUnallocatedRow = row.roomId === ACCOUNTANCY_UNALLOCATED_ROOM_ID;
+                                        const isUnallocatedRow = row.roomKey === ACCOUNTANCY_UNALLOCATED_ROOM_KEY;
                                         return (
                                             <TableRow
-                                                key={row.roomId}
+                                                key={row.roomKey}
                                                 onClick={
                                                     isUnallocatedRow
                                                         ? undefined
-                                                        : () => setSelectedRoomId(row.roomId)
+                                                        : () => setSelectedRoomId(row.roomKey)
                                                 }
                                                 sx={{
                                                     cursor: isUnallocatedRow ? 'default' : 'pointer',
@@ -2092,8 +2185,15 @@ export default function Page() {
                                                                             ? 'rgba(0, 0, 0, 0.04)'
                                                                             : 'rgba(255, 255, 255, 0.06)';
                                                                     },
-                                                                    borderBottom: 1,
-                                                                    borderColor: 'divider',
+                                                                    ...(group.key === 'nobook-mutual' ||
+                                                                    group.key === 'nobook-other'
+                                                                        ? {
+                                                                              borderTop: '3px solid',
+                                                                              borderTopColor: 'text.primary',
+                                                                          }
+                                                                        : {}),
+                                                                    borderBottom: '1px solid',
+                                                                    borderBottomColor: 'divider',
                                                                 }}
                                                             >
                                                                 <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>

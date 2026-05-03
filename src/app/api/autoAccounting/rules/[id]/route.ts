@@ -8,12 +8,10 @@ import { ObjectId, Filter } from 'mongodb';
 
 type RuleDb = AutoAccountingRule & { _id?: ObjectId };
 
-function parseRoomId(b: Record<string, unknown>): number | 'all' | undefined {
-    if (b.roomId === 'all') return 'all';
-    if (typeof b.roomId === 'number' && !Number.isNaN(b.roomId)) return b.roomId;
-    if (typeof b.roomId === 'string' && b.roomId.trim() !== '' && b.roomId !== 'all') {
-        const n = Number(b.roomId);
-        if (!Number.isNaN(n)) return n;
+function parseRoomName(b: Record<string, unknown>): string | 'all' | undefined {
+    if (b.roomName === 'all') return 'all';
+    if (typeof b.roomName === 'string' && b.roomName.trim() !== '' && b.roomName !== 'all') {
+        return b.roomName.trim();
     }
     return undefined;
 }
@@ -37,7 +35,7 @@ function parseQuantitySource(b: Record<string, unknown>): AutoAccountingQuantity
     return undefined;
 }
 
-type PartialRuleUpdate = Partial<Pick<AutoAccountingRule, 'name' | 'ruleType' | 'objectId' | 'roomId' | 'category' | 'quantity' | 'amount' | 'amountSource' | 'quantitySource' | 'period' | 'order' | 'objectMetadataField' | 'objectMetadataValue' | 'roomMetadataField' | 'roomMetadataOperator' | 'roomMetadataValue'>>;
+type PartialRuleUpdate = Partial<Pick<AutoAccountingRule, 'name' | 'ruleType' | 'objectId' | 'roomName' | 'category' | 'quantity' | 'amount' | 'amountSource' | 'quantitySource' | 'period' | 'order' | 'objectMetadataField' | 'objectMetadataValue' | 'roomMetadataField' | 'roomMetadataOperator' | 'roomMetadataValue'>>;
 
 function parseRuleBody(body: unknown): PartialRuleUpdate | null {
     if (!body || typeof body !== 'object') return null;
@@ -51,8 +49,8 @@ function parseRuleBody(body: unknown): PartialRuleUpdate | null {
         const n = Number(b.objectId);
         if (!Number.isNaN(n)) out.objectId = n;
     }
-    const roomId = parseRoomId(b);
-    if (roomId !== undefined) out.roomId = roomId;
+    const roomName = parseRoomName(b);
+    if (roomName !== undefined) out.roomName = roomName;
     if (typeof b.category === 'string') out.category = b.category.trim();
     if (typeof b.quantity === 'number' && b.quantity >= 1) out.quantity = b.quantity;
     if (typeof b.amount === 'number' && b.amount >= 0) out.amount = b.amount;
@@ -114,6 +112,9 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
 
         const updateData: Partial<RuleDb> = parsed ? { ...parsed } : {};
         const unsetKeys: string[] = [];
+        if (parsed && 'roomName' in parsed && parsed.roomName !== undefined) {
+            unsetKeys.push('roomId');
+        }
         if (body.objectMetadataField === '' || body.objectMetadataField === null) {
             unsetKeys.push('objectMetadataField', 'objectMetadataValue');
             delete updateData.objectMetadataField;

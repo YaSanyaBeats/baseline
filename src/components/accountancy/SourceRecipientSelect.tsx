@@ -5,6 +5,7 @@ import ListSubheader from '@mui/material/ListSubheader';
 import TextField from '@mui/material/TextField';
 import { memo, useMemo } from 'react';
 import type { Object as BedsObject } from '@/lib/types';
+import { formatRoomSourceRecipient } from '@/lib/roomBinding';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import {
@@ -84,8 +85,12 @@ export function buildSourceRecipientAutocompleteOptions(params: {
     objects.forEach((obj) => {
         obj.roomTypes?.forEach((room) => {
             const roomLabel = `${obj.name} — ${room.name || `Room ${room.id}`}`;
+            const stableName =
+                room.name != null && String(room.name).trim() !== ''
+                    ? String(room.name).trim()
+                    : `Unit ${room.id}`;
             list.push({
-                value: `${PREFIX_ROOM}${obj.id}:${room.id}`,
+                value: formatRoomSourceRecipient(obj.id, stableName),
                 label: roomLabel,
                 searchText: `${obj.name} ${room.name || ''} ${room.id}`.trim(),
                 groupKey: GROUP_OBJECTS,
@@ -148,9 +153,9 @@ export function formatSourceRecipientLabel(
     }
     if (parsed.type === 'room') {
         const obj = objects.find((o) => o.id === parsed.objectId);
-        const room = obj?.roomTypes?.find((r) => r.id === parsed.roomId);
+        const room = obj?.roomTypes?.find((r) => (r.name || '').trim() === (parsed.roomName || '').trim());
         if (obj && room) return `${obj.name} — ${room.name || `Room ${room.id}`}`;
-        return `Object ${parsed.objectId}, Room ${parsed.roomId}`;
+        return `Object ${parsed.objectId}, ${parsed.roomName}`;
     }
     if (parsed.type === 'counterparty') {
         const cp = counterparties.find((c) => c._id === parsed.id);

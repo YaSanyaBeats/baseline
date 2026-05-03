@@ -25,7 +25,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
@@ -45,13 +45,35 @@ import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
 
 const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
 
-function parseCommissionRoomId(v: unknown): number | 'all' {
-    if (v === 'all' || v === null || v === undefined || v === '') return 'all';
-    const n = Number(v);
-    return Number.isFinite(n) ? n : 'all';
+function stableUnitLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
 }
 
-function loadCommissionFilters() {
+/** Локально в фильтре комиссии храним стабильное имя юнита; legacy: числовой unit id в LS. */
+function normalizeCommissionRoomFromStorage(
+    raw: unknown,
+    rooms: { id: number; name?: string }[]
+): string | 'all' {
+    if (raw === 'all' || raw === null || raw === undefined || raw === '') return 'all';
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+        const row = rooms.find((r) => r.id === raw);
+        return row ? stableUnitLabel(row) : 'all';
+    }
+    const s = String(raw);
+    if (/^\d+$/.test(s)) {
+        const row = rooms.find((r) => r.id === Number(s));
+        return row ? stableUnitLabel(row) : 'all';
+    }
+    return s;
+}
+
+function loadCommissionFiltersPayload(): {
+    selectedObjectId: number | '';
+    roomRaw: unknown;
+    selectedMonth: string;
+} | null {
     if (typeof window === 'undefined') return null;
     try {
         const raw = localStorage.getItem(COMMISSION_FILTERS_KEY);
@@ -65,7 +87,7 @@ function loadCommissionFilters() {
         }
         return {
             selectedObjectId,
-            selectedRoomId: parseCommissionRoomId(parsed.selectedRoomId),
+            roomRaw: parsed.selectedRoomId,
             selectedMonth: String(parsed.selectedMonth ?? ''),
         };
     } catch {
@@ -75,7 +97,7 @@ function loadCommissionFilters() {
 
 function saveCommissionFilters(state: {
     selectedObjectId: number | '';
-    selectedRoomId: number | 'all';
+    selectedRoomId: string | 'all';
     selectedMonth: string;
 }) {
     if (typeof window === 'undefined') return;
@@ -248,9 +270,11 @@ export default function Page() {
     const [loading, setLoading] = useState(true);
     const [calculating, setCalculating] = useState(false);
 
+    const commissionFiltersLoadedRef = useRef(false);
+
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedObjectId, setSelectedObjectId] = useState<number | ''>('');
-    const [selectedRoomId, setSelectedRoomId] = useState<number | 'all'>('all');
+    const [selectedRoomId, setSelectedRoomId] = useState<string | 'all'>('all');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
 
     const [result, setResult] = useState<{
@@ -269,14 +293,23 @@ export default function Page() {
     const hasAccess = isAdmin || isAccountant;
 
     useEffect(() => {
-        const s = loadCommissionFilters();
-        if (s) {
-            setSelectedObjectId(s.selectedObjectId);
-            setSelectedRoomId(s.selectedRoomId);
-            setSelectedMonth(s.selectedMonth);
+        if (commissionFiltersLoadedRef.current) return;
+        const s = loadCommissionFiltersPayload();
+        if (!s) {
+            commissionFiltersLoadedRef.current = true;
+            setFiltersHydrated(true);
+            return;
         }
+        if (objects.length === 0) return;
+
+        setSelectedObjectId(s.selectedObjectId);
+        setSelectedMonth(s.selectedMonth);
+        const obj = s.selectedObjectId ? objects.find((o) => o.id === s.selectedObjectId) : undefined;
+        const rooms = obj?.roomTypes ?? [];
+        setSelectedRoomId(normalizeCommissionRoomFromStorage(s.roomRaw, rooms));
+        commissionFiltersLoadedRef.current = true;
         setFiltersHydrated(true);
-    }, []);
+    }, [objects]);
 
     useEffect(() => {
         if (!filtersHydrated) return;
@@ -352,7 +385,7 @@ export default function Page() {
         setResult(null);
 
         try {
-            const roomFilter: number | 'all' = selectedRoomId;
+            const roomFilter: string | 'all' = selectedRoomId;
             const bookingPropertyId =
                 selectedObject?.propertyId ??
                 (typeof selectedObjectId === 'number' ? selectedObjectId : 0);
@@ -361,11 +394,12 @@ export default function Page() {
                 selectedMonth
             );
             const bookingsList = await getBookingsByIds(bookingIds);
-            const filteredBookings = bookingsList.filter(
-                (b) =>
-                    b.propertyId === bookingPropertyId &&
-                    (roomFilter === 'all' || b.unitId === roomFilter)
-            );
+            const filteredBookings = bookingsList.filter((b) => {
+                if (b.propertyId !== bookingPropertyId) return false;
+                if (roomFilter === 'all') return true;
+                const row = roomsForObject.find((r) => stableUnitLabel(r) === roomFilter);
+                return row != null && b.unitId === row.id;
+            });
             setBookings(filteredBookings);
 
             const inputs = prepareCommissionData(
@@ -376,7 +410,8 @@ export default function Page() {
                 selectedObjectId,
                 roomFilter,
                 selectedMonth,
-                bookingPropertyId
+                bookingPropertyId,
+                roomsForObject
             );
 
             const getSchemeForBooking = (booking: Booking): CommissionSchemeId => {
@@ -394,22 +429,22 @@ export default function Page() {
                 const date = new Date(d);
                 return date.getFullYear() === y && date.getMonth() === m - 1;
             };
-            const matchRoom = (roomId: number | undefined) =>
-                roomFilter === 'all' || roomId === roomFilter;
+            const matchRoom = (roomName: string | null | undefined) =>
+                roomFilter === 'all' || (roomName != null && roomName !== '' && roomName === roomFilter);
 
             const unlinkedIncomes = incomes.filter(
                 (i) =>
                     i.objectId === selectedObjectId &&
                     i.bookingId == null &&
                     dateInMonth(i.date) &&
-                    matchRoom(i.roomId)
+                    matchRoom(i.roomName ?? null)
             );
             const unlinkedExpenses = expenses.filter(
                 (e) =>
                     e.objectId === selectedObjectId &&
                     e.bookingId == null &&
                     dateInMonth(e.date) &&
-                    matchRoom(e.roomId)
+                    matchRoom(e.roomName ?? null)
             );
 
             const bookingIdsSet = new Set(filteredBookings.map((b) => b.id));
@@ -431,9 +466,7 @@ export default function Page() {
             const coAgentExpensesList = linkedExpensesList.filter((e) => isCoAgentCommission(e.category));
 
             const reportTitle =
-                roomFilter === 'all'
-                    ? selectedObject?.name ?? ''
-                    : `${selectedObject?.name ?? ''} — ${roomsForObject.find((r) => r.id === roomFilter)?.name ?? ''}`;
+                roomFilter === 'all' ? selectedObject?.name ?? '' : `${selectedObject?.name ?? ''} — ${roomFilter}`;
 
             const commissionFromBookings = results.reduce((s, r) => s + r.commission, 0);
             const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0), 0);
@@ -544,22 +577,16 @@ export default function Page() {
                         <InputLabel>{t('common.room')}</InputLabel>
                         <Select
                             label={t('common.room')}
-                            value={
-                                selectedRoomId === 'all'
-                                    ? 'all'
-                                    : String(selectedRoomId)
-                            }
+                            value={selectedRoomId === 'all' ? 'all' : selectedRoomId}
                             onChange={(e) => {
                                 const v = e.target.value;
-                                setSelectedRoomId(
-                                    v === 'all' ? 'all' : Number(v)
-                                );
+                                setSelectedRoomId(v === 'all' ? 'all' : String(v));
                                 setResult(null);
                             }}
                         >
                             <MenuItem value="all">{t('accountancy.all')}</MenuItem>
                             {roomsForObject.map((room) => (
-                                <MenuItem key={room.id} value={String(room.id)}>
+                                <MenuItem key={room.id} value={stableUnitLabel(room)}>
                                     {room.name || `Room ${room.id}`}
                                 </MenuItem>
                             ))}

@@ -14,12 +14,19 @@ const ROOM_YELLOW = '#EAB308';
 export type AccountancyObjectTreeTableProps = {
     objects: Obj[];
     selectedObjectId: number | 'all';
-    selectedRoomId: number | 'all';
+    /** Стабильное имя юнита (как в сводке) или все комнаты */
+    selectedRoomId: string | 'all';
     onSelectObject: (objectId: number) => void;
-    onSelectRoom: (objectId: number, roomId: number) => void;
+    onSelectRoom: (objectId: number, roomName: string) => void;
     /** Подсветка подпункта «комната»; без пропа — только стандартные стили */
-    getRoomRowHighlight?: (objectId: number, roomId: number) => AccountancyObjectRoomRowHighlight;
+    getRoomRowHighlight?: (objectId: number, roomName: string) => AccountancyObjectRoomRowHighlight;
 };
+
+function stableTreeRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
 
 function roomRowBackground(
     theme: Theme,
@@ -65,7 +72,7 @@ export function AccountancyObjectTreeTable({
                     const isObjectRowSelected =
                         selectedObjectId !== 'all' && selectedObjectId === obj.id && selectedRoomId === 'all';
                     return (
-                        <Fragment key={`${obj.propertyName || 'obj'}-${obj.id}`}>
+                        <Fragment key={`object-${objIndex}-${obj.propertyName || 'obj'}-${obj.id}`}>
                             <TableRow
                                 hover
                                 selected={isObjectRowSelected}
@@ -143,63 +150,64 @@ export function AccountancyObjectTreeTable({
                                 </TableCell>
                             </TableRow>
                             {showRooms &&
-                                roomTypes.map((room) => {
-                                const isRoomRowSelected =
-                                    selectedObjectId === obj.id && selectedRoomId === room.id;
-                                const roomLabel = room.name || `Room ${room.id}`;
-                                const hl = getRoomRowHighlight?.(obj.id, room.id) ?? 'default';
-                                const rowBg = roomRowBackground(theme, hl, isRoomRowSelected);
-                                return (
-                                    <TableRow
-                                        key={`room-${obj.id}-${room.id}`}
-                                        hover
-                                        selected={isRoomRowSelected}
-                                        onClick={() => onSelectRoom(obj.id, room.id)}
-                                        sx={{
-                                            cursor: 'pointer',
-                                            ...(!rowBg
-                                                ? { '&.Mui-selected': { bgcolor: 'action.selected' } }
-                                                : {
-                                                      bgcolor: rowBg,
-                                                      '&.Mui-selected': { bgcolor: rowBg },
-                                                  }),
-                                            '&:hover': {
-                                                bgcolor: (t) => {
-                                                    if (hl === 'default') {
-                                                        return t.palette.action.hover;
-                                                    }
-                                                    const c =
-                                                        hl === 'red'
-                                                            ? t.palette.error.main
-                                                            : hl === 'yellow'
-                                                              ? ROOM_YELLOW
-                                                              : t.palette.info.main;
-                                                    return alpha(c, 0.35);
-                                                },
-                                            },
-                                        }}
-                                    >
-                                        <TableCell
+                                roomTypes.map((room, roomIndex) => {
+                                    const roomLabelKey = stableTreeRoomLabel(room);
+                                    const isRoomRowSelected =
+                                        selectedObjectId === obj.id && selectedRoomId === roomLabelKey;
+                                    const roomLabel = room.name || `Room ${room.id}`;
+                                    const hl = getRoomRowHighlight?.(obj.id, roomLabelKey) ?? 'default';
+                                    const rowBg = roomRowBackground(theme, hl, isRoomRowSelected);
+                                    return (
+                                        <TableRow
+                                            key={`room-${objIndex}-${roomIndex}-${obj.id}-${room.id}`}
+                                            hover
+                                            selected={isRoomRowSelected}
+                                            onClick={() => onSelectRoom(obj.id, roomLabelKey)}
                                             sx={{
-                                                py: 0.35,
-                                                pl: 4,
-                                                pr: 1,
+                                                cursor: 'pointer',
+                                                ...(!rowBg
+                                                    ? { '&.Mui-selected': { bgcolor: 'action.selected' } }
+                                                    : {
+                                                          bgcolor: rowBg,
+                                                          '&.Mui-selected': { bgcolor: rowBg },
+                                                      }),
+                                                '&:hover': {
+                                                    bgcolor: (t) => {
+                                                        if (hl === 'default') {
+                                                            return t.palette.action.hover;
+                                                        }
+                                                        const c =
+                                                            hl === 'red'
+                                                                ? t.palette.error.main
+                                                                : hl === 'yellow'
+                                                                  ? ROOM_YELLOW
+                                                                  : t.palette.info.main;
+                                                        return alpha(c, 0.35);
+                                                    },
+                                                },
                                             }}
                                         >
-                                            <Typography
-                                                variant="body2"
+                                            <TableCell
                                                 sx={{
-                                                    pl: 0.75,
-                                                    fontSize: '0.7rem',
-                                                    lineHeight: 1.25,
-                                                    color: 'text.secondary',
+                                                    py: 0.35,
+                                                    pl: 4,
+                                                    pr: 1,
                                                 }}
                                             >
-                                                {roomLabel}
-                                            </Typography>
-                                        </TableCell>
-                                    </TableRow>
-                                );
+                                                <Typography
+                                                    variant="body2"
+                                                    sx={{
+                                                        pl: 0.75,
+                                                        fontSize: '0.7rem',
+                                                        lineHeight: 1.25,
+                                                        color: 'text.secondary',
+                                                    }}
+                                                >
+                                                    {roomLabel}
+                                                </Typography>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
                                 })}
                         </Fragment>
                     );

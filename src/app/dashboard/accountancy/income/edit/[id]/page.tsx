@@ -17,7 +17,7 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomes, updateIncome } from "@/lib/incomes";
 import { getCounterparties } from "@/lib/counterparties";
@@ -28,11 +28,18 @@ import SourceRecipientSelect, { type SourceRecipientOptionValue } from "@/compon
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
+import { useObjects } from "@/providers/ObjectsProvider";
 import { useRouter, useParams } from 'next/navigation';
 import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+
+function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
 
 export default function Page() {
     const { t } = useTranslation();
@@ -40,6 +47,7 @@ export default function Page() {
     const params = useParams();
     const incomeId = params?.id as string;
     const { isAdmin, isAccountant, user } = useUser();
+    const { objects } = useObjects();
     const [income, setIncome] = useState<Partial<Income & { dateString: string }>>({});
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
@@ -72,10 +80,22 @@ export default function Page() {
                 .then((items) => {
                     const found = items.find((e) => e._id === incomeId);
                     if (found) {
+                        let roomName: string | undefined;
+                        if (found.roomName) {
+                            roomName = found.roomName;
+                        } else if (
+                            (found as Income & { roomId?: number }).roomId != null &&
+                            found.objectId
+                        ) {
+                            const o = objects.find((x) => x.id === found.objectId);
+                            const rid = (found as Income & { roomId?: number }).roomId!;
+                            const rt = o?.roomTypes?.find((r) => r.id === rid);
+                            roomName = rt ? stableIncomeRoomLabel(rt) : undefined;
+                        }
                         setIncome({
                             _id: found._id,
                             objectId: found.objectId,
-                            roomId: found.roomId,
+                            roomName,
                             bookingId: found.bookingId,
                             category: found.category,
                             amount: found.amount,
@@ -87,13 +107,14 @@ export default function Page() {
                             reportMonth: found.reportMonth ?? '',
                             source: found.source ?? '',
                             recipient: found.recipient ?? '',
+                            cashflowId: found.cashflowId,
                             comment: found.comment ?? '',
                             attachments: found.attachments ?? [],
                         });
                         if (found.objectId) {
                             setSelectedObjects([{
                                 id: found.objectId,
-                                rooms: found.roomId ? [found.roomId] : [],
+                                rooms: roomName ? [roomName] : [],
                             }]);
                         }
                     } else {
@@ -119,13 +140,15 @@ export default function Page() {
                 });
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [hasAccess, incomeId, router]);
+    }, [hasAccess, incomeId, router, objects]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
         const objectId = value.length > 0 ? value[0].id : undefined;
-        const roomId = value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
-        setIncome((prev) => ({ ...prev, objectId, roomId }));
+        const roomPick =
+            value.length > 0 && value[0].rooms.length > 0 ? value[0].rooms[0] : undefined;
+        const roomName = roomPick !== undefined ? String(roomPick) : undefined;
+        setIncome((prev) => ({ ...prev, objectId, roomName }));
         setErrors((prev) => {
             const newErrors = { ...prev };
             if (objectId) {
@@ -226,6 +249,17 @@ export default function Page() {
         setIncome((prev) => ({ ...prev, bookingId: undefined }));
     };
 
+    const handleDetachCashflow = () => {
+        setIncome((prev) => ({ ...prev, cashflowId: undefined }));
+    };
+
+    const linkedCashflowLabel = useMemo(() => {
+        const id = income.cashflowId;
+        if (!id) return null;
+        const cf = cashflows.find((c) => c._id === id);
+        return cf?.name ?? `${t('accountancy.cashflowUnknown')} (${id})`;
+    }, [income.cashflowId, cashflows, t]);
+
     const handleSubmit = () => {
         if (!validate()) return;
 
@@ -234,7 +268,7 @@ export default function Page() {
         const payload: Income = {
             _id: income._id as string,
             objectId: income.objectId as number,
-            roomId: income.roomId,
+            roomName: income.roomName,
             bookingId: income.bookingId,
             category: income.category as string,
             amount: getEffectiveCost(),
@@ -244,6 +278,7 @@ export default function Page() {
             reportMonth: income.reportMonth || undefined,
             source: income.source || undefined,
             recipient: income.recipient || undefined,
+            cashflowId: income.cashflowId ?? null,
             comment: income.comment ?? '',
             attachments: income.attachments ?? [],
             accountantId: '', // не используется при обновлении
@@ -270,6 +305,14 @@ export default function Page() {
             })
             .finally(() => setLoading(false));
     };
+
+    const bookingModalInitialRoomId = useMemo(() => {
+        if (!income.objectId || income.roomName == null || income.roomName === '') return undefined;
+        const o = objects.find((x) => x.id === income.objectId);
+        const want = String(income.roomName).trim();
+        const rt = o?.roomTypes?.find((r) => stableIncomeRoomLabel(r) === want);
+        return rt?.id;
+    }, [objects, income.objectId, income.roomName]);
 
     if (!hasAccess) {
         return (
@@ -462,6 +505,24 @@ export default function Page() {
                             sx={{ width: '100%' }}
                         />
                     </Box>
+                    {linkedCashflowLabel && income.cashflowId && (
+                        <Box>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                <Typography variant="body2" color="text.secondary">
+                                    {t('accountancy.transactionCashflow')}: {linkedCashflowLabel}
+                                </Typography>
+                                <IconButton
+                                    size="small"
+                                    color="secondary"
+                                    onClick={handleDetachCashflow}
+                                    title={t('accountancy.detachCashflow')}
+                                    aria-label={t('accountancy.detachCashflow')}
+                                >
+                                    <CloseIcon fontSize="small" />
+                                </IconButton>
+                            </Stack>
+                        </Box>
+                    )}
                     <Box>
                         <FormControl sx={{ minWidth: 150 }}>
                             <InputLabel>{t('accountancy.status')}</InputLabel>
@@ -526,7 +587,7 @@ export default function Page() {
                 onSelect={handleBookingSelect}
                 initialObjectId={income.objectId}
                 reportMonth={income.reportMonth ?? ""}
-                initialRoomId={income.roomId}
+                initialRoomId={bookingModalInitialRoomId}
             />
         </>
     );
