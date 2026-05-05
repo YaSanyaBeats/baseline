@@ -65,14 +65,18 @@ export default function Page() {
             setLoading(false);
             return;
         }
-        Promise.all([
-            getExpenses(),
-            getIncomes(),
-            getCashflows(),
-            getCounterparties(),
-            getUsersWithCashflow(),
-        ])
-            .then(async ([expList, incList, cfList, cpList, usersCf]) => {
+
+        let cancelled = false;
+
+        (async () => {
+            try {
+                const [cfList, cpList, usersCf] = await Promise.all([
+                    getCashflows(),
+                    getCounterparties(),
+                    getUsersWithCashflow(),
+                ]);
+                if (cancelled) return;
+
                 const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
                 const userCf = uid ? cfList.find((cf) => cf.userId === uid) : undefined;
                 const cfId = userCf?._id;
@@ -81,40 +85,54 @@ export default function Page() {
                 setCounterparties(cpList.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
 
-                if (cfId) {
-                    const expFiltered = expList.filter((e) => e.cashflowId === cfId);
-                    const incFiltered = incList.filter((i) => i.cashflowId === cfId);
-                    setExpenses(expFiltered);
-                    setIncomes(incFiltered);
-
-                    const bookingIds = Array.from(
-                        new Set(
-                            [...expFiltered, ...incFiltered]
-                                .map((r) => r.bookingId)
-                                .filter((id): id is number => typeof id === 'number'),
-                        ),
-                    );
-                    if (bookingIds.length > 0) {
-                        const bookingList = await getBookingsByIds(bookingIds);
-                        setBookings(bookingList);
-                    } else {
-                        setBookings([]);
-                    }
-                } else {
+                if (!cfId) {
                     setExpenses([]);
                     setIncomes([]);
                     setBookings([]);
+                    return;
                 }
-            })
-            .catch((err) => {
+
+                const [expList, incList] = await Promise.all([
+                    getExpenses({ cashflowId: cfId }),
+                    getIncomes({ cashflowId: cfId }),
+                ]);
+                if (cancelled) return;
+
+                setExpenses(expList);
+                setIncomes(incList);
+
+                const bookingIds = Array.from(
+                    new Set(
+                        [...expList, ...incList]
+                            .map((r) => r.bookingId)
+                            .filter((id): id is number => typeof id === 'number'),
+                    ),
+                );
+                if (bookingIds.length > 0) {
+                    const bookingList = await getBookingsByIds(bookingIds);
+                    if (!cancelled) setBookings(bookingList);
+                } else {
+                    setBookings([]);
+                }
+            } catch (err) {
                 console.error(err);
-                setSnackbar({
-                    open: true,
-                    message: t('common.serverError'),
-                    severity: 'error',
-                });
-            })
-            .finally(() => setLoading(false));
+                if (!cancelled) {
+                    setSnackbar({
+                        open: true,
+                        message: t('common.serverError'),
+                        severity: 'error',
+                    });
+                }
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+        // setSnackbar / t не стабильны между рендерами провайдера — не добавлять в deps
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasAccess, user?._id]);
 
     const bookingsById = useMemo(() => {

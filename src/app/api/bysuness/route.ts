@@ -124,10 +124,24 @@ export async function GET(request: NextRequest) {
             const userObject = user.objects.find((userObject: any) => {
                 return userObject.id == objectID;
             });
-            
-            if (userObject) {
+
+            // Как в filterClientRowsByUserAssignments (GET /api/objects): пустой rooms = все юниты;
+            // непустой — совпадение по имени юнита или по id (в БД rooms часто строки имён, не числа).
+            if (
+                userObject &&
+                Array.isArray(userObject.rooms) &&
+                userObject.rooms.length > 0
+            ) {
+                const nameSet = new Set(userObject.rooms.map((r: unknown) => String(r)));
                 rooms = rooms.filter((room: any) => {
-                    return userObject.rooms.includes(room.id);
+                    const unitLabel =
+                        room.name != null && String(room.name).trim() !== ''
+                            ? String(room.name).trim()
+                            : `Unit ${room.id ?? ''}`;
+                    return (
+                        nameSet.has(unitLabel) ||
+                        nameSet.has(String(room.id ?? ''))
+                    );
                 });
             }
         }

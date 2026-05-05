@@ -8,6 +8,10 @@ import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import { mergeAccountancyListQuery } from '@/lib/accountancyListServerFilter';
+import {
+    cashflowIdMongoClause,
+    verifyCashflowIdForTransactionList,
+} from '@/lib/accountancyCashflowIdQueryAuth';
 
 export async function GET(request: NextRequest) {
     try {
@@ -42,10 +46,57 @@ export async function GET(request: NextRequest) {
             }
         }
 
-        const filter = mergeAccountancyListQuery(baseFilter, request.nextUrl.searchParams);
+        const idParam = request.nextUrl.searchParams.get('id')?.trim() ?? '';
+        const cashflowIdRaw = request.nextUrl.searchParams.get('cashflowId')?.trim() ?? '';
+        let listFilter = mergeAccountancyListQuery(baseFilter, request.nextUrl.searchParams);
+
+        if (cashflowIdRaw) {
+            const cfCheck = await verifyCashflowIdForTransactionList(db, session, cashflowIdRaw);
+            if (!cfCheck.ok) {
+                return NextResponse.json(
+                    { success: false, message: cfCheck.message },
+                    { status: cfCheck.status },
+                );
+            }
+            const cfClause = cashflowIdMongoClause(cfCheck.normalizedId);
+            listFilter =
+                Object.keys(listFilter).length > 0 ? { $and: [listFilter, cfClause] } : cfClause;
+        }
+
+        if (idParam) {
+            let oid: ObjectId;
+            try {
+                oid = new ObjectId(idParam);
+            } catch {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректный ID' },
+                    { status: 400 },
+                );
+            }
+            const byIdFilter: Record<string, unknown> =
+                Object.keys(listFilter).length > 0 ? { $and: [listFilter, { _id: oid }] } : { _id: oid };
+
+            const doc = await expensesCollection.findOne(byIdFilter);
+            if (!doc) {
+                return NextResponse.json(
+                    { success: false, message: 'Расход не найден' },
+                    { status: 404 },
+                );
+            }
+            const serialized = {
+                ...doc,
+                _id: normalizeMongoIdString(doc._id),
+            };
+            return NextResponse.json(serialized, {
+                headers: {
+                    'Cache-Control': 'no-store, no-cache, must-revalidate',
+                    Pragma: 'no-cache',
+                },
+            });
+        }
 
         const expenses = await expensesCollection
-            .find(filter)
+            .find(listFilter)
             .sort({ date: -1, createdAt: -1 })
             .toArray();
 

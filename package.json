@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint . --ext .ts,.tsx,.js,.jsx",
     "import": "node scripts/import-json-to-mongo.js",
+    "export": "node scripts/export-json-from-mongo.js",
     "mongo": "mongod -auth",
     "compass": "MongoDBCompass"
   },

@@ -4,7 +4,7 @@ import { getApiUrl } from './api-client';
 
 export async function getBusynessPerDays(object: Object, session: any){
     if(!session) {
-        return;
+        return [];
     }
 
     if(session?.user?.role == 'owner') {

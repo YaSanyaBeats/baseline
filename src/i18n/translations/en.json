@@ -164,6 +164,7 @@
   },
   "calendar": {
     "bookings": "Bookings",
+    "noRoomUnits": "No room units to show in the occupancy calendar. Check your object access or contact an administrator.",
     "months": {
       "january": "January",
       "february": "February",

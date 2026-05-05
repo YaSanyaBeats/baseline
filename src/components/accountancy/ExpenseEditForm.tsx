@@ -19,7 +19,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from '@/lib/types';
-import { getExpenses, updateExpense } from '@/lib/expenses';
+import { getExpenseById, updateExpense } from '@/lib/expenses';
 import { getCounterparties } from '@/lib/counterparties';
 import { getCashflows } from '@/lib/cashflows';
 import { getUsersWithCashflow } from '@/lib/users';
@@ -90,16 +90,15 @@ export default function ExpenseEditForm({
             getCounterparties(),
             getCashflows(),
             getUsersWithCashflow(),
-            getExpenses(),
+            getExpenseById(expenseId),
         ])
-            .then(([cats, cps, cfsRaw, usersCf, items]) => {
+            .then(([cats, cps, cfsRaw, usersCf, found]) => {
                 if (cancelled) return;
                 setCategories(cats);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfsRaw.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
 
-                const found = items.find((e) => e._id === expenseId);
                 if (!found) {
                     setSnackbar({
                         open: true,

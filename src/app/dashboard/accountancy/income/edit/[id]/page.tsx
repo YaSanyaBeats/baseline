@@ -19,7 +19,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import { useEffect, useMemo, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
-import { getIncomes, updateIncome } from "@/lib/incomes";
+import { getIncomeById, updateIncome } from "@/lib/incomes";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
@@ -76,9 +76,8 @@ export default function Page() {
                 });
         }
         if (hasAccess && incomeId) {
-            getIncomes()
-                .then((items) => {
-                    const found = items.find((e) => e._id === incomeId);
+            getIncomeById(incomeId)
+                .then((found) => {
                     if (found) {
                         let roomName: string | undefined;
                         if (found.roomName) {

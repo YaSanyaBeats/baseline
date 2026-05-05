@@ -87,14 +87,29 @@ export function resolveNoBookingSubgroupId(categoryName: string | null | undefin
     return CATEGORY_TO_SUBGROUP.get(name) ?? 'other';
 }
 
-/** Не входят в суммы таблицы «Баланс по комнатам объекта» за период и в накопление остатка на начало. */
+/** Не входят в суммы таблицы «Баланс по комнатам объекта» за период и в накопление остатка на начало (см. порог месяца ниже). */
 const ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES = new Set([
     'Выплата владельцу',
     'Остаток на начало (отрицательный)',
     'Остаток на начало (положительный)',
 ]);
 
-export function isExcludedFromAccountancyRoomStatsSum(categoryName: string | null | undefined): boolean {
+/** YYYY-MM: перечисленные категории исключаются из суммы только для проводок со строго большим месяцем (т.е. с 2026-01). */
+export const ACCOUNTANCY_ROOM_STATS_EXCLUSION_AFTER_MONTH = '2025-12';
+
+/**
+ * Исключение из суммы баланса по комнате для «Выплата владельцу» и остатков на начало — только после декабря 2025.
+ * @param ledgerMonth YYYY-MM как в ledgerMonthFromRecord (отчётный месяц или по дате операции).
+ */
+export function isExcludedFromAccountancyRoomStatsSum(
+    categoryName: string | null | undefined,
+    ledgerMonth: string | null | undefined,
+): boolean {
     const n = (categoryName ?? '').trim();
-    return n !== '' && ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES.has(n);
+    if (n === '' || !ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES.has(n)) return false;
+
+    const lm = (ledgerMonth ?? '').trim();
+    if (!/^\d{4}-\d{2}$/.test(lm)) return false;
+
+    return lm > ACCOUNTANCY_ROOM_STATS_EXCLUSION_AFTER_MONTH;
 }

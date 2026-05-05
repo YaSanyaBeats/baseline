@@ -755,18 +755,18 @@ export default function Page() {
 
         for (const e of expenses) {
             if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) continue;
-            if (isExcludedFromAccountancyRoomStatsSum(e.category)) continue;
             const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
             if (!lm) continue;
+            if (isExcludedFromAccountancyRoomStatsSum(e.category, lm)) continue;
             const rid = expenseRoomName(e);
             const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_KEY : rid;
             bumpAgg(lm, key, 'exp', getExpenseSum(e));
         }
         for (const i of incomes) {
             if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) continue;
-            if (isExcludedFromAccountancyRoomStatsSum(i.category)) continue;
             const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
             if (!lm) continue;
+            if (isExcludedFromAccountancyRoomStatsSum(i.category, lm)) continue;
             const rid = incomeRoomName(i);
             const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_KEY : rid;
             bumpAgg(lm, key, 'inc', getIncomeSum(i));
@@ -791,11 +791,13 @@ export default function Page() {
             let expSum = 0;
             let incSum = 0;
             filteredByReportPeriod.expenses.forEach((e) => {
-                if (isExcludedFromAccountancyRoomStatsSum(e.category)) return;
+                const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
+                if (isExcludedFromAccountancyRoomStatsSum(e.category, lm)) return;
                 if (expenseRoomName(e) === roomKey) expSum += getExpenseSum(e);
             });
             filteredByReportPeriod.incomes.forEach((i) => {
-                if (isExcludedFromAccountancyRoomStatsSum(i.category)) return;
+                const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
+                if (isExcludedFromAccountancyRoomStatsSum(i.category, lm)) return;
                 if (incomeRoomName(i) === roomKey) incSum += getIncomeSum(i);
             });
             return {
@@ -811,12 +813,14 @@ export default function Page() {
         let orphanInc = 0;
         filteredByReportPeriod.expenses.forEach((e) => {
             if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) return;
-            if (isExcludedFromAccountancyRoomStatsSum(e.category)) return;
+            const lmExp = ledgerMonthFromRecord(e.date, e.reportMonth);
+            if (isExcludedFromAccountancyRoomStatsSum(e.category, lmExp)) return;
             if (expenseRoomName(e) === null) orphanExp += getExpenseSum(e);
         });
         filteredByReportPeriod.incomes.forEach((i) => {
             if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) return;
-            if (isExcludedFromAccountancyRoomStatsSum(i.category)) return;
+            const lmInc = ledgerMonthFromRecord(i.date, i.reportMonth);
+            if (isExcludedFromAccountancyRoomStatsSum(i.category, lmInc)) return;
             if (incomeRoomName(i) === null) orphanInc += getIncomeSum(i);
         });
 

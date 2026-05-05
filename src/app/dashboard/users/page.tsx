@@ -86,11 +86,16 @@ export default function Page() {
 
         selectedObjects?.forEach((selectedObject) => {
             const findedObject = objects.find(object => object.id === selectedObject.id);
-            const findedRooms = findedObject?.roomTypes.filter(innerRoom => selectedObject.rooms.includes(innerRoom.id));
-            if(!findedObject || !findedRooms) {
+            if (!findedObject) {
                 return;
             }
-            const roomsLabel = findedRooms.map(room => room.name ? room.name : room.id).join(', ');
+            const roomsLabel = selectedObject.rooms
+                .map((rid) => {
+                    if (typeof rid === 'string') return rid;
+                    const room = findedObject.roomTypes?.find((r) => r.id === rid);
+                    return room?.name ?? rid;
+                })
+                .join(', ');
             result.push({
                 objectLabel: findedObject.name,
                 roomsLabel: roomsLabel

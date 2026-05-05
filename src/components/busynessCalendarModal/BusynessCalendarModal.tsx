@@ -125,21 +125,25 @@ export default function BusynessCalendarModal(props: {
         }
 
         setLoading(true);
-        getBusynessPerDays(object, session).then((bookings: RoomBookings[]) => {
-            setRoomBookings(bookings);
-            setLoading(false);
-            // по умолчанию показываем текущий месяц
-            setPage(12);
-        })
+        setRoomBookings([]);
+        getBusynessPerDays(object, session)
+            .then((bookings: RoomBookings[] | undefined) => {
+                setRoomBookings(Array.isArray(bookings) ? bookings : []);
+                setPage(12);
+            })
+            .catch(() => {
+                setRoomBookings([]);
+            })
+            .finally(() => {
+                setLoading(false);
+            });
     }, [object, session])
 
     if(!object) {
-        return;
+        return null;
     }
 
-    if(!roomBookings.length) {
-        return;
-    }
+    const showCalendar = !loading && roomBookings.length > 0;
 
     return (
         <Dialog
@@ -165,10 +169,10 @@ export default function BusynessCalendarModal(props: {
                 <Stack direction={{xs: 'column', sm: 'row'}} spacing={1} justifyContent={'space-between'} alignItems={'end'}>
                     <Box>{t('calendar.bookings')} {object.name} ({getCurrentMonth(page, t)})</Box>
                     <Stack direction={'row'}>
-                        <IconButton disabled={page === 0} onClick={prevPage}>
+                        <IconButton disabled={loading || page === 0} onClick={prevPage}>
                             <ArrowBackIcon/>
                         </IconButton>
-                        <IconButton disabled={page === 15} onClick={nextPage}>
+                        <IconButton disabled={loading || page === 15} onClick={nextPage}>
                             <ArrowForwardIcon/>
                         </IconButton>
                     </Stack>
@@ -177,7 +181,7 @@ export default function BusynessCalendarModal(props: {
             <DialogContent>
                 {loading ? (
                     <CircularProgress />
-                ) : (
+                ) : showCalendar ? (
                     <>
                         {isMobile ? (
                             <BusynessCalendarMobile busynessItems={getBusynessItemsPage(roomBookings, page)} />
@@ -199,6 +203,8 @@ export default function BusynessCalendarModal(props: {
                             </Stack>
                         </Stack>
                     </>
+                ) : (
+                    <Typography color="text.secondary">{t('calendar.noRoomUnits')}</Typography>
                 )}
             </DialogContent>
         </Dialog>
