@@ -144,9 +144,11 @@ function stableTxnRoomLabel(room: { id: number; name?: string }): string {
 
 interface TransactionAddFormProps {
     type: 'expense' | 'income';
+    /** Только для страниц «Мой кэшфлоу»: записать cashflowId пользователя в новую транзакцию */
+    attachCashflowId?: boolean;
 }
 
-export default function TransactionAddForm({ type }: TransactionAddFormProps) {
+export default function TransactionAddForm({ type, attachCashflowId = false }: TransactionAddFormProps) {
     const { t } = useTranslation();
     const router = useRouter();
     const { isAdmin, isAccountant, user } = useUser();
@@ -220,7 +222,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                 setUsersWithCashflow(usersCf);
                 const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
                 const userCf = uid ? cfs.find((cf) => cf.userId === uid) : undefined;
-                setUserCashflowId(userCf?._id);
+                setUserCashflowId(attachCashflowId ? userCf?._id : undefined);
 
                 if (type === 'expense') {
                     const [expCats, incCats] = await Promise.all([
@@ -244,7 +246,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
             }
         };
         void load();
-    }, [hasAccess, type, user?._id]);
+    }, [attachCashflowId, hasAccess, type, user?._id]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
@@ -532,6 +534,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
         setLoading(true);
         let successCount = 0;
         const failures: { category: string; message: string }[] = [];
+        const cfId = attachCashflowId ? userCashflowId : undefined;
 
         try {
             for (const item of items) {
@@ -545,7 +548,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                             bookingId: item.bookingId,
                             source: item.source || undefined,
                             recipient: item.recipient || undefined,
-                            cashflowId: userCashflowId,
+                            cashflowId: cfId,
                             category: item.category,
                             amount: effectiveCost,
                             quantity: item.quantity ?? 1,
@@ -577,7 +580,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
-                                            cashflowId: userCashflowId,
+                                            cashflowId: cfId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: sub.quantity ?? 1,
@@ -601,7 +604,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            cashflowId: userCashflowId,
+                                            cashflowId: cfId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: sub.quantity ?? 1,
@@ -638,7 +641,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                             objectId,
                             roomName,
                             bookingId: item.bookingId,
-                            cashflowId: userCashflowId,
+                            cashflowId: cfId,
                             category: item.category,
                             amount: effectiveCost,
                             quantity: item.quantity ?? 1,
@@ -672,7 +675,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
-                                            cashflowId: userCashflowId,
+                                            cashflowId: cfId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: sub.quantity ?? 1,
@@ -696,7 +699,7 @@ export default function TransactionAddForm({ type }: TransactionAddFormProps) {
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            cashflowId: userCashflowId,
+                                            cashflowId: cfId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: sub.quantity ?? 1,

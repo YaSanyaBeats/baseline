@@ -20,6 +20,9 @@ import {
     AccordionSummary,
     AccordionDetails,
     CircularProgress,
+    TableContainer,
+    Divider,
+    Chip,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CalculateIcon from '@mui/icons-material/Calculate';
@@ -32,14 +35,16 @@ import { useObjects } from '@/providers/ObjectsProvider';
 import { getExpenses } from '@/lib/expenses';
 import { getIncomes } from '@/lib/incomes';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
-import { getBookingsByIds } from '@/lib/bookings';
+import { getBookingsByIds, searchBookings } from '@/lib/bookings';
 import {
     CommissionSchemeId,
     prepareCommissionData,
     calculateBookingCommission,
     isOtaCommission,
     isCoAgentCommission,
+    getNightsInMonth,
     type CommissionStep,
+    type CommissionStepLineItem,
 } from '@/lib/commissionCalculation';
 import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
 
@@ -51,7 +56,6 @@ function stableUnitLabel(room: { id: number; name?: string }): string {
         : `Unit ${room.id}`;
 }
 
-/** Локально в фильтре комиссии храним стабильное имя юнита; legacy: числовой unit id в LS. */
 function normalizeCommissionRoomFromStorage(
     raw: unknown,
     rooms: { id: number; name?: string }[]
@@ -117,145 +121,39 @@ function formatAmount(value: number): string {
     });
 }
 
-function CommissionCalculationStepBlock({
-    step,
-    stepIndex,
-    t,
-    language,
-    formatAmount: fmt,
-}: {
-    step: CommissionStep;
-    stepIndex: number;
-    t: (key: string) => string;
-    language: string;
-    formatAmount: (n: number) => string;
-}) {
-    const locale = language === 'en' ? 'en-US' : 'ru-RU';
-    const hasTransactionBreakdown = step.lineItems !== undefined;
-    const hasNightBreakdown = Boolean(step.nightBooking);
-    const showExpandable = hasTransactionBreakdown || hasNightBreakdown;
+function lineTotal(quantity: number | undefined, amount: number | undefined): number {
+    return (quantity ?? 1) * (amount ?? 0);
+}
 
-    const valueNode =
-        step.value !== undefined ? (
-            <Typography variant="body2" fontWeight={500} component="span">
-                {typeof step.value === 'number' ? fmt(step.value) : step.value}
-            </Typography>
-        ) : null;
-
-    if (!showExpandable) {
-        return (
-            <Box
-                key={stepIndex}
-                sx={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                    flexWrap: 'wrap',
-                    gap: 1,
-                }}
-            >
-                <Typography variant="body2">{step.description}</Typography>
-                {valueNode}
-                {step.formula && (
-                    <Typography variant="caption" color="text.secondary" sx={{ width: '100%' }}>
-                        {step.formula}
-                    </Typography>
-                )}
-            </Box>
-        );
+function monthOverlapIsoRange(monthKey: string): { overlapFrom: string; overlapTo: string } {
+    const [y, m] = monthKey.split('-').map(Number);
+    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+        return { overlapFrom: `${monthKey}-01`, overlapTo: `${monthKey}-28` };
     }
+    const last = new Date(y, m, 0).getDate();
+    return {
+        overlapFrom: `${y}-${String(m).padStart(2, '0')}-01`,
+        overlapTo: `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`,
+    };
+}
 
-    return (
-        <Accordion
-            key={stepIndex}
-            elevation={0}
-            variant="outlined"
-            disableGutters
-            sx={{ '&:before': { display: 'none' } }}
-        >
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                <Box
-                    sx={{
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center',
-                        width: '100%',
-                        pr: 1,
-                        gap: 1,
-                    }}
-                >
-                    <Typography variant="body2">{step.description}</Typography>
-                    {valueNode}
-                </Box>
-            </AccordionSummary>
-            <AccordionDetails>
-                <Stack spacing={1.5}>
-                    {step.formula && (
-                        <Typography variant="caption" color="text.secondary">
-                            {step.formula}
-                        </Typography>
-                    )}
-                    {step.nightBooking && (
-                        <>
-                            <Table size="small">
-                                <TableBody>
-                                    <TableRow>
-                                        <TableCell sx={{ borderBottom: 'none', pl: 0, py: 0.5 }}>
-                                            {t('accountancy.cashflow.bookingArrival')}
-                                        </TableCell>
-                                        <TableCell align="right" sx={{ borderBottom: 'none', py: 0.5 }}>
-                                            {new Date(step.nightBooking.arrival).toLocaleDateString(locale)}
-                                        </TableCell>
-                                    </TableRow>
-                                    <TableRow>
-                                        <TableCell sx={{ borderBottom: 'none', pl: 0, py: 0.5 }}>
-                                            {t('accountancy.cashflow.bookingDeparture')}
-                                        </TableCell>
-                                        <TableCell align="right" sx={{ borderBottom: 'none', py: 0.5 }}>
-                                            {new Date(step.nightBooking.departure).toLocaleDateString(locale)}
-                                        </TableCell>
-                                    </TableRow>
-                                </TableBody>
-                            </Table>
-                            <Typography variant="caption" color="text.secondary">
-                                {t('accountancy.commission.nightsBookingNote')}
-                            </Typography>
-                        </>
-                    )}
-                    {step.lineItems !== undefined &&
-                        (step.lineItems.length === 0 ? (
-                            <Typography variant="body2" color="text.secondary">
-                                {t('accountancy.commission.stepNoTransactions')}
-                            </Typography>
-                        ) : (
-                            <Table size="small">
-                                <TableHead>
-                                    <TableRow>
-                                        <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                        <TableCell>{t('accountancy.categoryColumn')}</TableCell>
-                                        <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
-                                    </TableRow>
-                                </TableHead>
-                                <TableBody>
-                                    {step.lineItems.map((row) => {
-                                        const key = row.id ?? `${row.kind}-${row.date}-${row.category}-${row.amount}`;
-                                        return (
-                                            <TableRow key={key}>
-                                                <TableCell>
-                                                    {new Date(row.date).toLocaleDateString(locale)}
-                                                </TableCell>
-                                                <TableCell>{row.category}</TableCell>
-                                                <TableCell align="right">{fmt(row.amount)}</TableCell>
-                                            </TableRow>
-                                        );
-                                    })}
-                                </TableBody>
-                            </Table>
-                        ))}
-                </Stack>
-            </AccordionDetails>
-        </Accordion>
-    );
+function bookingMatchesSelection(
+    b: Booking,
+    bookingPropertyId: number,
+    roomFilter: string | 'all',
+    roomsForObject: { id: number; name?: string }[]
+): boolean {
+    if (b.propertyId !== bookingPropertyId) return false;
+    if (roomFilter === 'all') return true;
+    const row = roomsForObject.find((r) => stableUnitLabel(r) === roomFilter);
+    return row != null && b.unitId === row.id;
+}
+
+function guestCountLabel(b: Booking): string {
+    const a = b.numAdult;
+    const c = b.numChild;
+    if (a == null && c == null) return '—';
+    return String((a ?? 0) + (c ?? 0));
 }
 
 export default function Page() {
@@ -266,7 +164,6 @@ export default function Page() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
-    const [bookings, setBookings] = useState<Booking[]>([]);
     const [loading, setLoading] = useState(true);
     const [calculating, setCalculating] = useState(false);
 
@@ -279,15 +176,24 @@ export default function Page() {
 
     const [result, setResult] = useState<{
         reportTitle: string;
-        linkedIncomes: Income[];
-        otaExpenses: Expense[];
-        coAgentExpenses: Expense[];
-        bookings: Array<ReturnType<typeof calculateBookingCommission>>;
+        monthKey: string;
+        bookingsReport: Array<{
+            booking: Booking;
+            calculation: ReturnType<typeof calculateBookingCommission>;
+            incomes: Income[];
+            expenses: Expense[];
+        }>;
+        unlinkedIncomes: Income[];
+        unlinkedExpenses: Expense[];
         totalCommission: number;
         unlinkedExpensesAmount: number;
         totalWithUnlinkedExpenses: number;
         totalIncome: number;
         totalExpenses: number;
+        totalLinkedIncome: number;
+        totalLinkedExpense: number;
+        totalUnlinkedIncome: number;
+        totalUnlinkedExpense: number;
     } | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
@@ -349,35 +255,6 @@ export default function Page() {
         load();
     }, [hasAccess]);
 
-    const getBookingIdsFromExpensesAndIncomes = (
-        objectId: number,
-        monthKey: string
-    ): number[] => {
-        const [y, m] = monthKey.split('-').map(Number);
-        const dateInMonth = (d: Date | string) => {
-            const date = new Date(d);
-            return date.getFullYear() === y && date.getMonth() === m - 1;
-        };
-        const ids = new Set<number>();
-        expenses
-            .filter(
-                (e) =>
-                    e.objectId === objectId &&
-                    e.bookingId != null &&
-                    dateInMonth(e.date)
-            )
-            .forEach((e) => ids.add(e.bookingId!));
-        incomes
-            .filter(
-                (i) =>
-                    i.objectId === objectId &&
-                    i.bookingId != null &&
-                    dateInMonth(i.date)
-            )
-            .forEach((i) => ids.add(i.bookingId!));
-        return Array.from(ids);
-    };
-
     const handleCalculate = async () => {
         if (!selectedObjectId || !selectedMonth) return;
 
@@ -389,21 +266,60 @@ export default function Page() {
             const bookingPropertyId =
                 selectedObject?.propertyId ??
                 (typeof selectedObjectId === 'number' ? selectedObjectId : 0);
-            const bookingIds = getBookingIdsFromExpensesAndIncomes(
-                selectedObjectId,
-                selectedMonth
-            );
-            const bookingsList = await getBookingsByIds(bookingIds);
-            const filteredBookings = bookingsList.filter((b) => {
-                if (b.propertyId !== bookingPropertyId) return false;
-                if (roomFilter === 'all') return true;
-                const row = roomsForObject.find((r) => stableUnitLabel(r) === roomFilter);
-                return row != null && b.unitId === row.id;
+
+            const [y, m] = selectedMonth.split('-').map(Number);
+            const dateInMonth = (d: Date | string) => {
+                const date = new Date(d);
+                return date.getFullYear() === y && date.getMonth() === m - 1;
+            };
+            const matchRoom = (roomName: string | null | undefined) =>
+                roomFilter === 'all' || (roomName != null && roomName !== '' && roomName === roomFilter);
+
+            const { overlapFrom, overlapTo } = monthOverlapIsoRange(selectedMonth);
+            const roomRow =
+                roomFilter === 'all' ? undefined : roomsForObject.find((r) => stableUnitLabel(r) === roomFilter);
+
+            const overlapBookings = await searchBookings({
+                objectId: bookingPropertyId,
+                ...(roomRow != null ? { roomId: roomRow.id } : {}),
+                overlapFrom,
+                overlapTo,
             });
-            setBookings(filteredBookings);
+
+            const overlapFiltered = overlapBookings.filter((b) =>
+                bookingMatchesSelection(b, bookingPropertyId, roomFilter, roomsForObject)
+            );
+
+            const txnBookingIds = new Set<number>();
+            for (const i of incomes) {
+                if (i.objectId !== selectedObjectId || !dateInMonth(i.date) || !matchRoom(i.roomName ?? null))
+                    continue;
+                if (i.bookingId != null) txnBookingIds.add(i.bookingId);
+            }
+            for (const e of expenses) {
+                if (e.objectId !== selectedObjectId || !dateInMonth(e.date) || !matchRoom(e.roomName ?? null))
+                    continue;
+                if (e.bookingId != null) txnBookingIds.add(e.bookingId);
+            }
+
+            const missingFromOverlap = [...txnBookingIds].filter(
+                (id) => !overlapFiltered.some((b) => b.id === id)
+            );
+            const extras = missingFromOverlap.length ? await getBookingsByIds(missingFromOverlap) : [];
+            const extrasFiltered = extras.filter((b) =>
+                bookingMatchesSelection(b, bookingPropertyId, roomFilter, roomsForObject)
+            );
+
+            const byId = new Map<number, Booking>();
+            for (const b of overlapFiltered) byId.set(b.id, b);
+            for (const b of extrasFiltered) byId.set(b.id, b);
+
+            const mergedBookings = Array.from(byId.values()).sort(
+                (a, c) => new Date(a.arrival).getTime() - new Date(c.arrival).getTime()
+            );
 
             const inputs = prepareCommissionData(
-                filteredBookings,
+                mergedBookings,
                 incomes,
                 expenses,
                 categories,
@@ -424,14 +340,6 @@ export default function Page() {
                 calculateBookingCommission(input, getSchemeForBooking(input.booking))
             );
 
-            const [y, m] = selectedMonth.split('-').map(Number);
-            const dateInMonth = (d: Date | string) => {
-                const date = new Date(d);
-                return date.getFullYear() === y && date.getMonth() === m - 1;
-            };
-            const matchRoom = (roomName: string | null | undefined) =>
-                roomFilter === 'all' || (roomName != null && roomName !== '' && roomName === roomFilter);
-
             const unlinkedIncomes = incomes.filter(
                 (i) =>
                     i.objectId === selectedObjectId &&
@@ -447,49 +355,57 @@ export default function Page() {
                     matchRoom(e.roomName ?? null)
             );
 
-            const bookingIdsSet = new Set(filteredBookings.map((b) => b.id));
-            const linkedIncomesList = incomes.filter(
-                (i) =>
-                    i.objectId === selectedObjectId &&
-                    i.bookingId != null &&
-                    bookingIdsSet.has(i.bookingId) &&
-                    dateInMonth(i.date)
-            );
-            const linkedExpensesList = expenses.filter(
-                (e) =>
-                    e.objectId === selectedObjectId &&
-                    e.bookingId != null &&
-                    bookingIdsSet.has(e.bookingId) &&
-                    dateInMonth(e.date)
-            );
-            const otaExpensesList = linkedExpensesList.filter((e) => isOtaCommission(e.category));
-            const coAgentExpensesList = linkedExpensesList.filter((e) => isCoAgentCommission(e.category));
+            const bookingsReport = mergedBookings.map((booking, idx) => {
+                const calculation = results[idx]!;
+                const incomesRows = incomes.filter(
+                    (i) =>
+                        i.objectId === selectedObjectId &&
+                        i.bookingId === booking.id &&
+                        dateInMonth(i.date) &&
+                        matchRoom(i.roomName ?? null)
+                );
+                const expensesRows = expenses.filter(
+                    (e) =>
+                        e.objectId === selectedObjectId &&
+                        e.bookingId === booking.id &&
+                        dateInMonth(e.date) &&
+                        matchRoom(e.roomName ?? null)
+                );
+                return { booking, calculation, incomes: incomesRows, expenses: expensesRows };
+            });
 
             const reportTitle =
                 roomFilter === 'all' ? selectedObject?.name ?? '' : `${selectedObject?.name ?? ''} — ${roomFilter}`;
 
             const commissionFromBookings = results.reduce((s, r) => s + r.commission, 0);
-            const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0), 0);
-            const incomeFromBookings = results.reduce((s, r) => s + r.income, 0);
-            const expensesFromBookings = results.reduce((s, r) => s + r.totalExpenses, 0);
-
+            const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + lineTotal(e.quantity, e.amount), 0);
             const totalCommission = commissionFromBookings;
             const totalWithUnlinkedExpenses = totalCommission + unlinkedExpensesAmount;
-            const totalIncome =
-                incomeFromBookings + unlinkedIncomes.reduce((s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0), 0);
-            const totalExpenses = expensesFromBookings + unlinkedExpensesAmount;
+
+            const totalUnlinkedIncome = unlinkedIncomes.reduce((s, i) => s + lineTotal(i.quantity, i.amount), 0);
+            const totalUnlinkedExpense = unlinkedExpensesAmount;
+
+            const totalLinkedIncome = results.reduce((s, r) => s + r.income, 0);
+            const totalLinkedExpense = results.reduce((s, r) => s + r.totalExpenses, 0);
+
+            const totalIncome = totalLinkedIncome + totalUnlinkedIncome;
+            const totalExpenses = totalLinkedExpense + totalUnlinkedExpense;
 
             setResult({
                 reportTitle,
-                linkedIncomes: linkedIncomesList,
-                otaExpenses: otaExpensesList,
-                coAgentExpenses: coAgentExpensesList,
-                bookings: results,
+                monthKey: selectedMonth,
+                bookingsReport,
+                unlinkedIncomes,
+                unlinkedExpenses,
                 totalCommission,
                 unlinkedExpensesAmount,
                 totalWithUnlinkedExpenses,
                 totalIncome,
                 totalExpenses,
+                totalLinkedIncome,
+                totalLinkedExpense,
+                totalUnlinkedIncome,
+                totalUnlinkedExpense,
             });
         } catch (err) {
             console.error('Commission calculation error:', err);
@@ -511,6 +427,111 @@ export default function Page() {
         }
         return options;
     })();
+
+    const locale = language === 'en' ? 'en-US' : 'ru-RU';
+
+    const formatStatus = (status: string) =>
+        status === 'confirmed' ? t('accountancy.statusConfirmed') : t('accountancy.statusDraft');
+
+    const renderLineItemsTable = (items: CommissionStepLineItem[] | undefined) => {
+        if (!items || items.length === 0) {
+            return (
+                <Typography variant="caption" color="text.secondary">
+                    {t('accountancy.commission.stepNoTransactions')}
+                </Typography>
+            );
+        }
+        return (
+            <Table size="small" sx={{ bgcolor: 'action.hover' }}>
+                <TableHead>
+                    <TableRow>
+                        <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                        <TableCell>{t('accountancy.transactionTypeColumn')}</TableCell>
+                        <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                        <TableCell align="right">{t('accountancy.commission.lineTotal')}</TableCell>
+                        <TableCell>{t('accountancy.comment')}</TableCell>
+                    </TableRow>
+                </TableHead>
+                <TableBody>
+                    {items.map((row) => {
+                        const key = row.id ?? `${row.kind}-${row.date}-${row.category}-${row.amount}`;
+                        return (
+                            <TableRow key={key}>
+                                <TableCell>{new Date(row.date).toLocaleDateString(locale)}</TableCell>
+                                <TableCell>
+                                    {row.kind === 'income'
+                                        ? t('accountancy.income')
+                                        : t('accountancy.expense')}
+                                </TableCell>
+                                <TableCell>{row.category}</TableCell>
+                                <TableCell align="right">{formatAmount(row.amount)}</TableCell>
+                                <TableCell sx={{ maxWidth: 220, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                    {row.comment ?? '—'}
+                                </TableCell>
+                            </TableRow>
+                        );
+                    })}
+                </TableBody>
+            </Table>
+        );
+    };
+
+    const renderCommissionSteps = (steps: CommissionStep[]) => (
+        <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+            <Table size="small">
+                <TableHead>
+                    <TableRow sx={{ bgcolor: 'action.selected' }}>
+                        <TableCell>{t('accountancy.commission.stepColumn')}</TableCell>
+                        <TableCell align="right">{t('accountancy.commission.valueColumn')}</TableCell>
+                        <TableCell sx={{ minWidth: 160 }}>{t('accountancy.commission.formulaColumn')}</TableCell>
+                        <TableCell>{t('accountancy.commission.detailLines')}</TableCell>
+                    </TableRow>
+                </TableHead>
+                <TableBody>
+                    {steps.map((step, idx) => (
+                        <TableRow key={idx}>
+                            <TableCell sx={{ verticalAlign: 'top' }}>
+                                <Stack spacing={0.5}>
+                                    <Typography variant="body2">{step.description}</Typography>
+                                    {step.nightBooking && (
+                                        <Typography variant="caption" color="text.secondary">
+                                            {t('accountancy.cashflow.bookingArrival')}:{' '}
+                                            {new Date(step.nightBooking.arrival).toLocaleDateString(locale)};{' '}
+                                            {t('accountancy.cashflow.bookingDeparture')}:{' '}
+                                            {new Date(step.nightBooking.departure).toLocaleDateString(locale)}
+                                        </Typography>
+                                    )}
+                                </Stack>
+                            </TableCell>
+                            <TableCell align="right" sx={{ verticalAlign: 'top', whiteSpace: 'nowrap' }}>
+                                {step.value !== undefined
+                                    ? typeof step.value === 'number'
+                                        ? formatAmount(step.value)
+                                        : step.value
+                                    : '—'}
+                            </TableCell>
+                            <TableCell sx={{ verticalAlign: 'top' }}>
+                                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'pre-wrap' }}>
+                                    {step.formula ?? '—'}
+                                </Typography>
+                            </TableCell>
+                            <TableCell sx={{ verticalAlign: 'top', p: 1 }}>
+                                {step.lineItems !== undefined ? (
+                                    renderLineItemsTable(step.lineItems)
+                                ) : step.nightBooking ? (
+                                    <Typography variant="caption" color="text.secondary">
+                                        {t('accountancy.commission.nightsBookingNote')}
+                                    </Typography>
+                                ) : (
+                                    '—'
+                                )}
+                            </TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        </TableContainer>
+    );
 
     if (!hasAccess) {
         return (
@@ -636,183 +657,423 @@ export default function Page() {
             </Paper>
 
             {result && (
-                <Paper sx={{ p: 2 }}>
-                    <Typography variant="h5" sx={{ mb: 3 }}>
-                        {result.reportTitle || t('accountancy.commission.result')}
-                    </Typography>
+                <Stack spacing={3}>
+                    <Paper sx={{ p: 2 }}>
+                        <Typography variant="h5" sx={{ mb: 1 }}>
+                            {result.reportTitle || t('accountancy.commission.result')}
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                            {t('accountancy.selectMonth')}: {result.monthKey}
+                        </Typography>
+                    </Paper>
 
-                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-                        <Paper variant="outlined" sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                                {t('accountancy.commission.incomesList')}
-                            </Typography>
-                            {result.linkedIncomes.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.commission.noIncomes')}
-                                </Typography>
-                            ) : (
-                                <>
-                                    <Table size="small">
-                                        <TableHead>
-                                            <TableRow>
-                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
-                                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
-                                            </TableRow>
-                                        </TableHead>
+                    <Typography variant="h6">{t('accountancy.commission.reportByBookings')}</Typography>
+
+                    {result.bookingsReport.length === 0 &&
+                    result.unlinkedIncomes.length === 0 &&
+                    result.unlinkedExpenses.length === 0 ? (
+                        <Alert severity="info">{t('accountancy.commission.noBookings')}</Alert>
+                    ) : null}
+
+                    {result.bookingsReport.length > 0
+                        ? result.bookingsReport.map(({ booking, calculation, incomes: incRows, expenses: expRows }) => {
+                            const nightsInMonth = getNightsInMonth(
+                                booking.arrival,
+                                booking.departure,
+                                result.monthKey
+                            );
+                            const roomMeta = roomsForObject.find((r) => r.id === booking.unitId);
+                            const roomLabel =
+                                roomMeta != null
+                                    ? stableUnitLabel(roomMeta)
+                                    : booking.unitId != null
+                                      ? `Unit ${booking.unitId}`
+                                      : '—';
+                            const incomeSum = incRows.reduce((s, i) => s + lineTotal(i.quantity, i.amount), 0);
+                            const expenseSum = expRows.reduce((s, e) => s + lineTotal(e.quantity, e.amount), 0);
+                            const refLabel =
+                                booking.refererEditable || booking.referer || booking.channel || '—';
+
+                            return (
+                                <Paper key={booking.id} variant="outlined" sx={{ p: 2, overflow: 'hidden' }}>
+                                    <Stack
+                                        direction={{ xs: 'column', md: 'row' }}
+                                        spacing={1}
+                                        alignItems={{ xs: 'flex-start', md: 'center' }}
+                                        flexWrap="wrap"
+                                        useFlexGap
+                                        sx={{ mb: 2 }}
+                                    >
+                                        <Typography variant="subtitle1" fontWeight={700}>
+                                            {calculation.bookingTitle}
+                                        </Typography>
+                                        <Chip size="small" label={`${t('accountancy.commission.bookingIdShort')} ${booking.id}`} />
+                                        <Chip
+                                            size="small"
+                                            color="primary"
+                                            variant="outlined"
+                                            label={`${t('accountancy.commission.scheme')} ${calculation.schemeId}`}
+                                        />
+                                        <Typography variant="body2" color="text.secondary">
+                                            {t('common.room')}: {roomLabel}
+                                        </Typography>
+                                    </Stack>
+
+                                    <Table size="small" sx={{ mb: 2, maxWidth: 720 }}>
                                         <TableBody>
-                                            {result.linkedIncomes.map((i) => {
-                                                const sum = (i.quantity ?? 1) * (i.amount ?? 0);
-                                                return (
-                                                    <TableRow key={i._id ?? `${i.date}-${i.category}-${sum}`}>
-                                                        <TableCell>
-                                                            {new Date(i.date).toLocaleDateString('ru-RU')}
-                                                        </TableCell>
-                                                        <TableCell>{i.category}</TableCell>
-                                                        <TableCell align="right">{formatAmount(sum)}</TableCell>
-                                                    </TableRow>
-                                                );
-                                            })}
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600, width: 200 }}>
+                                                    {t('accountancy.cashflow.bookingArrival')}
+                                                </TableCell>
+                                                <TableCell>{new Date(booking.arrival).toLocaleDateString(locale)}</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600 }}>
+                                                    {t('accountancy.cashflow.bookingDeparture')}
+                                                </TableCell>
+                                                <TableCell>{new Date(booking.departure).toLocaleDateString(locale)}</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.nightsInMonth')}</TableCell>
+                                                <TableCell>{nightsInMonth}</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.nightsTotal')}</TableCell>
+                                                <TableCell>{calculation.nights}</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.referrer')}</TableCell>
+                                                <TableCell>{refLabel}</TableCell>
+                                            </TableRow>
+                                            <TableRow>
+                                                <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.guestsCount')}</TableCell>
+                                                <TableCell>{guestCountLabel(booking)}</TableCell>
+                                            </TableRow>
                                         </TableBody>
                                     </Table>
-                                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1 }}>
-                                        {t('accountancy.commission.sum')}:{' '}
-                                        {formatAmount(
-                                            result.linkedIncomes.reduce(
-                                                (s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0),
-                                                0
-                                            )
-                                        )}
-                                    </Typography>
-                                </>
-                            )}
-                        </Paper>
 
+                                    <Typography
+                                        variant="subtitle2"
+                                        fontWeight={700}
+                                        sx={{ mb: 1, color: 'success.dark', bgcolor: 'success.50', px: 1, py: 0.5, borderRadius: 0.5 }}
+                                    >
+                                        {t('accountancy.commission.incomesSection')}
+                                    </Typography>
+                                    <TableContainer sx={{ mb: 2, maxWidth: '100%', overflowX: 'auto' }}>
+                                        <Table size="small" stickyHeader>
+                                            <TableHead>
+                                                <TableRow>
+                                                    <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                                    <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                                    <TableCell align="right">{t('accountancy.quantity')}</TableCell>
+                                                    <TableCell align="right">{t('accountancy.commission.unitPrice')}</TableCell>
+                                                    <TableCell align="right">{t('accountancy.commission.lineTotal')}</TableCell>
+                                                    <TableCell>{t('common.room')}</TableCell>
+                                                    <TableCell>{t('accountancy.status')}</TableCell>
+                                                    <TableCell>{t('accountancy.comment')}</TableCell>
+                                                </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                                {incRows.length === 0 ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={8}>
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                {t('accountancy.commission.noIncomes')}
+                                                            </Typography>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                    incRows.map((i) => {
+                                                        const sum = lineTotal(i.quantity, i.amount);
+                                                        return (
+                                                            <TableRow key={i._id ?? `${i.date}-${i.category}-${sum}`}>
+                                                                <TableCell>{new Date(i.date).toLocaleDateString(locale)}</TableCell>
+                                                                <TableCell>{i.category}</TableCell>
+                                                                <TableCell align="right">{i.quantity ?? 1}</TableCell>
+                                                                <TableCell align="right">{formatAmount(i.amount ?? 0)}</TableCell>
+                                                                <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                                <TableCell>{i.roomName ?? '—'}</TableCell>
+                                                                <TableCell>{formatStatus(i.status)}</TableCell>
+                                                                <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                                                    {i.comment ?? '—'}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })
+                                                )}
+                                                {incRows.length > 0 && (
+                                                    <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                                        <TableCell colSpan={4} align="right" sx={{ fontWeight: 700 }}>
+                                                            {t('accountancy.commission.sum')}
+                                                        </TableCell>
+                                                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                                                            {formatAmount(incomeSum)}
+                                                        </TableCell>
+                                                        <TableCell colSpan={3} />
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </TableContainer>
+
+                                    <Typography
+                                        variant="subtitle2"
+                                        fontWeight={700}
+                                        sx={{ mb: 1, color: 'warning.dark', bgcolor: 'warning.50', px: 1, py: 0.5, borderRadius: 0.5 }}
+                                    >
+                                        {t('accountancy.commission.expensesSection')}
+                                    </Typography>
+                                    <TableContainer sx={{ mb: 2, maxWidth: '100%', overflowX: 'auto' }}>
+                                        <Table size="small" stickyHeader>
+                                            <TableHead>
+                                                <TableRow>
+                                                    <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                                    <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                                    <TableCell align="right">{t('accountancy.quantity')}</TableCell>
+                                                    <TableCell align="right">{t('accountancy.commission.unitPrice')}</TableCell>
+                                                    <TableCell align="right">{t('accountancy.commission.lineTotal')}</TableCell>
+                                                    <TableCell>{t('accountancy.commission.colOta')}</TableCell>
+                                                    <TableCell>{t('accountancy.commission.colCoAgent')}</TableCell>
+                                                    <TableCell>{t('common.room')}</TableCell>
+                                                    <TableCell>{t('accountancy.status')}</TableCell>
+                                                    <TableCell>{t('accountancy.comment')}</TableCell>
+                                                </TableRow>
+                                            </TableHead>
+                                            <TableBody>
+                                                {expRows.length === 0 ? (
+                                                    <TableRow>
+                                                        <TableCell colSpan={10}>
+                                                            <Typography variant="body2" color="text.secondary">
+                                                                {t('accountancy.noExpenses')}
+                                                            </Typography>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ) : (
+                                                    expRows.map((e) => {
+                                                        const sum = lineTotal(e.quantity, e.amount);
+                                                        return (
+                                                            <TableRow key={e._id ?? `${e.date}-${e.category}-${sum}`}>
+                                                                <TableCell>{new Date(e.date).toLocaleDateString(locale)}</TableCell>
+                                                                <TableCell>{e.category}</TableCell>
+                                                                <TableCell align="right">{e.quantity ?? 1}</TableCell>
+                                                                <TableCell align="right">{formatAmount(e.amount ?? 0)}</TableCell>
+                                                                <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                                <TableCell>{isOtaCommission(e.category) ? '✓' : ''}</TableCell>
+                                                                <TableCell>{isCoAgentCommission(e.category) ? '✓' : ''}</TableCell>
+                                                                <TableCell>{e.roomName ?? '—'}</TableCell>
+                                                                <TableCell>{formatStatus(e.status)}</TableCell>
+                                                                <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                                                    {e.comment ?? '—'}
+                                                                </TableCell>
+                                                            </TableRow>
+                                                        );
+                                                    })
+                                                )}
+                                                {expRows.length > 0 && (
+                                                    <TableRow sx={{ bgcolor: 'action.hover' }}>
+                                                        <TableCell colSpan={4} align="right" sx={{ fontWeight: 700 }}>
+                                                            {t('accountancy.commission.sum')}
+                                                        </TableCell>
+                                                        <TableCell align="right" sx={{ fontWeight: 700 }}>
+                                                            {formatAmount(expenseSum)}
+                                                        </TableCell>
+                                                        <TableCell colSpan={5} />
+                                                    </TableRow>
+                                                )}
+                                            </TableBody>
+                                        </Table>
+                                    </TableContainer>
+
+                                    <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                                        {t('accountancy.commission.commissionStepsSection')}
+                                    </Typography>
+                                    {renderCommissionSteps(calculation.steps)}
+
+                                    <Divider sx={{ my: 2 }} />
+
+                                    <Stack direction="row" spacing={2} alignItems="center" flexWrap="wrap" useFlexGap>
+                                        <Typography variant="body1" fontWeight={700}>
+                                            {t('accountancy.commission.commissionAmount')}:
+                                        </Typography>
+                                        <Typography variant="h6" component="span" color="primary">
+                                            {formatAmount(calculation.commission)}
+                                        </Typography>
+                                    </Stack>
+                                </Paper>
+                            );
+                        })
+                        : null}
+
+                    {(result.unlinkedIncomes.length > 0 || result.unlinkedExpenses.length > 0) && (
                         <Paper variant="outlined" sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                                {t('accountancy.commission.bookingsList')}
+                            <Typography variant="h6" sx={{ mb: 2 }}>
+                                {t('accountancy.commission.unlinkedSection')}
                             </Typography>
-                            {result.bookings.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.commission.noBookings')}
-                                </Typography>
-                            ) : (
+
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                {t('accountancy.commission.unlinkedIncomes')}
+                            </Typography>
+                            <TableContainer sx={{ mb: 2, maxWidth: '100%', overflowX: 'auto' }}>
                                 <Table size="small">
                                     <TableHead>
                                         <TableRow>
-                                            <TableCell>{t('bookings.title')}</TableCell>
-                                            <TableCell align="right">{t('common.nights')}</TableCell>
+                                            <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                            <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                            <TableCell align="right">{t('accountancy.quantity')}</TableCell>
+                                            <TableCell align="right">{t('accountancy.commission.unitPrice')}</TableCell>
+                                            <TableCell align="right">{t('accountancy.commission.lineTotal')}</TableCell>
+                                            <TableCell>{t('common.room')}</TableCell>
+                                            <TableCell>{t('accountancy.status')}</TableCell>
+                                            <TableCell>{t('accountancy.comment')}</TableCell>
                                         </TableRow>
                                     </TableHead>
                                     <TableBody>
-                                        {result.bookings.map((r) => (
-                                            <TableRow key={r.bookingId}>
-                                                <TableCell>{r.bookingTitle}</TableCell>
-                                                <TableCell align="right">{r.nights}</TableCell>
+                                        {result.unlinkedIncomes.length === 0 ? (
+                                            <TableRow>
+                                                <TableCell colSpan={8}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {t('accountancy.commission.noIncomes')}
+                                                    </Typography>
+                                                </TableCell>
                                             </TableRow>
-                                        ))}
+                                        ) : (
+                                            result.unlinkedIncomes.map((i) => {
+                                                const sum = lineTotal(i.quantity, i.amount);
+                                                return (
+                                                    <TableRow key={i._id ?? `${i.date}-${i.category}`}>
+                                                        <TableCell>{new Date(i.date).toLocaleDateString(locale)}</TableCell>
+                                                        <TableCell>{i.category}</TableCell>
+                                                        <TableCell align="right">{i.quantity ?? 1}</TableCell>
+                                                        <TableCell align="right">{formatAmount(i.amount ?? 0)}</TableCell>
+                                                        <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                        <TableCell>{i.roomName ?? '—'}</TableCell>
+                                                        <TableCell>{formatStatus(i.status)}</TableCell>
+                                                        <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal' }}>
+                                                            {i.comment ?? '—'}
+                                                        </TableCell>
+                                                    </TableRow>
+                                                );
+                                            })
+                                        )}
                                     </TableBody>
                                 </Table>
-                            )}
-                        </Paper>
+                            </TableContainer>
 
-                        <Paper variant="outlined" sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                                {t('accountancy.commission.otaExpensesList')}
+                            <Typography variant="subtitle2" sx={{ mb: 1 }}>
+                                {t('accountancy.commission.unlinkedExpenses')}
                             </Typography>
-                            {result.otaExpenses.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.commission.noOtaExpenses')}
-                                </Typography>
-                            ) : (
-                                <>
-                                    <Table size="small">
-                                        <TableHead>
+                            <TableContainer sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+                                <Table size="small">
+                                    <TableHead>
+                                        <TableRow>
+                                            <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                                            <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                                            <TableCell align="right">{t('accountancy.quantity')}</TableCell>
+                                            <TableCell align="right">{t('accountancy.commission.unitPrice')}</TableCell>
+                                            <TableCell align="right">{t('accountancy.commission.lineTotal')}</TableCell>
+                                            <TableCell>{t('common.room')}</TableCell>
+                                            <TableCell>{t('accountancy.status')}</TableCell>
+                                            <TableCell>{t('accountancy.comment')}</TableCell>
+                                        </TableRow>
+                                    </TableHead>
+                                    <TableBody>
+                                        {result.unlinkedExpenses.length === 0 ? (
                                             <TableRow>
-                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
-                                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
+                                                <TableCell colSpan={8}>
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        {t('accountancy.noExpenses')}
+                                                    </Typography>
+                                                </TableCell>
                                             </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {result.otaExpenses.map((e) => {
-                                                const sum = (e.quantity ?? 1) * (e.amount ?? 0);
+                                        ) : (
+                                            result.unlinkedExpenses.map((e) => {
+                                                const sum = lineTotal(e.quantity, e.amount);
                                                 return (
-                                                    <TableRow key={e._id ?? `${e.date}-${e.category}-${sum}`}>
-                                                        <TableCell>
-                                                            {new Date(e.date).toLocaleDateString('ru-RU')}
-                                                        </TableCell>
+                                                    <TableRow key={e._id ?? `${e.date}-${e.category}`}>
+                                                        <TableCell>{new Date(e.date).toLocaleDateString(locale)}</TableCell>
                                                         <TableCell>{e.category}</TableCell>
+                                                        <TableCell align="right">{e.quantity ?? 1}</TableCell>
+                                                        <TableCell align="right">{formatAmount(e.amount ?? 0)}</TableCell>
                                                         <TableCell align="right">{formatAmount(sum)}</TableCell>
+                                                        <TableCell>{e.roomName ?? '—'}</TableCell>
+                                                        <TableCell>{formatStatus(e.status)}</TableCell>
+                                                        <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal' }}>
+                                                            {e.comment ?? '—'}
+                                                        </TableCell>
                                                     </TableRow>
                                                 );
-                                            })}
-                                        </TableBody>
-                                    </Table>
-                                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1 }}>
-                                        {t('accountancy.commission.sum')}:{' '}
-                                        {formatAmount(
-                                            result.otaExpenses.reduce(
-                                                (s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0),
-                                                0
-                                            )
+                                            })
                                         )}
-                                    </Typography>
-                                </>
-                            )}
+                                    </TableBody>
+                                </Table>
+                            </TableContainer>
                         </Paper>
+                    )}
 
-                        <Paper variant="outlined" sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                                {t('accountancy.commission.coAgentExpensesList')}
-                            </Typography>
-                            {result.coAgentExpenses.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.commission.noCoAgentExpenses')}
-                                </Typography>
-                            ) : (
-                                <>
-                                    <Table size="small">
-                                        <TableHead>
-                                            <TableRow>
-                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
-                                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
-                                            </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {result.coAgentExpenses.map((e) => {
-                                                const sum = (e.quantity ?? 1) * (e.amount ?? 0);
-                                                return (
-                                                    <TableRow key={e._id ?? `${e.date}-${e.category}-${sum}`}>
-                                                        <TableCell>
-                                                            {new Date(e.date).toLocaleDateString('ru-RU')}
-                                                        </TableCell>
-                                                        <TableCell>{e.category}</TableCell>
-                                                        <TableCell align="right">{formatAmount(sum)}</TableCell>
-                                                    </TableRow>
-                                                );
-                                            })}
-                                        </TableBody>
-                                    </Table>
-                                    <Typography variant="body2" fontWeight={600} sx={{ mt: 1 }}>
-                                        {t('accountancy.commission.sum')}:{' '}
-                                        {formatAmount(
-                                            result.coAgentExpenses.reduce(
-                                                (s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0),
-                                                0
-                                            )
-                                        )}
-                                    </Typography>
-                                </>
-                            )}
-                        </Paper>
+                    <Paper sx={{ p: 2, bgcolor: 'grey.50' }}>
+                        <Typography variant="h6" sx={{ mb: 2 }}>
+                            {t('accountancy.commission.grandTotals')}
+                        </Typography>
+                        <Table size="small" sx={{ maxWidth: 560 }}>
+                            <TableBody>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalLinkedIncome')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalLinkedIncome)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalUnlinkedIncome')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalUnlinkedIncome)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalIncome')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalIncome)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell colSpan={2}>
+                                        <Divider sx={{ my: 1 }} />
+                                    </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalLinkedExpense')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalLinkedExpense)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalUnlinkedExpense')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalUnlinkedExpense)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalExpenses')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalExpenses)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell colSpan={2}>
+                                        <Divider sx={{ my: 1 }} />
+                                    </TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.totalCommission')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.totalCommission)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 600 }}>{t('accountancy.commission.unlinkedExpenses')}</TableCell>
+                                    <TableCell align="right">{formatAmount(result.unlinkedExpensesAmount)}</TableCell>
+                                </TableRow>
+                                <TableRow>
+                                    <TableCell sx={{ fontWeight: 700 }}>{t('accountancy.commission.totalWithUnlinkedExpenses')}</TableCell>
+                                    <TableCell align="right" sx={{ fontWeight: 700 }}>
+                                        {formatAmount(result.totalWithUnlinkedExpenses)}
+                                    </TableCell>
+                                </TableRow>
+                            </TableBody>
+                        </Table>
+                    </Paper>
 
-                        <Paper variant="outlined" sx={{ p: 2 }}>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
-                                {t('accountancy.commission.schemeDescriptions')}
-                            </Typography>
-                            <Stack spacing={0.5} sx={{ mb: 2 }}>
+                    <Accordion elevation={0} variant="outlined" sx={{ '&:before': { display: 'none' } }}>
+                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                            <Typography fontWeight={600}>{t('accountancy.commission.schemesHelp')}</Typography>
+                        </AccordionSummary>
+                        <AccordionDetails>
+                            <Stack spacing={0.5}>
                                 <Typography variant="body2" color="text.secondary">
                                     <strong>{t('accountancy.commission.scheme1')}:</strong>{' '}
                                     {t('accountancy.commission.scheme1Desc')}
@@ -830,42 +1091,9 @@ export default function Page() {
                                     {t('accountancy.commission.scheme4Desc')}
                                 </Typography>
                             </Stack>
-                            <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1, mt: 2 }}>
-                                {t('accountancy.commission.calculationBySchemes')}
-                            </Typography>
-                            {result.bookings.length === 0 ? (
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.commission.noBookings')}
-                                </Typography>
-                            ) : (
-                                result.bookings.map((r) => (
-                                    <Accordion key={r.bookingId} sx={{ mb: 0.5 }} elevation={0}>
-                                        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                            <Typography>
-                                                {r.bookingTitle} — {t('accountancy.commission.scheme')} #{r.schemeId} —{' '}
-                                                {formatAmount(r.commission)}
-                                            </Typography>
-                                        </AccordionSummary>
-                                        <AccordionDetails>
-                                            <Stack spacing={1}>
-                                                {r.steps.map((step, idx) => (
-                                                    <CommissionCalculationStepBlock
-                                                        key={idx}
-                                                        step={step}
-                                                        stepIndex={idx}
-                                                        t={t}
-                                                        language={language}
-                                                        formatAmount={formatAmount}
-                                                    />
-                                                ))}
-                                            </Stack>
-                                        </AccordionDetails>
-                                    </Accordion>
-                                ))
-                            )}
-                        </Paper>
-                    </Box>
-                </Paper>
+                        </AccordionDetails>
+                    </Accordion>
+                </Stack>
             )}
         </Box>
     );

@@ -11,9 +11,9 @@ const { MongoClient } = require('mongodb');
 const { EJSON } = require('bson');
 
 // --- настройки: отредактируйте под себя ---
-const DATA_DIR = 'C:\\Users\\YaSanyaPCAcc\\Desktop\\йцуйуцфы\\20260505_071002';
+const DATA_DIR = 'C:\\Users\\alexa\\OneDrive\\Рабочий стол\\20260511_050601';
 const MONGO_URI =
-  'mongodb://root:di1hHa%2CcR%7Dhvrd*@localhost:27017/?authSource=admin';
+  'mongodb://localhost:27017/';
 const DB_NAME = 'baseline';
 // true — перед вставкой удалить все документы коллекции; false — только добавить (возможны дубликаты)
 const CLEAR_COLLECTION_BEFORE_IMPORT = true;

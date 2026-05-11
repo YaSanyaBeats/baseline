@@ -1,5 +1,5 @@
 import TransactionAddForm from '@/components/accountancy/TransactionAddForm';
 
 export default function Page() {
-    return <TransactionAddForm type="expense" />;
+    return <TransactionAddForm type="expense" attachCashflowId />;
 }

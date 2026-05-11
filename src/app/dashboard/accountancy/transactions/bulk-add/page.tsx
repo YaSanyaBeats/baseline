@@ -235,7 +235,6 @@ export default function BulkAddTransactionsPage() {
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
-    const [userCashflowId, setUserCashflowId] = useState<string | undefined>();
     const [bookingModalTarget, setBookingModalTarget] = useState<
         { rowKey: string; subKey?: string } | null
     >(null);
@@ -258,12 +257,9 @@ export default function BulkAddTransactionsPage() {
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
-                const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
-                const userCf = uid ? cfs.find((cf) => cf.userId === uid) : undefined;
-                setUserCashflowId(userCf?._id);
             })
             .catch((e) => console.error('bulk-add load refs:', e));
-    }, [hasAccess, user?._id]);
+    }, [hasAccess]);
 
     useEffect(() => {
         if (!hasAccess) return;
@@ -607,7 +603,6 @@ export default function BulkAddTransactionsPage() {
                         bookingId: row.bookingId,
                         source: (sourceLockedForCashflow ? currentUserSourceValue : row.source) || undefined,
                         recipient: row.recipient || undefined,
-                        cashflowId: userCashflowId,
                         category: effectiveCat,
                         amount: effectiveCost,
                         quantity: 1,
@@ -643,7 +638,6 @@ export default function BulkAddTransactionsPage() {
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
-                                            cashflowId: userCashflowId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: 1,
@@ -667,7 +661,6 @@ export default function BulkAddTransactionsPage() {
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            cashflowId: userCashflowId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: 1,
@@ -722,7 +715,6 @@ export default function BulkAddTransactionsPage() {
                         objectId,
                         roomName,
                         bookingId: row.bookingId,
-                        cashflowId: userCashflowId,
                         category: effectiveCat,
                         amount: effectiveCost,
                         quantity: 1,
@@ -762,7 +754,6 @@ export default function BulkAddTransactionsPage() {
                                             bookingId: sub.bookingId,
                                             source: sub.source || undefined,
                                             recipient: sub.recipient || undefined,
-                                            cashflowId: userCashflowId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: 1,
@@ -786,7 +777,6 @@ export default function BulkAddTransactionsPage() {
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            cashflowId: userCashflowId,
                                             category: sub.category,
                                             amount: subCost,
                                             quantity: 1,
