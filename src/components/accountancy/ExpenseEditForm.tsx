@@ -72,7 +72,7 @@ export default function ExpenseEditForm({
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
-    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string; userId?: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
@@ -96,7 +96,7 @@ export default function ExpenseEditForm({
                 if (cancelled) return;
                 setCategories(cats);
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
-                setCashflows(cfsRaw.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfsRaw.map((c) => ({ _id: c._id!, name: c.name, userId: c.userId })));
                 setUsersWithCashflow(usersCf);
 
                 if (!found) {
@@ -250,9 +250,7 @@ export default function ExpenseEditForm({
     };
 
     const getEffectiveCost = (): number => {
-        if (expense.amount != null) return expense.amount;
-        const cat = categories.find((c) => c.name === expense.category);
-        return cat?.pricePerUnit ?? 0;
+        return expense.amount ?? 0;
     };
 
     const validate = (): boolean => {
@@ -267,8 +265,8 @@ export default function ExpenseEditForm({
         if (!expense.date) {
             validationErrors.date = t('accountancy.expenseDate');
         }
-        if (getEffectiveCost() < 0) {
-            validationErrors.amount = t('accountancy.cost');
+        if (expense.amount == null || expense.amount <= 0) {
+            validationErrors.amount = t('accountancy.amountMustBeGreaterThanZero');
         }
         if (expense.quantity != null && (expense.quantity < 1 || !Number.isInteger(expense.quantity))) {
             validationErrors.quantity = t('accountancy.quantity');
@@ -278,11 +276,14 @@ export default function ExpenseEditForm({
         }
 
         if (Object.keys(validationErrors).length > 0) {
+            const hasAmountError = Boolean(validationErrors.amount);
             setErrors(validationErrors);
             setSnackbar({
                 open: true,
-                message: t('accountancy.formErrors'),
-                severity: 'error',
+                message: hasAmountError
+                    ? t('accountancy.amountMustBeGreaterThanZero')
+                    : t('accountancy.formErrors'),
+                severity: hasAmountError ? 'warning' : 'error',
             });
             return false;
         }
@@ -307,17 +308,6 @@ export default function ExpenseEditForm({
     const handleDetachBooking = () => {
         setExpense((prev) => ({ ...prev, bookingId: undefined }));
     };
-
-    const handleDetachCashflow = () => {
-        setExpense((prev) => ({ ...prev, cashflowId: undefined }));
-    };
-
-    const linkedCashflowLabel = useMemo(() => {
-        const id = expense.cashflowId;
-        if (!id) return null;
-        const cf = cashflows.find((c) => c._id === id);
-        return cf?.name ?? `${t('accountancy.cashflowUnknown')} (${id})`;
-    }, [expense.cashflowId, cashflows, t]);
 
     const handleSubmit = () => {
         if (!validate()) return;
@@ -481,24 +471,40 @@ export default function ExpenseEditForm({
                             sx={{ width: '100%' }}
                         />
                     </Box>
-                    {linkedCashflowLabel && expense.cashflowId && (
-                        <Box>
-                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.transactionCashflow')}: {linkedCashflowLabel}
-                                </Typography>
-                                <IconButton
-                                    size="small"
-                                    color="secondary"
-                                    onClick={handleDetachCashflow}
-                                    title={t('accountancy.detachCashflow')}
-                                    aria-label={t('accountancy.detachCashflow')}
-                                >
-                                    <CloseIcon fontSize="small" />
-                                </IconButton>
-                            </Stack>
-                        </Box>
-                    )}
+                    <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.transactionCashflow')}</InputLabel>
+                            <Select
+                                value={expense.cashflowId ?? ''}
+                                label={t('accountancy.transactionCashflow')}
+                                onChange={(e) =>
+                                    setExpense((prev) => ({
+                                        ...prev,
+                                        cashflowId: (e.target.value as string) || undefined,
+                                    }))
+                                }
+                            >
+                                <MenuItem value="">—</MenuItem>
+                                {usersWithCashflow
+                                    .map((u) => {
+                                        const linkedCashflow = cashflows.find((cf) => cf.userId === u._id);
+                                        if (!linkedCashflow) return null;
+                                        return (
+                                            <MenuItem key={linkedCashflow._id} value={linkedCashflow._id}>
+                                                {u.name}
+                                            </MenuItem>
+                                        );
+                                    })
+                                    .filter(Boolean)}
+                                {expense.cashflowId &&
+                                    !cashflows.some((cf) => cf._id === expense.cashflowId) && (
+                                        <MenuItem value={expense.cashflowId}>
+                                            {`${t('accountancy.cashflowUnknown')} (${expense.cashflowId})`}
+                                        </MenuItem>
+                                    )}
+                            </Select>
+                        </FormControl>
+                    </Box>
                     <Box>
                         <TextField
                             id="amount"

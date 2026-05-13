@@ -286,6 +286,13 @@ function parseLocalizedTotalAmount(raw: string): number | null {
     return n;
 }
 
+function resolveApiErrorMessage(error: unknown, fallback: string): string {
+    const apiMessage = (error as { response?: { data?: { message?: unknown } } })?.response?.data?.message;
+    if (typeof apiMessage === 'string' && apiMessage.trim() !== '') return apiMessage;
+    if (error instanceof Error && error.message.trim() !== '') return error.message;
+    return fallback;
+}
+
 /**
  * Попадание записи в выбранный период сводки.
  * Если задан интервал и набор отчётных месяцев (YYYY-MM) для него:
@@ -1237,7 +1244,7 @@ export default function Page() {
             console.error('Error updating status:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1296,7 +1303,7 @@ export default function Page() {
             console.error('Error updating report month:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1355,7 +1362,7 @@ export default function Page() {
             console.error('Error updating quantity:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1423,7 +1430,7 @@ export default function Page() {
             console.error('Error updating category:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1485,7 +1492,7 @@ export default function Page() {
             console.error('Error updating comment:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1547,7 +1554,7 @@ export default function Page() {
             console.error('Error updating source:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1609,7 +1616,7 @@ export default function Page() {
             console.error('Error updating recipient:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1633,6 +1640,14 @@ export default function Page() {
                 open: true,
                 message: t('accountancy.invalidTotalAmount'),
                 severity: 'error',
+            });
+            return;
+        }
+        if (parsed <= 0) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.amountMustBeGreaterThanZero'),
+                severity: 'warning',
             });
             return;
         }
@@ -1694,7 +1709,7 @@ export default function Page() {
             console.error('Error updating amount:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {
@@ -1742,7 +1757,7 @@ export default function Page() {
             console.error('Error deleting operation:', error);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: resolveApiErrorMessage(error, t('common.serverError')),
                 severity: 'error',
             });
         } finally {

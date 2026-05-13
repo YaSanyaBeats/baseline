@@ -57,7 +57,7 @@ export default function Page() {
     const { setSnackbar } = useSnackbar();
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
-    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string; userId?: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
@@ -68,7 +68,7 @@ export default function Page() {
                 .then(([cats, cps, cfs, usersCf]) => {
                     setCategories(cats);
                     setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
-                    setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
+                    setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name, userId: c.userId })));
                     setUsersWithCashflow(usersCf);
                 })
                 .catch((error) => {
@@ -193,9 +193,7 @@ export default function Page() {
     };
 
     const getEffectiveCost = (): number => {
-        if (income.amount != null) return income.amount;
-        const cat = categories.find((c) => c.name === income.category);
-        return cat?.pricePerUnit ?? 0;
+        return income.amount ?? 0;
     };
 
     const validate = (): boolean => {
@@ -210,19 +208,22 @@ export default function Page() {
         if (!income.dateString) {
             validationErrors.dateString = t('accountancy.incomeDate');
         }
-        if (getEffectiveCost() < 0) {
-            validationErrors.amount = t('accountancy.cost');
+        if (income.amount == null || income.amount <= 0) {
+            validationErrors.amount = t('accountancy.amountMustBeGreaterThanZero');
         }
         if (income.quantity != null && (income.quantity < 1 || !Number.isInteger(income.quantity))) {
             validationErrors.quantity = t('accountancy.quantity');
         }
 
         if (Object.keys(validationErrors).length > 0) {
+            const hasAmountError = Boolean(validationErrors.amount);
             setErrors(validationErrors);
             setSnackbar({
                 open: true,
-                message: t('accountancy.formErrors'),
-                severity: 'error',
+                message: hasAmountError
+                    ? t('accountancy.amountMustBeGreaterThanZero')
+                    : t('accountancy.formErrors'),
+                severity: hasAmountError ? 'warning' : 'error',
             });
             return false;
         }
@@ -247,17 +248,6 @@ export default function Page() {
     const handleDetachBooking = () => {
         setIncome((prev) => ({ ...prev, bookingId: undefined }));
     };
-
-    const handleDetachCashflow = () => {
-        setIncome((prev) => ({ ...prev, cashflowId: undefined }));
-    };
-
-    const linkedCashflowLabel = useMemo(() => {
-        const id = income.cashflowId;
-        if (!id) return null;
-        const cf = cashflows.find((c) => c._id === id);
-        return cf?.name ?? `${t('accountancy.cashflowUnknown')} (${id})`;
-    }, [income.cashflowId, cashflows, t]);
 
     const handleSubmit = () => {
         if (!validate()) return;
@@ -504,24 +494,40 @@ export default function Page() {
                             sx={{ width: '100%' }}
                         />
                     </Box>
-                    {linkedCashflowLabel && income.cashflowId && (
-                        <Box>
-                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                                <Typography variant="body2" color="text.secondary">
-                                    {t('accountancy.transactionCashflow')}: {linkedCashflowLabel}
-                                </Typography>
-                                <IconButton
-                                    size="small"
-                                    color="secondary"
-                                    onClick={handleDetachCashflow}
-                                    title={t('accountancy.detachCashflow')}
-                                    aria-label={t('accountancy.detachCashflow')}
-                                >
-                                    <CloseIcon fontSize="small" />
-                                </IconButton>
-                            </Stack>
-                        </Box>
-                    )}
+                    <Box>
+                        <FormControl sx={{ width: '100%' }}>
+                            <InputLabel>{t('accountancy.transactionCashflow')}</InputLabel>
+                            <Select
+                                value={income.cashflowId ?? ''}
+                                label={t('accountancy.transactionCashflow')}
+                                onChange={(e) =>
+                                    setIncome((prev) => ({
+                                        ...prev,
+                                        cashflowId: (e.target.value as string) || undefined,
+                                    }))
+                                }
+                            >
+                                <MenuItem value="">—</MenuItem>
+                                {usersWithCashflow
+                                    .map((u) => {
+                                        const linkedCashflow = cashflows.find((cf) => cf.userId === u._id);
+                                        if (!linkedCashflow) return null;
+                                        return (
+                                            <MenuItem key={linkedCashflow._id} value={linkedCashflow._id}>
+                                                {u.name}
+                                            </MenuItem>
+                                        );
+                                    })
+                                    .filter(Boolean)}
+                                {income.cashflowId &&
+                                    !cashflows.some((cf) => cf._id === income.cashflowId) && (
+                                        <MenuItem value={income.cashflowId}>
+                                            {`${t('accountancy.cashflowUnknown')} (${income.cashflowId})`}
+                                        </MenuItem>
+                                    )}
+                            </Select>
+                        </FormControl>
+                    </Box>
                     <Box>
                         <FormControl sx={{ minWidth: 150 }}>
                             <InputLabel>{t('accountancy.status')}</InputLabel>

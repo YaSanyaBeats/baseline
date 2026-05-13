@@ -24,9 +24,98 @@ import {
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useSnackbar } from "@/providers/SnackbarContext";
-import { AuditLog, AuditLogAction, AuditLogEntity } from "@/lib/types";
+import { AuditLog, AuditLogAction, AuditLogEntity, Object as PropertyObject } from "@/lib/types";
 import { normalizeMongoIdString } from "@/lib/mongoId";
+import { useObjects } from "@/providers/ObjectsProvider";
 import axios from "axios";
+
+const EM_DASH = '—';
+
+function stableRoomLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
+
+function getAuditLogPrimaryPayload(log: AuditLog): Record<string, unknown> | null {
+    const raw =
+        log.action === 'delete'
+            ? log.oldData
+            : log.action === 'create'
+              ? log.newData
+              : log.newData ?? log.oldData;
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        return raw as Record<string, unknown>;
+    }
+    return null;
+}
+
+function formatAuditLogReportMonth(log: AuditLog, localeTag: string): string {
+    const payload = getAuditLogPrimaryPayload(log);
+    if (!payload) return EM_DASH;
+    const rm = payload.reportMonth;
+    const ry = payload.reportYear;
+    if (typeof rm === 'string' && rm.trim()) {
+        const parts = rm.trim().split('-');
+        if (parts.length >= 2) {
+            const y = Number(parts[0]);
+            const m = Number(parts[1]);
+            if (y && m >= 1 && m <= 12) {
+                return new Date(y, m - 1, 1).toLocaleDateString(localeTag, { month: 'long', year: 'numeric' });
+            }
+        }
+        return rm.trim();
+    }
+    if (typeof rm === 'number' && typeof ry === 'number' && rm >= 1 && rm <= 12) {
+        return new Date(ry, rm - 1, 1).toLocaleDateString(localeTag, { month: 'long', year: 'numeric' });
+    }
+    return EM_DASH;
+}
+
+function formatAuditLogObjectRoom(log: AuditLog, objects: PropertyObject[]): string {
+    const payload = getAuditLogPrimaryPayload(log);
+    const metaOid = log.metadata?.objectId;
+
+    if (log.entity === 'expense' || log.entity === 'income') {
+        const oidRaw = payload?.objectId ?? metaOid;
+        if (oidRaw == null || oidRaw === '') return EM_DASH;
+        const oid = Number(oidRaw);
+        const obj = objects.find((o) => o.id === oid);
+        const objName = obj?.name ?? `#${oid}`;
+        const roomRaw = payload?.roomName;
+        const roomStr =
+            typeof roomRaw === 'string' && roomRaw.trim() !== '' ? roomRaw.trim() : EM_DASH;
+        return `${objName}, ${roomStr}`;
+    }
+
+    if (log.entity === 'report') {
+        const oidRaw = payload?.objectId ?? metaOid;
+        if (oidRaw == null || oidRaw === '') return EM_DASH;
+        const oid = Number(oidRaw);
+        const object = objects.find((o) => o.id === oid);
+        if (!object) return `#${oid}`;
+        const roomIds = payload?.roomIds;
+        if (!Array.isArray(roomIds) || roomIds.length === 0) {
+            return object.name;
+        }
+        const parts = roomIds
+            .map((rid) => {
+                const room = object.roomTypes.find((r) => r.id === Number(rid));
+                if (!room) return null;
+                return `${object.name}: ${stableRoomLabel(room)}`;
+            })
+            .filter((x): x is string => x != null);
+        return parts.length ? parts.join(', ') : object.name;
+    }
+
+    if (metaOid != null) {
+        const oid = Number(metaOid);
+        const obj = objects.find((o) => o.id === oid);
+        return obj?.name ?? `#${oid}`;
+    }
+
+    return EM_DASH;
+}
 
 function getAuditLogEditHref(log: AuditLog): string | null {
     const id = log.entityId;
@@ -75,7 +164,9 @@ function auditLogRestoredInDb(log: AuditLog): boolean {
 }
 
 export default function AuditLogsPage() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
+    const { objects } = useObjects();
+    const localeTag = language === 'en' ? 'en-US' : 'ru-RU';
     const { isAdmin, isAccountant } = useUser();
     const { setSnackbar } = useSnackbar();
 
@@ -350,6 +441,8 @@ export default function AuditLogsPage() {
                                     <TableCell>{t('auditLogs.columns.timestamp')}</TableCell>
                                     <TableCell>{t('auditLogs.columns.entity')}</TableCell>
                                     <TableCell>{t('auditLogs.columns.action')}</TableCell>
+                                    <TableCell>{t('auditLogs.columns.objectAndRoom')}</TableCell>
+                                    <TableCell>{t('auditLogs.columns.reportMonth')}</TableCell>
                                     <TableCell>{t('auditLogs.columns.user')}</TableCell>
                                     <TableCell>{t('auditLogs.columns.description')}</TableCell>
                                     <TableCell align="right">{t('auditLogs.columns.actions')}</TableCell>
@@ -380,6 +473,14 @@ export default function AuditLogsPage() {
                                                 color={getActionColor(log.action)}
                                                 size="small"
                                             />
+                                        </TableCell>
+                                        <TableCell sx={{ minWidth: 180, maxWidth: 360 }}>
+                                            <Typography variant="body2" sx={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                                                {formatAuditLogObjectRoom(log, objects)}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                                            {formatAuditLogReportMonth(log, localeTag)}
                                         </TableCell>
                                         <TableCell>
                                             {log.userName} ({log.userRole})

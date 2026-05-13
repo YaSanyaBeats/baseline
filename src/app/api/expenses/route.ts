@@ -158,9 +158,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (expenseData.amount < 0) {
+        if (expenseData.amount <= 0) {
             return NextResponse.json(
-                { success: false, message: 'Стоимость не может быть отрицательной' },
+                { success: false, message: 'Стоимость должна быть больше 0' },
                 { status: 400 },
             );
         }

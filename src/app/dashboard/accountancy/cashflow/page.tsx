@@ -18,9 +18,10 @@ import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { Cashflow, CashflowRule, Expense, Income } from '@/lib/types';
+import { Cashflow, CashflowRule, Expense, Income, User } from '@/lib/types';
 import { getCashflows, deleteCashflow } from '@/lib/cashflows';
 import {
     getCashflowRules,
@@ -31,14 +32,16 @@ import {
 import { getCounterparties } from '@/lib/counterparties';
 import { getExpenses } from '@/lib/expenses';
 import { getIncomes } from '@/lib/incomes';
-import { getExpenseSum, getBalanceByRule, type ObjectWithMeta } from '@/lib/accountancyUtils';
+import { getExpenseSum, getIncomeSum, getBalanceByRule, type ObjectWithMeta } from '@/lib/accountancyUtils';
 import { getBookingsByIds } from '@/lib/bookings';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
+import { getUsers } from '@/lib/users';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
 import CashflowRuleDialog from '@/components/accountancy/CashflowRuleDialog';
+import OwnerBalanceDialog, { type OwnerBalanceLedgerRow } from '@/components/accountancy/OwnerBalanceDialog';
 
 const CASHFLOW_TYPE_KEYS: Record<string, string> = {
     company: 'typeCompany',
@@ -48,6 +51,12 @@ const CASHFLOW_TYPE_KEYS: Record<string, string> = {
     premium: 'typePremium',
     other: 'typeOther',
 };
+
+const OWNER_BALANCE_CATEGORIES = [
+    'Начислено владельцу',
+    'Выплата владельцу',
+    'Списано со счёта владельца',
+];
 
 export default function Page() {
     const { t } = useTranslation();
@@ -62,15 +71,17 @@ export default function Page() {
     const [rules, setRules] = useState<CashflowRule[]>([]);
     const [categories, setCategories] = useState<{ _id: string; name: string; type: string }[]>([]);
     const [bookingsForRules, setBookingsForRules] = useState<{ id: number; arrival: string; departure: string }[]>([]);
+    const [owners, setOwners] = useState<User[]>([]);
     const [loading, setLoading] = useState(true);
     const [ruleDialogOpen, setRuleDialogOpen] = useState(false);
     const [ruleEditing, setRuleEditing] = useState<CashflowRule | null>(null);
+    const [ownerDialogOwner, setOwnerDialogOwner] = useState<User | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
 
     const loadData = async () => {
         try {
-            const [cashflowsList, counterpartiesList, expensesList, incomesList, rulesList, categoriesList] =
+            const [cashflowsList, counterpartiesList, expensesList, incomesList, rulesList, categoriesList, usersList] =
                 await Promise.all([
                     getCashflows(),
                     getCounterparties(),
@@ -78,6 +89,7 @@ export default function Page() {
                     getIncomes(),
                     getCashflowRules(),
                     getAccountancyCategories(),
+                    getUsers(),
                 ]);
             setCashflows(cashflowsList);
             setCounterparties(counterpartiesList.map((c) => ({ _id: c._id!, name: c.name })));
@@ -91,6 +103,7 @@ export default function Page() {
                     type: c.type ?? 'expense',
                 }))
             );
+            setOwners((usersList ?? []).filter((u) => u.role === 'owner'));
 
             const bookingIds = Array.from(
                 new Set([
@@ -139,6 +152,73 @@ export default function Page() {
         acc[cf._id] = incomeSum - expenseSum;
         return acc;
     }, {});
+
+    const ownerBalanceExpenses = expenses.filter((e) => OWNER_BALANCE_CATEGORIES.includes(e.category));
+    const ownerBalanceIncomes = incomes.filter((i) => OWNER_BALANCE_CATEGORIES.includes(i.category));
+
+    const isOwnerRoomMatch = (owner: User, objectId: number, roomName: string | null | undefined): boolean => {
+        if (!owner.objects?.length) return false;
+        const name = (roomName ?? '').trim();
+        if (!name) return false;
+        return owner.objects.some((uo) => {
+            if (uo.id !== objectId) return false;
+            return uo.rooms.some((r) => {
+                if (typeof r === 'string') return r.trim() === name;
+                const obj = objects.find((o) => o.id === objectId);
+                const room = obj?.roomTypes?.find((rt) => rt.id === r);
+                return (room?.name ?? '').trim() === name;
+            });
+        });
+    };
+
+    const balanceByOwner = owners.reduce<Record<string, number>>((acc, owner) => {
+        if (!owner._id) return acc;
+        const expenseSum = ownerBalanceExpenses
+            .filter((e) => isOwnerRoomMatch(owner, e.objectId, e.roomName))
+            .reduce((s, e) => s + getExpenseSum(e), 0);
+        const incomeSum = ownerBalanceIncomes
+            .filter((i) => isOwnerRoomMatch(owner, i.objectId, i.roomName))
+            .reduce((s, i) => s + getIncomeSum(i), 0);
+        acc[owner._id] = expenseSum + incomeSum;
+        return acc;
+    }, {});
+
+    const getOwnerLedgerRows = (owner: User): OwnerBalanceLedgerRow[] => {
+        const rows: OwnerBalanceLedgerRow[] = [];
+        for (const e of ownerBalanceExpenses) {
+            if (!e._id || !isOwnerRoomMatch(owner, e.objectId, e.roomName)) continue;
+            rows.push({
+                _id: e._id,
+                recordType: 'expense',
+                date: e.date,
+                category: e.category,
+                objectId: e.objectId,
+                roomName: e.roomName,
+                reportMonth: e.reportMonth,
+                status: e.status,
+                quantity: e.quantity,
+                amount: e.amount,
+            });
+        }
+        for (const i of ownerBalanceIncomes) {
+            if (!i._id || !isOwnerRoomMatch(owner, i.objectId, i.roomName)) continue;
+            rows.push({
+                _id: i._id,
+                recordType: 'income',
+                date: i.date,
+                category: i.category,
+                objectId: i.objectId,
+                roomName: i.roomName,
+                reportMonth: i.reportMonth,
+                status: i.status,
+                quantity: i.quantity,
+                amount: i.amount,
+            });
+        }
+        return rows;
+    };
+
+    const sortedOwners = [...owners].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'ru'));
 
     const getRoomLinksLabel = (roomLinks: { id: number; rooms: (string | number)[] }[]) => {
         if (!roomLinks?.length) return '—';
@@ -372,6 +452,73 @@ export default function Page() {
 
             <Box sx={{ mt: 4 }}>
                 <Typography variant="h5" sx={{ mb: 1 }}>
+                    {t('accountancy.cashflow.ownerBalancesTitle')}
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                    {t('accountancy.cashflow.ownerBalancesDescription')}
+                </Typography>
+                {sortedOwners.length === 0 ? (
+                    <Paper variant="outlined" sx={{ p: 3 }}>
+                        <Typography color="text.secondary">{t('accountancy.cashflow.noOwners')}</Typography>
+                    </Paper>
+                ) : (
+                    <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+                        <Table size="small">
+                            <TableHead>
+                                <TableRow>
+                                    <TableCell>{t('accountancy.cashflow.ownerName')}</TableCell>
+                                    <TableCell>{t('accountancy.cashflow.balance')}</TableCell>
+                                    <TableCell width={140} align="right">
+                                        {t('accountancy.actions')}
+                                    </TableCell>
+                                </TableRow>
+                            </TableHead>
+                            <TableBody>
+                                {sortedOwners.map((owner) => {
+                                    const balance = balanceByOwner[owner._id!] ?? 0;
+                                    return (
+                                        <TableRow key={owner._id}>
+                                            <TableCell>
+                                                <Typography variant="body2" fontWeight={500}>
+                                                    {owner.name}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
+                                                <Typography
+                                                    variant="body2"
+                                                    sx={{
+                                                        color:
+                                                            balance > 0
+                                                                ? 'success.main'
+                                                                : balance < 0
+                                                                  ? 'error.main'
+                                                                  : 'text.secondary',
+                                                    }}
+                                                >
+                                                    {formatAmount(balance)}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    startIcon={<VisibilityIcon fontSize="small" />}
+                                                    onClick={() => setOwnerDialogOwner(owner)}
+                                                >
+                                                    {t('accountancy.cashflow.ownerDetails')}
+                                                </Button>
+                                            </TableCell>
+                                        </TableRow>
+                                    );
+                                })}
+                            </TableBody>
+                        </Table>
+                    </Paper>
+                )}
+            </Box>
+
+            <Box sx={{ mt: 4 }}>
+                <Typography variant="h5" sx={{ mb: 1 }}>
                     {t('accountancy.cashflow.rulesTitle')}
                 </Typography>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -509,6 +656,15 @@ export default function Page() {
                 categories={categories}
                 objects={objects.map((o) => ({ id: o.id, name: o.name, district: o.district, objectType: o.objectType }))}
                 onSave={handleSaveRule}
+            />
+
+            <OwnerBalanceDialog
+                open={ownerDialogOwner !== null}
+                onClose={() => setOwnerDialogOwner(null)}
+                owner={ownerDialogOwner}
+                transactions={ownerDialogOwner ? getOwnerLedgerRows(ownerDialogOwner) : []}
+                objects={objects}
+                t={t}
             />
         </Box>
     );

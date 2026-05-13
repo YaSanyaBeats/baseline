@@ -28,7 +28,9 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CalculateIcon from '@mui/icons-material/Calculate';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
@@ -47,6 +49,7 @@ import {
     type CommissionStepLineItem,
 } from '@/lib/commissionCalculation';
 import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
+import { buildCommissionOwnerViewPayload, COMMISSION_OWNER_VIEW_KEY } from '@/lib/commissionOwnerView';
 
 const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
 
@@ -157,6 +160,7 @@ function guestCountLabel(b: Booking): string {
 }
 
 export default function Page() {
+    const router = useRouter();
     const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
     const { objects } = useObjects();
@@ -659,9 +663,36 @@ export default function Page() {
             {result && (
                 <Stack spacing={3}>
                     <Paper sx={{ p: 2 }}>
-                        <Typography variant="h5" sx={{ mb: 1 }}>
-                            {result.reportTitle || t('accountancy.commission.result')}
-                        </Typography>
+                        <Stack
+                            direction={{ xs: 'column', sm: 'row' }}
+                            spacing={2}
+                            alignItems={{ xs: 'flex-start', sm: 'center' }}
+                            justifyContent="space-between"
+                            sx={{ mb: 1 }}
+                        >
+                            <Typography variant="h5">
+                                {result.reportTitle || t('accountancy.commission.result')}
+                            </Typography>
+                            <Button
+                                variant="outlined"
+                                startIcon={<VisibilityOutlinedIcon />}
+                                onClick={() => {
+                                    const payload = buildCommissionOwnerViewPayload(result, locale);
+                                    try {
+                                        sessionStorage.setItem(
+                                            COMMISSION_OWNER_VIEW_KEY,
+                                            JSON.stringify(payload)
+                                        );
+                                    } catch (e) {
+                                        console.error('Owner view storage:', e);
+                                        return;
+                                    }
+                                    router.push('/dashboard/accountancy/commission/owner-view');
+                                }}
+                            >
+                                {t('accountancy.commission.viewAsOwner')}
+                            </Button>
+                        </Stack>
                         <Typography variant="body2" color="text.secondary">
                             {t('accountancy.selectMonth')}: {result.monthKey}
                         </Typography>

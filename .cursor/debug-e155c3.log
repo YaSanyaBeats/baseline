@@ -1,0 +1,1 @@
+{"sessionId":"e155c3","runId":"post-fix","hypothesisId":"H3_edit_change_amount","location":"ExpenseEditForm.tsx:handleChangeAmount","message":"amount field changed","data":{"raw":"","rawType":"string","isEmptyString":true,"parsedNum":null,"isNaN":null,"nextAmount":null,"category":"Комиссия OTA"},"timestamp":1778660912364}
