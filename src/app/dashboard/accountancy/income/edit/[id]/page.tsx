@@ -17,6 +17,7 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
 import { useEffect, useMemo, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomeById, updateIncome } from "@/lib/incomes";
@@ -293,6 +294,11 @@ export default function Page() {
                 });
             })
             .finally(() => setLoading(false));
+    };
+
+    const handleAddSubtransaction = () => {
+        if (!incomeId) return;
+        router.push(`/dashboard/accountancy/expense/add?parentIncomeId=${encodeURIComponent(incomeId)}`);
     };
 
     const bookingModalInitialRoomId = useMemo(() => {
@@ -575,6 +581,14 @@ export default function Page() {
                         onClick={() => router.back()}
                     >
                         {t('common.cancel')}
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={handleAddSubtransaction}
+                    >
+                        {t('accountancy.addSubtransaction')}
                     </Button>
                     <Button
                         variant="contained"

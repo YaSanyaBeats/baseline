@@ -411,6 +411,28 @@ export interface Income {
     childIncomeIds?: string[];
 }
 
+/** Ручной процент авторасчёта «Комиссия за управление» для конкретной брони. */
+export interface BookingManagementCommissionRate {
+    _id?: string;
+    bookingId: number;
+    percent: 15 | 20 | 25 | 30;
+    createdAt?: Date;
+    updatedAt?: Date;
+    updatedBy?: string;
+}
+
+/** Ручной процент синтетической строки «Доля Расходов Holy Cow Phuket» для комнаты и месяца. */
+export interface HolyCowExpenseShareRate {
+    _id?: string;
+    objectId: number;
+    roomName: string;
+    reportMonth: string;
+    percent: 15 | 20 | 25 | 30;
+    createdAt?: Date;
+    updatedAt?: Date;
+    updatedBy?: string;
+}
+
 /** Тип записи в едином списке «Транзакции» (расход / доход) */
 export type TransactionRecordType = 'expense' | 'income';
 

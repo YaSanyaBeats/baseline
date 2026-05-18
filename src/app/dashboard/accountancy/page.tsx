@@ -27,6 +27,7 @@ import {
     DialogActions,
 } from "@mui/material";
 import {
+    Add as AddIcon,
     Warning as WarningIcon,
     ExpandMore as ExpandMoreIcon,
 } from "@mui/icons-material";
@@ -35,7 +36,14 @@ import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from 'next/link';
 import { useObjects } from "@/providers/ObjectsProvider";
-import { AccountancyCategory, Booking, Expense, Income } from "@/lib/types";
+import {
+    AccountancyCategory,
+    Booking,
+    Expense,
+    Income,
+    type BookingManagementCommissionRate,
+    type HolyCowExpenseShareRate,
+} from "@/lib/types";
 import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
 import { getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
 import { getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
@@ -65,9 +73,27 @@ import {
 } from "@/lib/noBookingCategorySubgroups";
 import {
     BOOKING_GROUP_CATEGORY_ORDER,
+    BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
+    HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
     getNoBookingSubgroupCategoryOrder,
     sortRowsByAccountancyCategoryOrder,
 } from "@/lib/accountancyOperationGroupCategoryOrder";
+import type { BookingCommissionResult, CommissionSchemeId, ManagementCommissionPercent } from "@/lib/commissionCalculation";
+import {
+    calculateBookingManagementCommission,
+    getDefaultManagementCommissionPercent,
+    prepareCommissionData,
+} from "@/lib/commissionCalculation";
+import {
+    getBookingManagementCommissionRates,
+    saveBookingManagementCommissionRate,
+} from "@/lib/bookingManagementCommissionRates";
+import {
+    buildHolyCowExpenseShareRateKey,
+    getHolyCowExpenseShareRate,
+    saveHolyCowExpenseShareRate,
+    type HolyCowExpenseShareRateKey,
+} from "@/lib/holyCowExpenseShareRates";
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
@@ -421,6 +447,10 @@ export default function Page() {
     const [amountUpdatingId, setAmountUpdatingId] = useState<string | null>(null);
     const amountEditEscapeRef = useRef(false);
     const [inlinePatchUpdatingId, setInlinePatchUpdatingId] = useState<string | null>(null);
+    const [commissionRatesByBookingId, setCommissionRatesByBookingId] = useState<Record<number, BookingManagementCommissionRate>>({});
+    const [commissionPercentUpdatingBookingId, setCommissionPercentUpdatingBookingId] = useState<number | null>(null);
+    const [holyCowExpenseShareRate, setHolyCowExpenseShareRate] = useState<HolyCowExpenseShareRate | null>(null);
+    const [syntheticPercentUpdatingKey, setSyntheticPercentUpdatingKey] = useState<string | null>(null);
     const [commentDraftByRowId, setCommentDraftByRowId] = useState<Record<string, string>>({});
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -602,6 +632,16 @@ export default function Page() {
         [effectiveDateRange],
     );
 
+    /** Один календарный месяц YYYY-MM для авто-комиссии (как на странице «Комиссия»): выбранный месяц или ровно один месяц в периоде. */
+    const commissionCalculationMonthKey = useMemo(() => {
+        const m = (selectedMonth ?? '').trim();
+        if (/^\d{4}-\d{2}$/.test(m)) return m;
+        if (reportMonthsInFilter != null && reportMonthsInFilter.size === 1) {
+            return [...reportMonthsInFilter][0]!;
+        }
+        return null;
+    }, [selectedMonth, reportMonthsInFilter]);
+
     const filteredByReportPeriod = useMemo(
         () => ({
             expenses: expenses.filter((e) =>
@@ -665,6 +705,14 @@ export default function Page() {
     const roomsForSelectedObject = useMemo(
         () => (selectedObject ? selectedObject.roomTypes : []),
         [selectedObject],
+    );
+
+    const selectedRoomRow = useMemo(
+        () =>
+            selectedRoomId === 'all'
+                ? null
+                : roomsForSelectedObject.find((r) => stableAccountancyRoomLabel(r) === selectedRoomId) ?? null,
+        [roomsForSelectedObject, selectedRoomId],
     );
 
     /** Брони месяца только для выбранного в сводке объекта (и комнаты), для списка операций */
@@ -1085,6 +1133,118 @@ export default function Page() {
         return Array.from(byId.values());
     }, [bookings, monthBookingsForReportMonth]);
 
+    const bookingIdsForCommissionRates = useMemo(
+        () =>
+            Array.from(
+                new Set(
+                    bookingsMergedForLabels
+                        .map((b) => normalizeUnitOrRoomId(b.id))
+                        .filter((id): id is number => id != null),
+                ),
+            ),
+        [bookingsMergedForLabels],
+    );
+
+    useEffect(() => {
+        if (!hasAccess || bookingIdsForCommissionRates.length === 0) {
+            setCommissionRatesByBookingId({});
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const rates = await getBookingManagementCommissionRates(bookingIdsForCommissionRates);
+                if (cancelled) return;
+                setCommissionRatesByBookingId(
+                    Object.fromEntries(rates.map((rate) => [rate.bookingId, rate])),
+                );
+            } catch (e) {
+                console.error('accountancy: commission rates load failed', e);
+                if (!cancelled) setCommissionRatesByBookingId({});
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [hasAccess, bookingIdsForCommissionRates]);
+
+    const holyCowExpenseShareRateKey = useMemo((): HolyCowExpenseShareRateKey | null => {
+        if (!selectedObject || !commissionCalculationMonthKey || selectedRoomId === 'all') return null;
+        return {
+            objectId: selectedObject.id,
+            roomName: selectedRoomId,
+            reportMonth: commissionCalculationMonthKey,
+        };
+    }, [selectedObject, selectedRoomId, commissionCalculationMonthKey]);
+
+    const holyCowExpenseShareRateKeyString = useMemo(
+        () => (holyCowExpenseShareRateKey ? buildHolyCowExpenseShareRateKey(holyCowExpenseShareRateKey) : null),
+        [holyCowExpenseShareRateKey],
+    );
+
+    useEffect(() => {
+        if (!hasAccess || !holyCowExpenseShareRateKey) {
+            setHolyCowExpenseShareRate(null);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const rate = await getHolyCowExpenseShareRate(holyCowExpenseShareRateKey);
+                if (!cancelled) setHolyCowExpenseShareRate(rate);
+            } catch (e) {
+                console.error('accountancy: HC expense share rate load failed', e);
+                if (!cancelled) setHolyCowExpenseShareRate(null);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [hasAccess, holyCowExpenseShareRateKey]);
+
+    const DEFAULT_COMMISSION_SCHEME_ID: CommissionSchemeId = 2;
+
+    const bookingAutoCommissionByBookingId = useMemo(() => {
+        const map = new Map<number, BookingCommissionResult>();
+        if (!selectedObject || !commissionCalculationMonthKey) return map;
+        const bookingPropertyId = selectedObject.propertyId ?? selectedObject.id;
+        const roomFilter: string | 'all' = selectedRoomId === 'all' ? 'all' : selectedRoomId;
+        const inputs = prepareCommissionData(
+            bookingsMergedForLabels,
+            incomes,
+            expenses,
+            categoriesExpense,
+            selectedObject.id,
+            roomFilter,
+            commissionCalculationMonthKey,
+            bookingPropertyId,
+            roomsForSelectedObject,
+        );
+        const getSchemeForBooking = (booking: Booking): CommissionSchemeId => {
+            const room = roomsForSelectedObject.find((r) => r.id === booking.unitId);
+            const scheme = room?.commissionSchemeId;
+            return scheme != null && scheme >= 1 && scheme <= 4
+                ? (scheme as CommissionSchemeId)
+                : DEFAULT_COMMISSION_SCHEME_ID;
+        };
+        for (const input of inputs) {
+            const percentOverride = commissionRatesByBookingId[input.booking.id]?.percent;
+            const r = calculateBookingManagementCommission(input, getSchemeForBooking(input.booking), percentOverride);
+            map.set(input.booking.id, r);
+        }
+        return map;
+    }, [
+        selectedObject,
+        commissionCalculationMonthKey,
+        bookingsMergedForLabels,
+        incomes,
+        expenses,
+        categoriesExpense,
+        selectedRoomId,
+        roomsForSelectedObject,
+        commissionRatesByBookingId,
+    ]);
+
     const operationGroups = useMemo((): OperationListGroup[] => {
         const map = new Map<string, OperationRow[]>();
         for (const row of filteredOperations) {
@@ -1144,11 +1304,38 @@ export default function Page() {
             const bid = Number(key.slice(2));
             const b = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
             const { label, bookingGroupLine } = buildBookingGroupLine(bid, bookingsMergedForLabels);
+
+            let finalRows = rows;
+            if (selectedObject && commissionCalculationMonthKey && bookingAutoCommissionByBookingId.has(bid)) {
+                const commissionDetail = bookingAutoCommissionByBookingId.get(bid)!;
+                const [cy, cm] = commissionCalculationMonthKey.split('-').map(Number);
+                const lastDay = new Date(cy, cm, 0);
+                const synthetic: OperationRow = {
+                    id: `auto-commission-${key}-${commissionCalculationMonthKey}`,
+                    type: 'expense',
+                    entityId: '',
+                    readOnlySynthetic: true,
+                    status: 'confirmed',
+                    date: lastDay,
+                    category: BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
+                    comment: '',
+                    quantity: 1,
+                    amount: -commissionDetail.commission,
+                    reportMonth: commissionCalculationMonthKey,
+                    bookingId: bid,
+                    syntheticCommissionDetail: commissionDetail,
+                    syntheticCommissionPercent: commissionDetail.commissionPercent,
+                    syntheticCommissionPercentOverridden: commissionDetail.commissionPercentOverridden,
+                };
+                finalRows = [...rows, synthetic];
+                sortRowsByAccountancyCategoryOrder(finalRows, BOOKING_GROUP_CATEGORY_ORDER);
+            }
+
             return {
                 key,
                 label,
                 ...(bookingGroupLine != null ? { bookingGroupLine } : {}),
-                rows,
+                rows: finalRows,
                 bookingRoomMismatch: bookingRoomMismatchForKey(key),
                 bookingUnitRoomId: b != null ? normalizeUnitOrRoomId(b.unitId) : null,
             };
@@ -1162,6 +1349,116 @@ export default function Page() {
             const sid = resolveNoBookingSubgroupId(row.category);
             bySub.get(sid)!.push(row);
         }
+
+        if (
+            selectedObject &&
+            selectedRoomRow &&
+            commissionCalculationMonthKey &&
+            holyCowExpenseShareRateKeyString
+        ) {
+            const scheme =
+                selectedRoomRow.commissionSchemeId != null &&
+                selectedRoomRow.commissionSchemeId >= 1 &&
+                selectedRoomRow.commissionSchemeId <= 4
+                    ? (selectedRoomRow.commissionSchemeId as CommissionSchemeId)
+                    : DEFAULT_COMMISSION_SCHEME_ID;
+            const defaultPercent = getDefaultManagementCommissionPercent(scheme, 1);
+            const percent = holyCowExpenseShareRate?.percent ?? defaultPercent;
+            const bookingExpenseRows = filteredOperations.filter(
+                (row) =>
+                    row.type === 'expense' &&
+                    row.bookingId != null &&
+                    row.category !== 'Комиссия за управление' &&
+                    row.category !== BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
+            );
+            const commonAndGuestRows = noneRows.filter((row) => {
+                const sid = resolveNoBookingSubgroupId(row.category);
+                return sid === 'common' || sid === 'guest';
+            });
+            const toLineItems = (rows: OperationRow[]) =>
+                rows.map((row) => ({
+                    kind: row.type,
+                    id: row.entityId || row.id,
+                    date: row.date instanceof Date ? row.date.toISOString() : String(row.date),
+                    category: row.category,
+                    amount: Math.abs(row.amount),
+                    comment: row.comment,
+                }));
+            const bookingExpensesBase = bookingExpenseRows.reduce((sum, row) => sum + row.amount, 0);
+            const commonAndGuestBase = commonAndGuestRows.reduce((sum, row) => sum + row.amount, 0);
+            const bookingExpenseShare = bookingExpensesBase * (percent / 100);
+            const rawAmount = bookingExpenseShare + commonAndGuestBase;
+            const amount = Math.abs(rawAmount);
+            const [cy, cm] = commissionCalculationMonthKey.split('-').map(Number);
+            const lastDay = new Date(cy, cm, 0);
+            const syntheticCommissionDetail: BookingCommissionResult = {
+                bookingId: 0,
+                bookingTitle: HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
+                nights: 0,
+                schemeId: scheme,
+                steps: [
+                    {
+                        description: 'Расходы по броням (кроме комиссии за управление)',
+                        value: bookingExpensesBase,
+                        formula: 'Σ расходов в группах броней с учётом знака',
+                        lineItems: toLineItems(bookingExpenseRows),
+                    },
+                    {
+                        description: 'Общие расходы и расходы гостя',
+                        value: commonAndGuestBase,
+                        formula: 'Σ всех транзакций из групп «Общие расходы» и «Расходы гостя» с учётом знака',
+                        lineItems: toLineItems(commonAndGuestRows),
+                    },
+                    {
+                        description: 'Доля от расходов по броням',
+                        value: bookingExpenseShare,
+                        formula: `${bookingExpensesBase.toFixed(2)} × ${percent}% = ${bookingExpenseShare.toFixed(2)}`,
+                    },
+                    {
+                        description:
+                            holyCowExpenseShareRate?.percent == null
+                                ? 'Процент из схемы комнаты'
+                                : 'Процент задан вручную',
+                        value: percent,
+                        formula: `Схема ${scheme}`,
+                    },
+                    {
+                        description: HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
+                        value: amount,
+                        formula: `|${bookingExpenseShare.toFixed(2)} + ${commonAndGuestBase.toFixed(2)}| = ${amount.toFixed(2)}`,
+                    },
+                ],
+                commission: amount,
+                income: 0,
+                totalExpenses: bookingExpensesBase + commonAndGuestBase,
+                otaCoAgentExpenses: 0,
+                divisibleExpenses: 0,
+                indivisibleExpenses: 0,
+                commissionPercent: percent,
+                commissionBaseIncome: bookingExpensesBase,
+                commissionPercentOverridden: holyCowExpenseShareRate?.percent != null,
+            };
+
+            bySub.get('hc')!.push({
+                id: `auto-hc-expense-share-${selectedObject.id}-${selectedRoomId}-${commissionCalculationMonthKey}`,
+                type: 'expense',
+                entityId: '',
+                readOnlySynthetic: true,
+                status: 'confirmed',
+                date: lastDay,
+                category: HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
+                comment: '',
+                quantity: 1,
+                amount,
+                reportMonth: commissionCalculationMonthKey,
+                syntheticCommissionDetail,
+                syntheticCommissionPercent: percent,
+                syntheticCommissionPercentOverridden: holyCowExpenseShareRate?.percent != null,
+                syntheticPercentKey: holyCowExpenseShareRateKeyString,
+                syntheticPercentUpdatingKey: holyCowExpenseShareRateKeyString,
+            });
+        }
+
         for (const sid of NO_BOOKING_SUBGROUP_ORDER) {
             sortRowsByAccountancyCategoryOrder(bySub.get(sid)!, getNoBookingSubgroupCategoryOrder(sid));
         }
@@ -1181,6 +1478,11 @@ export default function Page() {
         t,
         roomsForSelectedObject,
         selectedObject,
+        selectedRoomRow,
+        commissionCalculationMonthKey,
+        bookingAutoCommissionByBookingId,
+        holyCowExpenseShareRate,
+        holyCowExpenseShareRateKeyString,
     ]);
 
     const toggleOperationGroupCollapsed = (groupKey: string) => {
@@ -1193,6 +1495,7 @@ export default function Page() {
     };
 
     const handleStatusToggle = async (row: OperationRow) => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId) return;
         const newStatus = row.status === 'confirmed' ? 'draft' : 'confirmed';
         setStatusUpdatingId(row.id);
@@ -1253,6 +1556,7 @@ export default function Page() {
     };
 
     const handleReportMonthChange = async (row: OperationRow, newValue: string) => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId) return;
         setReportMonthUpdatingId(row.id);
         try {
@@ -1312,6 +1616,7 @@ export default function Page() {
     };
 
     const handleQuantityChange = async (row: OperationRow, newQuantity: number) => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId || newQuantity < 1) return;
         setQuantityUpdatingId(row.id);
         try {
@@ -1371,6 +1676,7 @@ export default function Page() {
     };
 
     const handleCategoryChange = async (row: OperationRow, newCategory: string) => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId) return;
         if (!newCategory.trim()) {
             setSnackbar({
@@ -1439,6 +1745,7 @@ export default function Page() {
     };
 
     const handleCommentCommit = async (row: OperationRow, draft: string) => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId) return;
         const next = draft;
         const prev = row.comment ?? '';
@@ -1501,6 +1808,7 @@ export default function Page() {
     };
 
     const handleSourceChange = async (row: OperationRow, value: SourceRecipientOptionValue | '') => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId) return;
         const next = value || undefined;
         const prev = row.source || undefined;
@@ -1563,6 +1871,7 @@ export default function Page() {
     };
 
     const handleRecipientChange = async (row: OperationRow, value: SourceRecipientOptionValue | '') => {
+        if (row.readOnlySynthetic) return;
         if (!row.entityId) return;
         const next = value || undefined;
         const prev = row.recipient || undefined;
@@ -1625,6 +1934,7 @@ export default function Page() {
     };
 
     const handleOperationAmountCommit = async (row: OperationRow, draft: string) => {
+        if (row.readOnlySynthetic) return;
         if (amountEditEscapeRef.current) {
             amountEditEscapeRef.current = false;
             return;
@@ -1720,6 +2030,7 @@ export default function Page() {
     };
 
     const handleOperationDeleteClick = (row: OperationRow) => {
+        if (row.readOnlySynthetic) return;
         setOperationToDelete(row);
         setDeleteDialogOpen(true);
     };
@@ -1764,6 +2075,58 @@ export default function Page() {
             setOperationDeletingId(null);
             setDeleteDialogOpen(false);
             setOperationToDelete(null);
+        }
+    };
+
+    const handleSyntheticCommissionPercentChange = async (
+        row: OperationRow,
+        percent: ManagementCommissionPercent,
+    ) => {
+        if (!row.readOnlySynthetic) return;
+        if (row.syntheticPercentKey && holyCowExpenseShareRateKey) {
+            const keyString = row.syntheticPercentKey;
+            setSyntheticPercentUpdatingKey(keyString);
+            try {
+                await saveHolyCowExpenseShareRate(holyCowExpenseShareRateKey, percent);
+                setHolyCowExpenseShareRate((prev) => ({
+                    ...(prev ?? holyCowExpenseShareRateKey),
+                    percent,
+                }));
+            } catch (error) {
+                console.error('Error updating HC expense share percent:', error);
+                setSnackbar({
+                    open: true,
+                    message: resolveApiErrorMessage(error, t('common.serverError')),
+                    severity: 'error',
+                });
+            } finally {
+                setSyntheticPercentUpdatingKey(null);
+            }
+            return;
+        }
+
+        if (row.bookingId == null) return;
+        const bookingId = row.bookingId;
+        setCommissionPercentUpdatingBookingId(bookingId);
+        try {
+            await saveBookingManagementCommissionRate(bookingId, percent);
+            setCommissionRatesByBookingId((prev) => ({
+                ...prev,
+                [bookingId]: {
+                    ...(prev[bookingId] ?? { bookingId }),
+                    bookingId,
+                    percent,
+                },
+            }));
+        } catch (error) {
+            console.error('Error updating commission percent:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setCommissionPercentUpdatingBookingId(null);
         }
     };
 
@@ -1814,6 +2177,9 @@ export default function Page() {
         cashflows,
         operationDeletingId,
         handleOperationDeleteClick,
+        commissionPercentUpdatingBookingId,
+        syntheticPercentUpdatingKey,
+        handleSyntheticCommissionPercentChange,
     };
 
     if (!hasAccess) {
@@ -1835,67 +2201,67 @@ export default function Page() {
 
             
 
-            <Stack spacing={2} direction={'row'} mb={3}>
-                <Link href="/dashboard/accountancy/transactions">
-                    <Button fullWidth variant="contained">
-                        {t('accountancy.transactionsTitle')}
-                    </Button>
-                </Link>
+            <Box
+                sx={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    gap: 2,
+                    mb: 3,
+                    flexDirection: { xs: 'column', md: 'row' },
+                }}
+            >
+                <Stack spacing={1} direction="row" flexWrap="wrap">
+                    <Link href="/dashboard/accountancy/transactions">
+                        <Button size="small" variant="contained">
+                            {t('accountancy.transactionsTitle')}
+                        </Button>
+                    </Link>
 
-                <Link href="/dashboard/accountancy/reports">
-                    <Button
-                        fullWidth
-                        variant="contained"
-                    >
-                        Отчёты
-                    </Button>
-                </Link>
+                    <Link href="/dashboard/accountancy/counterparties">
+                        <Button size="small" variant="outlined">
+                            {t('accountancy.counterparty.title')}
+                        </Button>
+                    </Link>
 
-                <Link href="/dashboard/accountancy/categories">
-                    <Button
-                        fullWidth
-                        variant="outlined"
-                    >
-                        {t('accountancy.categoriesTitle')}
-                    </Button>
-                </Link>
+                    <Link href="/dashboard/accountancy/cashflow">
+                        <Button size="small" variant="outlined">
+                            {t('accountancy.cashflow.title')}
+                        </Button>
+                    </Link>
 
-                <Link href="/dashboard/accountancy/counterparties">
-                    <Button
-                        fullWidth
-                        variant="outlined"
-                    >
-                        {t('accountancy.counterparty.title')}
-                    </Button>
-                </Link>
+                    <Link href="/dashboard/accountancy/commission">
+                        <Button size="small" variant="contained">
+                            {t('accountancy.commission.title')}
+                        </Button>
+                    </Link>
+                </Stack>
 
-                <Link href="/dashboard/accountancy/cashflow">
-                    <Button
-                        fullWidth
-                        variant="outlined"
-                    >
-                        {t('accountancy.cashflow.title')}
-                    </Button>
-                </Link>
+                <Stack
+                    spacing={1}
+                    direction="row"
+                    flexWrap="wrap"
+                    justifyContent={{ xs: 'flex-start', md: 'flex-end' }}
+                >
+                    <Link href="/dashboard/accountancy/expense/add">
+                        <Button size="small" variant="contained" startIcon={<AddIcon />}>
+                            {t('accountancy.addExpense')}
+                        </Button>
+                    </Link>
 
-                <Link href="/dashboard/accountancy/commission">
-                    <Button
-                        fullWidth
-                        variant="contained"
-                    >
-                        {t('accountancy.commission.title')}
-                    </Button>
-                </Link>
+                    <Link href="/dashboard/accountancy/income/add">
+                        <Button size="small" variant="outlined" startIcon={<AddIcon />}>
+                            {t('accountancy.addIncome')}
+                        </Button>
+                    </Link>
 
-                <Link href="/dashboard/accountancy/auto-accounting">
-                    <Button
-                        fullWidth
-                        variant="outlined"
-                    >
-                        {t('accountancy.autoAccounting.title')}
-                    </Button>
-                </Link>
-            </Stack>
+                    <Link href="/dashboard/accountancy/transactions/bulk-add">
+                        <Button size="small" variant="outlined" startIcon={<AddIcon />}>
+                            {t('accountancy.bulkAddTransactions')}
+                        </Button>
+                    </Link>
+                </Stack>
+            </Box>
 
             {/* <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
                 <Paper sx={{ p: 2, flexBasis: '33%' }}>

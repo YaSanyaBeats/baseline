@@ -3,12 +3,14 @@
 import {
     Box,
     Button,
+    Pagination,
     Paper,
     Table,
     TableBody,
     TableCell,
     TableContainer,
     TableHead,
+    TablePagination,
     TableRow,
     Typography,
     Alert,
@@ -29,15 +31,13 @@ import {
     Switch,
     Chip,
 } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import LinkOffIcon from '@mui/icons-material/LinkOff';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useState } from 'react';
 import type { Booking, Expense, ExpenseStatus, Income, IncomeStatus, TransactionListRow } from '@/lib/types';
 import { getTransactions } from '@/lib/transactions';
 import { deleteExpense, updateExpense } from '@/lib/expenses';
@@ -64,6 +64,7 @@ function stableListRoomLabel(room: { id: number; name?: string }): string {
 }
 
 const STORAGE_KEY = 'accountancy-transactions-filters';
+const DEFAULT_ROWS_PER_PAGE = 20;
 
 type FilterRecordType = '' | 'expense' | 'income';
 
@@ -160,6 +161,8 @@ export default function Page() {
 
     const [sortByAmountAsc, setSortByAmountAsc] = useState<boolean | null>(null);
     const [sortByDateAsc, setSortByDateAsc] = useState<boolean | null>(true);
+    const [page, setPage] = useState(0);
+    const [rowsPerPage, setRowsPerPage] = useState(DEFAULT_ROWS_PER_PAGE);
 
     const [filtersExpanded, setFiltersExpanded] = useState<boolean>(true);
 
@@ -382,6 +385,47 @@ export default function Page() {
         sortByDateAsc,
     ]);
 
+    useEffect(() => {
+        setPage(0);
+    }, [
+        filterRecordType,
+        filterObjectId,
+        filterCategory,
+        filterStatus,
+        filterRoomId,
+        sortByAmountAsc,
+        sortByDateAsc,
+    ]);
+
+    useEffect(() => {
+        if (filteredAndSortedRows.length === 0) {
+            setPage(0);
+            return;
+        }
+
+        const maxPage = Math.max(0, Math.ceil(filteredAndSortedRows.length / rowsPerPage) - 1);
+        setPage((currentPage) => Math.min(currentPage, maxPage));
+    }, [filteredAndSortedRows.length, rowsPerPage]);
+
+    const paginatedRows = useMemo(
+        () => filteredAndSortedRows.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage),
+        [filteredAndSortedRows, page, rowsPerPage],
+    );
+    const pageCount = Math.max(1, Math.ceil(filteredAndSortedRows.length / rowsPerPage));
+
+    const handleChangePage = (_event: unknown, newPage: number) => {
+        setPage(newPage);
+    };
+
+    const handleChangeNumericPage = (_event: ChangeEvent<unknown>, numericPage: number) => {
+        setPage(numericPage - 1);
+    };
+
+    const handleChangeRowsPerPage = (event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+        setRowsPerPage(Number(event.target.value));
+        setPage(0);
+    };
+
     const refreshRows = async () => {
         const list = await getTransactions();
         setRows(list);
@@ -552,28 +596,6 @@ export default function Page() {
                 }}
             >
                 <Typography variant="h4">{t('accountancy.transactionsTitle')}</Typography>
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                    <Link href="/dashboard/accountancy/expense/add">
-                        <Button variant="contained" startIcon={<AddIcon />}>
-                            {t('accountancy.addExpense')}
-                        </Button>
-                    </Link>
-                    <Link href="/dashboard/accountancy/income/add">
-                        <Button variant="outlined" startIcon={<AddIcon />}>
-                            {t('accountancy.addIncome')}
-                        </Button>
-                    </Link>
-                    <Link href="/dashboard/accountancy/transactions/bulk-add">
-                        <Button variant="outlined" startIcon={<AddIcon />}>
-                            {t('accountancy.bulkAddTransactions')}
-                        </Button>
-                    </Link>
-                    <Link href="/dashboard/accountancy/transactions/unlink-bookings">
-                        <Button variant="outlined" startIcon={<LinkOffIcon />}>
-                            {t('accountancy.unlinkBookingsMenu')}
-                        </Button>
-                    </Link>
-                </Stack>
             </Box>
 
             {!loading && rows.length > 0 && (
@@ -763,7 +785,7 @@ export default function Page() {
                                     </TableCell>
                                 </TableRow>
                             ) : (
-                                filteredAndSortedRows.map((row) => (
+                                paginatedRows.map((row) => (
                                     <TableRow
                                         key={`${row.recordType}-${row._id}`}
                                         sx={
@@ -869,6 +891,40 @@ export default function Page() {
                             )}
                         </TableBody>
                     </Table>
+                    {filteredAndSortedRows.length > 0 && (
+                        <Stack
+                            direction={{ xs: 'column', md: 'row' }}
+                            alignItems={{ xs: 'stretch', md: 'center' }}
+                            justifyContent="space-between"
+                            spacing={1}
+                            sx={{ px: 2, py: 1 }}
+                        >
+                            <Pagination
+                                count={pageCount}
+                                page={page + 1}
+                                onChange={handleChangeNumericPage}
+                                color="primary"
+                                shape="rounded"
+                                showFirstButton
+                                showLastButton
+                                sx={{ display: 'flex', justifyContent: { xs: 'center', md: 'flex-start' } }}
+                            />
+                            <TablePagination
+                                component="div"
+                                count={filteredAndSortedRows.length}
+                                page={page}
+                                rowsPerPage={rowsPerPage}
+                                rowsPerPageOptions={[20, 50, 100]}
+                                onPageChange={handleChangePage}
+                                onRowsPerPageChange={handleChangeRowsPerPage}
+                                labelRowsPerPage={t('accountancy.rowsPerPage')}
+                                labelDisplayedRows={({ from, to, count }) =>
+                                    `${from}-${to} ${t('accountancy.paginationOf')} ${count}`
+                                }
+                                sx={{ border: 0 }}
+                            />
+                        </Stack>
+                    )}
                 </TableContainer>
             )}
 

@@ -8,6 +8,8 @@ import ObjectsMultiSelect from "@/components/objectsMultiSelect/ObjectsMultiSele
 import { getOptions, sendOptions } from "@/lib/options";
 import { getAllObjects } from '@/lib/beds24/objects';
 import { useTranslation } from "@/i18n/useTranslation";
+import Link from "next/link";
+import LinkOffIcon from '@mui/icons-material/LinkOff';
 
 export default function Page() {
     const { refreshObjects } = useObjects();
@@ -57,6 +59,30 @@ export default function Page() {
     
     return (
         <Stack spacing={2}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                <Button
+                    component={Link}
+                    href="/dashboard/accountancy/categories"
+                    variant="outlined"
+                >
+                    {t('accountancy.categoriesTitle')}
+                </Button>
+                <Button
+                    component={Link}
+                    href="/dashboard/accountancy/auto-accounting"
+                    variant="outlined"
+                >
+                    {t('accountancy.autoAccounting.title')}
+                </Button>
+                <Button
+                    component={Link}
+                    href="/dashboard/accountancy/transactions/unlink-bookings"
+                    startIcon={<LinkOffIcon />}
+                    variant="outlined"
+                >
+                    {t('accountancy.unlinkBookingsMenu')}
+                </Button>
+            </Stack>
             <Box>
                 <Typography variant="h5" gutterBottom>{t('options.ignoreSelectedObjects')}</Typography>
                 <ObjectsMultiSelect id="objects" error={false} helperText={t('options.selectAtLeastOneObject')} objects={allObjects} selectedObjects={formData.excludeObjects} onChange={handleObjectChange}></ObjectsMultiSelect>

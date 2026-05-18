@@ -7,6 +7,9 @@ import { Booking, Expense, Income, AccountancyCategory } from './types';
 import type { CategoryDivisibility } from './types';
 
 export type CommissionSchemeId = 1 | 2 | 3 | 4;
+export type ManagementCommissionPercent = 15 | 20 | 25 | 30;
+
+export const MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY = 'Аренда (баланс/остаток)';
 
 /** Маппинг: название категории → делимость. /2 и /3 = делимый, иначе нет. */
 export type CategoryDivisibilityMap = Record<string, CategoryDivisibility | undefined>;
@@ -93,6 +96,11 @@ function dateInMonth(date: Date | string, monthKey: string): boolean {
     return d.getFullYear() === y && d.getMonth() === m - 1;
 }
 
+function recordInReportMonth(date: Date | string, reportMonth: string | undefined | null, monthKey: string): boolean {
+    const rm = typeof reportMonth === 'string' ? reportMonth.trim() : '';
+    return rm ? rm === monthKey : dateInMonth(date, monthKey);
+}
+
 export interface BookingCommissionInput {
     booking: Booking;
     totalNights: number;
@@ -142,6 +150,12 @@ export interface BookingCommissionResult {
     otaCoAgentExpenses: number;
     divisibleExpenses: number;
     indivisibleExpenses: number;
+    /** Процент для синтетической строки «Комиссия за управление». */
+    commissionPercent?: ManagementCommissionPercent;
+    /** База синтетической комиссии: приход «Аренда (баланс/остаток)» в этой же брони. */
+    commissionBaseIncome?: number;
+    /** Процент сохранён вручную для bookingId, а не взят из схемы комнаты. */
+    commissionPercentOverridden?: boolean;
 }
 
 function getOtaCoAgentAmount(expensesByCategory: Array<{ category: string; amount: number }>): number {
@@ -376,6 +390,74 @@ export function calculateBookingCommission(
     };
 }
 
+export function getDefaultManagementCommissionPercent(
+    schemeId: CommissionSchemeId,
+    totalNights: number,
+): ManagementCommissionPercent {
+    if (schemeId === 1) {
+        if (totalNights <= 30) return 30;
+        if (totalNights <= 182) return 20;
+        return 15;
+    }
+    if (schemeId === 3) {
+        return totalNights <= 182 ? 25 : 15;
+    }
+    return totalNights <= 182 ? 20 : 15;
+}
+
+/**
+ * Узкий расчёт для сводки /dashboard/accountancy:
+ * комиссия = приход «Аренда (баланс/остаток)» в этой же брони × процент.
+ */
+export function calculateBookingManagementCommission(
+    input: BookingCommissionInput,
+    schemeId: CommissionSchemeId,
+    percentOverride?: ManagementCommissionPercent,
+): BookingCommissionResult {
+    const defaultPercent = getDefaultManagementCommissionPercent(schemeId, input.totalNights);
+    const percent = percentOverride ?? defaultPercent;
+    const baseIncomes = input.bookingIncomes.filter(
+        (i) => (i.category ?? '').trim() === MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY,
+    );
+    const baseIncome = baseIncomes.reduce((s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0), 0);
+    const commission = baseIncome * (percent / 100);
+    const steps: CommissionStep[] = [
+        {
+            description: `Приход «${MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY}»`,
+            value: baseIncome,
+            formula: `Σ приходов категории`,
+            lineItems: mapIncomeLineItems(baseIncomes),
+        },
+        {
+            description: percentOverride == null ? 'Процент комиссии из схемы комнаты' : 'Процент комиссии задан вручную',
+            value: percent,
+            formula: `Схема ${schemeId}, ${input.totalNights} ноч.`,
+        },
+        {
+            description: 'Комиссия за управление',
+            value: commission,
+            formula: `${baseIncome} × ${percent}% = ${commission.toFixed(2)}`,
+        },
+    ];
+
+    return {
+        bookingId: input.booking.id,
+        bookingTitle: input.booking.title || `#${input.booking.id}`,
+        nights: input.totalNights,
+        schemeId,
+        steps,
+        commission,
+        income: baseIncome,
+        totalExpenses: 0,
+        otaCoAgentExpenses: 0,
+        divisibleExpenses: 0,
+        indivisibleExpenses: 0,
+        commissionPercent: percent,
+        commissionBaseIncome: baseIncome,
+        commissionPercentOverridden: percentOverride != null,
+    };
+}
+
 export interface CommissionCalculationParams {
     objectId: number;
     /** Имя юнита (стабильная метка) или все комнаты */
@@ -445,13 +527,13 @@ export function prepareCommissionData(
             (i) =>
                 i.bookingId === booking.id &&
                 i.objectId === accountingObjectId &&
-                dateInMonth(i.date, monthKey)
+                recordInReportMonth(i.date, i.reportMonth, monthKey)
         );
         const bookingExpenses = expenses.filter(
             (e) =>
                 e.bookingId === booking.id &&
                 e.objectId === accountingObjectId &&
-                dateInMonth(e.date, monthKey)
+                recordInReportMonth(e.date, e.reportMonth, monthKey)
         );
 
         const getExpenseSum = (e: { amount?: number; quantity?: number }) => (e.quantity ?? 1) * (e.amount ?? 0);

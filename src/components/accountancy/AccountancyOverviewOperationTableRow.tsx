@@ -15,9 +15,11 @@ import {
     TableRow,
     TextField,
     Tooltip,
+    Typography,
 } from '@mui/material';
 import { Delete as DeleteIcon, Visibility } from '@mui/icons-material';
 import Link from 'next/link';
+import type { BookingCommissionResult, ManagementCommissionPercent } from '@/lib/commissionCalculation';
 import type { CategorySelectItem } from '@/lib/accountancyCategoryUtils';
 import SourceRecipientSelect, {
     type SourceRecipientAutocompleteOption,
@@ -40,6 +42,14 @@ export type AccountancyOverviewOperationRowModel = {
     recipient?: string;
     autoCreated?: boolean;
     bookingId?: number;
+    /** Сводка accountancy: авто-комиссия по схеме комнаты, без записи в БД */
+    readOnlySynthetic?: boolean;
+    /** Детализация расчёта для Tooltip (только при readOnlySynthetic) */
+    syntheticCommissionDetail?: BookingCommissionResult;
+    syntheticCommissionPercent?: ManagementCommissionPercent;
+    syntheticCommissionPercentOverridden?: boolean;
+    syntheticPercentKey?: string;
+    syntheticPercentUpdatingKey?: string;
 };
 
 export type AccountancyOverviewOperationTableRowProps = {
@@ -84,21 +94,133 @@ export type AccountancyOverviewOperationTableRowProps = {
     cashflows: { _id: string; name: string }[];
     operationDeletingId: string | null;
     handleOperationDeleteClick: (row: AccountancyOverviewOperationRowModel) => void;
+    commissionPercentUpdatingBookingId: number | null;
+    syntheticPercentUpdatingKey: string | null;
+    handleSyntheticCommissionPercentChange: (
+        row: AccountancyOverviewOperationRowModel,
+        percent: ManagementCommissionPercent,
+    ) => void | Promise<void>;
 };
+
+const COMMISSION_TOOLTIP_LINE_CAP = 14;
+
+function SyntheticCommissionTooltipBody({
+    detail,
+    formatAmount,
+    t,
+}: {
+    detail: BookingCommissionResult;
+    formatAmount: (n: number) => string;
+    t: (key: string) => string;
+}) {
+    const fmt = (n: number) => formatAmount(n);
+    const schemeLine = t('accountancy.syntheticCommissionScheme').replace('{{scheme}}', String(detail.schemeId));
+    const totalLine = t('accountancy.syntheticCommissionTotal').replace('{{amount}}', fmt(detail.commission));
+
+    return (
+        <Box
+            sx={{
+                color: 'inherit',
+                maxWidth: 400,
+                maxHeight: 380,
+                overflow: 'auto',
+                py: 0.5,
+                pr: 0.25,
+            }}
+        >
+            <Typography variant="caption" component="div" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                {t('accountancy.syntheticCommissionTooltipTitle')}
+            </Typography>
+            <Typography variant="caption" component="div" sx={{ opacity: 0.88, display: 'block', mb: 1 }}>
+                {schemeLine}
+            </Typography>
+            <Stack spacing={1.1}>
+                {detail.steps.map((step, idx) => (
+                    <Box key={idx}>
+                        <Typography variant="caption" component="div" sx={{ fontWeight: 600, display: 'block' }}>
+                            {step.description}
+                            {typeof step.value === 'number' && !Number.isNaN(step.value)
+                                ? `: ${fmt(step.value)}`
+                                : ''}
+                        </Typography>
+                        {step.formula ? (
+                            <Typography variant="caption" component="div" sx={{ opacity: 0.9, pl: 0.5, display: 'block' }}>
+                                {step.formula}
+                            </Typography>
+                        ) : null}
+                        {step.nightBooking ? (
+                            <Typography variant="caption" component="div" sx={{ opacity: 0.85, display: 'block' }}>
+                                {new Date(step.nightBooking.arrival).toLocaleDateString('ru-RU', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: '2-digit',
+                                })}{' '}
+                                —{' '}
+                                {new Date(step.nightBooking.departure).toLocaleDateString('ru-RU', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: '2-digit',
+                                })}
+                            </Typography>
+                        ) : null}
+                        {step.lineItems && step.lineItems.length > 0 ? (
+                            <Box component="ul" sx={{ m: 0, pl: 2, mt: 0.35, opacity: 0.88 }}>
+                                {step.lineItems.slice(0, COMMISSION_TOOLTIP_LINE_CAP).map((li, i) => {
+                                    const d = new Date(li.date);
+                                    const ds = Number.isNaN(d.getTime())
+                                        ? '—'
+                                        : d.toLocaleDateString('ru-RU', {
+                                              day: '2-digit',
+                                              month: '2-digit',
+                                              year: '2-digit',
+                                          });
+                                    return (
+                                        <Typography key={i} component="li" variant="caption" sx={{ display: 'list-item' }}>
+                                            {ds} · {li.kind === 'income' ? '+' : '−'}
+                                            {fmt(Math.abs(li.amount))} · {li.category}
+                                        </Typography>
+                                    );
+                                })}
+                                {step.lineItems.length > COMMISSION_TOOLTIP_LINE_CAP ? (
+                                    <Typography variant="caption" component="div" sx={{ mt: 0.25, opacity: 0.75 }}>
+                                        {t('accountancy.syntheticCommissionMoreLines').replace(
+                                            '{{n}}',
+                                            String(step.lineItems.length - COMMISSION_TOOLTIP_LINE_CAP),
+                                        )}
+                                    </Typography>
+                                ) : null}
+                            </Box>
+                        ) : null}
+                    </Box>
+                ))}
+            </Stack>
+            <Typography variant="caption" component="div" sx={{ mt: 1.25, fontWeight: 700, display: 'block' }}>
+                {totalLine}
+            </Typography>
+        </Box>
+    );
+}
 
 function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperationTableRowProps) {
     const { row, t } = p;
+    const ro = row.readOnlySynthetic === true;
     return (
         <TableRow
             sx={
-                row.autoCreated
+                ro
                     ? {
                           bgcolor: (theme) =>
-                              theme.palette.mode === 'light'
-                                  ? 'rgba(46, 125, 50, 0.06)'
-                                  : 'rgba(102, 187, 106, 0.1)',
+                              theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.06)',
+                          color: 'text.secondary',
                       }
-                    : undefined
+                    : row.autoCreated
+                      ? {
+                            bgcolor: (theme) =>
+                                theme.palette.mode === 'light'
+                                    ? 'rgba(46, 125, 50, 0.06)'
+                                    : 'rgba(102, 187, 106, 0.1)',
+                        }
+                      : undefined
             }
         >
             <TableCell sx={{ px: 0.25 }}>
@@ -106,7 +228,9 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     <Switch
                         checked={row.status === 'confirmed'}
                         onChange={() => p.handleStatusToggle(row)}
-                        disabled={p.statusUpdatingId === row.id || p.inlinePatchUpdatingId === row.id}
+                        disabled={
+                            ro || p.statusUpdatingId === row.id || p.inlinePatchUpdatingId === row.id
+                        }
                         size="small"
                         color="primary"
                     />
@@ -119,7 +243,11 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         value={row.reportMonth || ''}
                         displayEmpty
                         onChange={(e) => p.handleReportMonthChange(row, e.target.value as string)}
-                        disabled={p.reportMonthUpdatingId === row.id || p.inlinePatchUpdatingId === row.id}
+                        disabled={
+                            ro ||
+                            p.reportMonthUpdatingId === row.id ||
+                            p.inlinePatchUpdatingId === row.id
+                        }
                         MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
                     >
                         <MenuItem value="">
@@ -144,6 +272,22 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
             </TableCell>
             <TableCell sx={{ px: 0.25, overflow: 'hidden' }}>
                 <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="nowrap" sx={{ minWidth: 0 }}>
+                    {ro ? (
+                        <Typography
+                            variant="body2"
+                            sx={{
+                                fontSize: '0.6875rem',
+                                lineHeight: 1.25,
+                                color: 'text.secondary',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                minWidth: 0,
+                            }}
+                        >
+                            {row.category || t('accountancy.bookingGroupManagementCommissionAuto')}
+                        </Typography>
+                    ) : (
                     <FormControl size="small" sx={{ ...p.opTableCatSelectFormSx, flexShrink: 0 }}>
                         <Select
                             sx={p.opTableInlineSelectSx}
@@ -187,7 +331,8 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                             })()}
                         </Select>
                     </FormControl>
-                    {row.autoCreated && (
+                    )}
+                    {!ro && row.autoCreated && (
                         <Tooltip title={t('accountancy.autoAccounting.autoCreatedBadge')}>
                             <Chip
                                 size="small"
@@ -216,6 +361,39 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     width: p.OP_TABLE_COMMENT_COL_WIDTH_PX,
                 }}
             >
+                {ro ? (
+                    <Stack direction="row" alignItems="center" spacing={0.75}>
+                        <FormControl size="small" sx={{ width: 86 }}>
+                            <Select
+                                sx={p.opTableSelectSx}
+                                value={row.syntheticCommissionPercent ?? ''}
+                                onChange={(e) =>
+                                    void p.handleSyntheticCommissionPercentChange(
+                                        row,
+                                        Number(e.target.value) as ManagementCommissionPercent,
+                                    )
+                                }
+                                disabled={
+                                    (row.bookingId == null && !row.syntheticPercentKey) ||
+                                    p.commissionPercentUpdatingBookingId === row.bookingId ||
+                                    p.syntheticPercentUpdatingKey === row.syntheticPercentKey
+                                }
+                                MenuProps={{ PaperProps: { sx: { maxHeight: 240 } } }}
+                            >
+                                {[30, 25, 20, 15].map((percent) => (
+                                    <MenuItem key={percent} value={percent}>
+                                        {percent}%
+                                    </MenuItem>
+                                ))}
+                            </Select>
+                        </FormControl>
+                        {row.syntheticCommissionPercentOverridden ? (
+                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.625rem' }}>
+                                {t('accountancy.syntheticCommissionPercentManual')}
+                            </Typography>
+                        ) : null}
+                    </Stack>
+                ) : (
                 <TextField
                     size="small"
                     fullWidth
@@ -262,8 +440,17 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         },
                     }}
                 />
+                )}
             </TableCell>
             <TableCell sx={{ px: 0.25 }}>
+                {ro ? (
+                    <Typography
+                        variant="body2"
+                        sx={{ fontSize: '0.6875rem', color: 'text.secondary', textAlign: 'center' }}
+                    >
+                        {row.quantity}
+                    </Typography>
+                ) : (
                 <FormControl size="small" sx={p.opTableQtySelectFormSx}>
                     <Select
                         sx={p.opTableSelectSx}
@@ -284,16 +471,17 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         ))}
                     </Select>
                 </FormControl>
+                )}
             </TableCell>
             <TableCell
                 sx={{
                     px: 0.25,
-                    color: row.amount >= 0 ? 'success.main' : 'error.main',
+                    color: ro ? 'text.secondary' : row.amount >= 0 ? 'success.main' : 'error.main',
                     verticalAlign: 'middle',
                     fontSize: '0.6875rem',
                 }}
             >
-                {p.amountEditingId === row.id ? (
+                {p.amountEditingId === row.id && !ro ? (
                     <TextField
                         size="small"
                         value={p.amountDraft}
@@ -327,10 +515,51 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         }}
                     />
                 ) : (
-                    <Tooltip title={t('accountancy.inlineAmountEditHint')}>
+                    <Tooltip
+                        title={
+                            ro && row.syntheticCommissionDetail ? (
+                                <SyntheticCommissionTooltipBody
+                                    detail={row.syntheticCommissionDetail}
+                                    formatAmount={p.formatAmount}
+                                    t={t}
+                                />
+                            ) : ro ? (
+                                ''
+                            ) : (
+                                t('accountancy.inlineAmountEditHint')
+                            )
+                        }
+                        enterDelay={ro && row.syntheticCommissionDetail ? 280 : undefined}
+                        disableInteractive={!(ro && row.syntheticCommissionDetail)}
+                        slotProps={
+                            ro && row.syntheticCommissionDetail
+                                ? {
+                                      tooltip: {
+                                          sx: (theme) => ({
+                                              maxWidth: 420,
+                                              maxHeight: 400,
+                                              overflow: 'auto',
+                                              ...(theme.palette.mode === 'light'
+                                                  ? {
+                                                        bgcolor: 'grey.900',
+                                                        color: 'common.white',
+                                                    }
+                                                  : {
+                                                        bgcolor: 'grey.200',
+                                                        color: 'rgba(0, 0, 0, 0.87)',
+                                                    }),
+                                              border: '1px solid',
+                                              borderColor: 'divider',
+                                          }),
+                                      },
+                                  }
+                                : undefined
+                        }
+                    >
                         <Box
                             component="span"
                             onClick={() => {
+                                if (ro) return;
                                 if (p.amountUpdatingId === row.id || p.inlinePatchUpdatingId === row.id) return;
                                 p.setAmountEditingId(row.id);
                                 p.setAmountDraft(
@@ -341,8 +570,12 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                 );
                             }}
                             sx={{
-                                cursor: p.amountUpdatingId === row.id ? 'default' : 'pointer',
+                                cursor:
+                                    ro || p.amountUpdatingId === row.id ? 'default' : 'pointer',
                                 display: 'inline-block',
+                                ...(ro && row.syntheticCommissionDetail
+                                    ? { textDecoration: 'underline dotted', textUnderlineOffset: 2 }
+                                    : {}),
                             }}
                         >
                             {row.amount >= 0 ? '+' : ''}
@@ -352,6 +585,11 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 )}
             </TableCell>
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
+                {ro ? (
+                    <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
+                        —
+                    </Typography>
+                ) : (
                 <SourceRecipientSelect
                     value={(row.source ?? '') as SourceRecipientOptionValue}
                     onChange={(v) => void p.handleSourceChange(row, v)}
@@ -369,8 +607,14 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     }
                     sx={p.opTableSourceRecipientSx}
                 />
+                )}
             </TableCell>
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
+                {ro ? (
+                    <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
+                        —
+                    </Typography>
+                ) : (
                 <SourceRecipientSelect
                     value={(row.recipient ?? '') as SourceRecipientOptionValue}
                     onChange={(v) => void p.handleRecipientChange(row, v)}
@@ -390,8 +634,10 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     }
                     sx={p.opTableSourceRecipientSx}
                 />
+                )}
             </TableCell>
             <TableCell sx={{ px: 0.25 }}>
+                {ro ? null : (
                 <Stack direction="row" alignItems="center" spacing={0}>
                     <Link
                         href={
@@ -426,6 +672,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         </span>
                     </Tooltip>
                 </Stack>
+                )}
             </TableCell>
         </TableRow>
     );

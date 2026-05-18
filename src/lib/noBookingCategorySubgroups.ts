@@ -42,7 +42,7 @@ const CATEGORY_TO_SUBGROUP = (() => {
         'guest',
     );
 
-    add(['Доля расходов Holy Cow Phuket'], 'hc');
+    add(['Доля Расходов Holy Cow Phuket', 'Доля расходов Holy Cow Phuket'], 'hc');
 
     add(
         [

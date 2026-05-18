@@ -28,8 +28,8 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { AccountancyCategory, AccountancyAttachment, Booking, Expense, Income, ExpenseStatus, UserObject } from '@/lib/types';
 import { formatTitle } from '@/lib/format';
-import { addExpense } from '@/lib/expenses';
-import { addIncome } from '@/lib/incomes';
+import { addExpense, getExpenseById } from '@/lib/expenses';
+import { addIncome, getIncomeById } from '@/lib/incomes';
 import { getApiErrorMessage } from '@/lib/axiosResponseMessage';
 import { formatPartialTransactionAddWarning } from '@/lib/accountancyPartialAddMessage';
 import { getCounterparties } from '@/lib/counterparties';
@@ -42,7 +42,7 @@ import SourceRecipientSelect, {
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
@@ -71,6 +71,12 @@ type SubItemForm = LineFields & {
 type ItemForm = LineFields & {
     splittable: boolean;
     subItems: SubItemForm[];
+};
+
+type ParentTransactionContext = {
+    id: string;
+    type: 'expense' | 'income';
+    label: string;
 };
 
 function createDefaultLineFields(): LineFields {
@@ -151,6 +157,10 @@ interface TransactionAddFormProps {
 export default function TransactionAddForm({ type, attachCashflowId = false }: TransactionAddFormProps) {
     const { t } = useTranslation();
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const parentExpenseId = searchParams.get('parentExpenseId')?.trim() ?? '';
+    const parentIncomeId = searchParams.get('parentIncomeId')?.trim() ?? '';
+    const isSubtransactionMode = Boolean(parentExpenseId || parentIncomeId);
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
@@ -178,6 +188,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const [userCashflowId, setUserCashflowId] = useState<string | undefined>();
     /** Месяц отчёта YYYY-MM, общий для всех позиций (расходы и приходы) */
     const [sharedReportMonth, setSharedReportMonth] = useState('');
+    const [parentTransaction, setParentTransaction] = useState<ParentTransactionContext | null>(null);
 
     const reportMonthOptions = useMemo(
         () =>
@@ -193,6 +204,20 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     );
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
+    const currentUserId = user?._id?.toString?.() ?? (user as { _id?: string } | undefined)?._id;
+
+    const formatParentTransactionLabel = (
+        record: Expense | Income,
+        recordType: 'expense' | 'income',
+        id: string
+    ) => {
+        const total = ((record.quantity ?? 1) * (record.amount ?? 0)).toLocaleString('ru-RU', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+        });
+        const typeLabel = recordType === 'expense' ? t('accountancy.expense') : t('accountancy.income');
+        return `${typeLabel}: ${record.category} - ${total} (#${id})`;
+    };
 
     const applySharedReportMonth = (value: string) => {
         setSharedReportMonth(value);
@@ -220,8 +245,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
-                const uid = user?._id?.toString?.() ?? (user as { _id?: string })?._id;
-                const userCf = uid ? cfs.find((cf) => cf.userId === uid) : undefined;
+                const userCf = currentUserId ? cfs.find((cf) => cf.userId === currentUserId) : undefined;
                 setUserCashflowId(attachCashflowId ? userCf?._id : undefined);
 
                 if (type === 'expense') {
@@ -246,7 +270,100 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
             }
         };
         void load();
-    }, [attachCashflowId, hasAccess, type, user?._id]);
+    }, [attachCashflowId, currentUserId, hasAccess, type]);
+
+    useEffect(() => {
+        if (!hasAccess || !isSubtransactionMode) return;
+
+        let cancelled = false;
+
+        const loadParentTransaction = async () => {
+            if (parentExpenseId && parentIncomeId) {
+                setSnackbar({
+                    open: true,
+                    message: t('common.error'),
+                    severity: 'error',
+                });
+                router.push(`/dashboard/accountancy/${type}/add`);
+                return;
+            }
+
+            try {
+                const parentType = parentExpenseId ? 'expense' : 'income';
+                const parentId = parentExpenseId || parentIncomeId;
+                const found =
+                    parentType === 'expense'
+                        ? await getExpenseById(parentId)
+                        : await getIncomeById(parentId);
+
+                if (cancelled) return;
+
+                if (!found) {
+                    setSnackbar({
+                        open: true,
+                        message:
+                            parentType === 'expense'
+                                ? t('accountancy.expenseNotFound')
+                                : t('accountancy.incomeNotFound'),
+                        severity: 'error',
+                    });
+                    router.push(`/dashboard/accountancy/${type}/add`);
+                    return;
+                }
+
+                const parentRoomName = found.roomName ? String(found.roomName) : undefined;
+                setParentTransaction({
+                    id: parentId,
+                    type: parentType,
+                    label: formatParentTransactionLabel(found, parentType, parentId),
+                });
+                setObjectId(found.objectId);
+                setRoomName(parentRoomName);
+                setSelectedObjects([
+                    {
+                        id: found.objectId,
+                        rooms: parentRoomName ? [parentRoomName] : [],
+                    },
+                ]);
+                if (found.reportMonth) {
+                    setSharedReportMonth(found.reportMonth);
+                    const firstDay = reportMonthToFirstDayString(found.reportMonth);
+                    setItems((prev) =>
+                        prev.map((item) => ({
+                            ...item,
+                            date: item.date || firstDay,
+                            subItems: [],
+                            splittable: false,
+                        }))
+                    );
+                } else {
+                    setItems((prev) =>
+                        prev.map((item) => ({
+                            ...item,
+                            subItems: [],
+                            splittable: false,
+                        }))
+                    );
+                }
+            } catch (error) {
+                console.error('Error loading parent transaction:', error);
+                if (!cancelled) {
+                    setSnackbar({
+                        open: true,
+                        message: t('common.serverError'),
+                        severity: 'error',
+                    });
+                }
+            }
+        };
+
+        void loadParentTransaction();
+
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [hasAccess, isSubtransactionMode, parentExpenseId, parentIncomeId, router, type]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
@@ -529,12 +646,23 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const handleDetachBooking = (index: number) => handleChangeItem(index, 'bookingId', undefined);
 
     const handleSubmit = async () => {
+        if (isSubtransactionMode && !parentTransaction) {
+            setSnackbar({ open: true, message: t('common.loading'), severity: 'warning' });
+            return;
+        }
+
         if (!validate() || !objectId) return;
 
         setLoading(true);
         let successCount = 0;
         const failures: { category: string; message: string }[] = [];
         const cfId = attachCashflowId ? userCashflowId : undefined;
+        const parentLink =
+            parentTransaction?.type === 'expense'
+                ? { parentExpenseId: parentTransaction.id }
+                : parentTransaction?.type === 'income'
+                  ? { parentIncomeId: parentTransaction.id }
+                  : {};
 
         try {
             for (const item of items) {
@@ -542,7 +670,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 try {
                     let res;
                     if (type === 'expense') {
-                        const basePayload: Omit<Expense, 'parentExpenseId' | 'parentIncomeId'> = {
+                        const basePayload: Expense = {
                             objectId,
                             roomName,
                             bookingId: item.bookingId,
@@ -558,6 +686,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             reportMonth: sharedReportMonth || undefined,
                             attachments: item.attachments ?? [],
                             accountantId: '',
+                            ...parentLink,
                         };
                         if (item.splittable) {
                             const parentRes = await addExpense(basePayload);
@@ -637,7 +766,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         }
                         res = await addExpense(basePayload);
                     } else {
-                        const baseIncomePayload: Omit<Income, 'parentExpenseId' | 'parentIncomeId'> = {
+                        const baseIncomePayload: Income = {
                             objectId,
                             roomName,
                             bookingId: item.bookingId,
@@ -653,6 +782,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             comment: item.comment || undefined,
                             attachments: item.attachments ?? [],
                             accountantId: '',
+                            ...parentLink,
                         };
                         if (item.splittable) {
                             const parentRes = await addIncome(baseIncomePayload);
@@ -1054,6 +1184,14 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             </Select>
                         </FormControl>
                     </Stack>
+                    {isSubtransactionMode && (
+                        <TextField
+                            label={t('accountancy.parentTransaction')}
+                            value={parentTransaction?.label ?? t('common.loading')}
+                            InputProps={{ readOnly: true }}
+                            sx={{ mt: 2, width: '100%', maxWidth: '720px' }}
+                        />
+                    )}
                 </Paper>
 
                 <Typography variant="subtitle1" sx={{ mb: 1 }}>
@@ -1074,7 +1212,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                 <TableCell>{t(dateLabelKey)}</TableCell>
                                 <TableCell>{t('accountancy.comment')}</TableCell>
                                 {type === 'expense' && <TableCell>{t('accountancy.status')}</TableCell>}
-                                {(type === 'expense' || type === 'income') && (
+                                {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
                                     <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                                         {t('accountancy.divisibility')}
                                     </TableCell>
@@ -1301,7 +1439,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             </FormControl>
                                         </TableCell>
                                     )}
-                                    {(type === 'expense' || type === 'income') && (
+                                    {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
                                         <TableCell align="center" sx={{ verticalAlign: 'middle' }}>
                                             <Checkbox
                                                 checked={item.splittable}
@@ -1327,7 +1465,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                         />
                                     </TableCell>
                                     </TableRow>
-                                    {(type === 'expense' || type === 'income') && item.splittable && (
+                                    {(type === 'expense' || type === 'income') && !isSubtransactionMode && item.splittable && (
                                         <TableRow>
                                             <TableCell colSpan={mainRowColSpan} sx={{ py: 2, verticalAlign: 'top' }}>
                                                 <Box
@@ -1421,7 +1559,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         variant="contained"
                         endIcon={<SendIcon />}
                         onClick={handleSubmit}
-                        disabled={loading}
+                        disabled={loading || (isSubtransactionMode && !parentTransaction)}
                     >
                         {t('common.send')}
                     </Button>

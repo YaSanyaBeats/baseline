@@ -17,6 +17,7 @@ import {
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
+import AddIcon from '@mui/icons-material/Add';
 import { useEffect, useMemo, useState } from 'react';
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from '@/lib/types';
 import { getExpenseById, updateExpense } from '@/lib/expenses';
@@ -355,6 +356,11 @@ export default function ExpenseEditForm({
             .finally(() => setLoading(false));
     };
 
+    const handleAddSubtransaction = () => {
+        if (!expenseId) return;
+        router.push(`/dashboard/accountancy/income/add?parentExpenseId=${encodeURIComponent(expenseId)}`);
+    };
+
     const bookingModalInitialRoomId = useMemo(() => {
         if (!expense.objectId || expense.roomName == null || expense.roomName === '') return undefined;
         const o = objects.find((x) => x.id === expense.objectId);
@@ -642,6 +648,14 @@ export default function ExpenseEditForm({
                         onClick={() => router.back()}
                     >
                         {t('common.cancel')}
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outlined"
+                        startIcon={<AddIcon />}
+                        onClick={handleAddSubtransaction}
+                    >
+                        {t('accountancy.addSubtransaction')}
                     </Button>
                     <Button variant="contained" endIcon={<SendIcon />} onClick={handleSubmit} disabled={loading}>
                         {t('common.save')}

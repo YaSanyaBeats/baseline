@@ -18,7 +18,7 @@ import {
     Stack,
     Chip,
 } from '@mui/material';
-import { LineChart } from '@mui/x-charts/LineChart';
+import { BarChart } from '@mui/x-charts/BarChart';
 import type { User, Object as PropertyObject } from '@/lib/types';
 
 export type OwnerBalanceLedgerRow = {
@@ -85,7 +85,7 @@ export default function OwnerBalanceDialog({
     }, [transactions]);
 
     const chartData = useMemo(() => {
-        if (sortedTx.length === 0) return { labels: [] as string[], cumulative: [] as number[] };
+        if (sortedTx.length === 0) return { labels: [] as string[], monthlyChange: [] as number[] };
         const monthMap = new Map<string, number>();
         for (const tx of sortedTx) {
             const monthKey = getMonthKey(tx.date);
@@ -114,15 +114,12 @@ export default function OwnerBalanceDialog({
             }
         }
 
-        let cum = 0;
-        const cumulative: number[] = [];
-        for (const key of keys) {
-            cum += monthMap.get(key) ?? 0;
-            cumulative.push(Number(cum.toFixed(2)));
-        }
+        const monthlyChange = keys.map((key) =>
+            Number((monthMap.get(key) ?? 0).toFixed(2))
+        );
         return {
             labels: keys.map(formatMonthLabel),
-            cumulative,
+            monthlyChange,
         };
     }, [sortedTx]);
 
@@ -175,42 +172,6 @@ export default function OwnerBalanceDialog({
             </DialogTitle>
             <DialogContent dividers>
                 <Stack spacing={3}>
-                    <Box>
-                        <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                            {t('accountancy.cashflow.ownerMonthlyChart')}
-                        </Typography>
-                        {chartData.labels.length > 0 ? (
-                            <Box sx={{ width: '100%', overflow: 'auto' }}>
-                                <LineChart
-                                    xAxis={[
-                                        {
-                                            data: chartData.labels,
-                                            scaleType: 'point',
-                                        },
-                                    ]}
-                                    series={[
-                                        {
-                                            data: chartData.cumulative,
-                                            label: t('accountancy.cashflow.balance'),
-                                            area: true,
-                                            showMark: true,
-                                            valueFormatter: (v) =>
-                                                v == null ? '' : formatAmount(v as number),
-                                        },
-                                    ]}
-                                    height={320}
-                                    margin={{ left: 80, right: 30, top: 30, bottom: 50 }}
-                                />
-                            </Box>
-                        ) : (
-                            <Paper variant="outlined" sx={{ p: 3 }}>
-                                <Typography color="text.secondary">
-                                    {t('accountancy.cashflow.noTransactions')}
-                                </Typography>
-                            </Paper>
-                        )}
-                    </Box>
-
                     <Box>
                         <Typography variant="subtitle1" sx={{ mb: 1 }}>
                             {t('accountancy.cashflow.transactionsList')} ({sortedTx.length})
@@ -346,6 +307,40 @@ export default function OwnerBalanceDialog({
                                         </TableRow>
                                     </TableBody>
                                 </Table>
+                            </Paper>
+                        )}
+                    </Box>
+
+                    <Box>
+                        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                            {t('accountancy.cashflow.ownerMonthlyChart')}
+                        </Typography>
+                        {chartData.labels.length > 0 ? (
+                            <Box sx={{ width: '100%', overflow: 'auto' }}>
+                                <BarChart
+                                    xAxis={[
+                                        {
+                                            data: chartData.labels,
+                                            scaleType: 'band',
+                                        },
+                                    ]}
+                                    series={[
+                                        {
+                                            data: chartData.monthlyChange,
+                                            label: t('accountancy.cashflow.ownerMonthlyGrowth'),
+                                            valueFormatter: (v) =>
+                                                v == null ? '' : formatAmount(v as number),
+                                        },
+                                    ]}
+                                    height={320}
+                                    margin={{ left: 80, right: 30, top: 30, bottom: 50 }}
+                                />
+                            </Box>
+                        ) : (
+                            <Paper variant="outlined" sx={{ p: 3 }}>
+                                <Typography color="text.secondary">
+                                    {t('accountancy.cashflow.noTransactions')}
+                                </Typography>
                             </Paper>
                         )}
                     </Box>

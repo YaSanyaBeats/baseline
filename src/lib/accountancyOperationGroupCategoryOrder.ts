@@ -1,5 +1,10 @@
 import type { NoBookingSubgroupId } from '@/lib/noBookingCategorySubgroups';
 
+/** Категория синтетической строки «комиссия за управление» в группе по брони (сортировка + ключ данных). */
+export const BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY = 'Комиссия за управление (авто-рассчёт)';
+/** Синтетическая строка «Расходы HC» в сводке accountancy. */
+export const HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY = 'Доля Расходов Holy Cow Phuket';
+
 /**
  * Порядок категорий в группах «Бронь 1 / Бронь 2» (см. accountancy).
  * Имена — как в MongoDB (коллекция accountancyCategories).
@@ -31,6 +36,8 @@ export const BOOKING_GROUP_CATEGORY_ORDER = [
     'Комиссия OTA',
     'Комиссия ко-агента',
     'Комиссия за управление',
+    // Синтетическая строка сводки accountancy (авто-расчёт по схеме комнаты)
+    BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
     'Доля расходов Holy Cow Phuket',
     'Комиссия',
 ] as const;
@@ -52,7 +59,10 @@ export const NO_BOOKING_GUEST_CATEGORY_ORDER = [
 ] as const;
 
 /** 5. Расходы HC */
-export const NO_BOOKING_HC_CATEGORY_ORDER = ['Доля расходов Holy Cow Phuket'] as const;
+export const NO_BOOKING_HC_CATEGORY_ORDER = [
+    HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
+    'Доля расходов Holy Cow Phuket',
+] as const;
 
 /** 6. Расходы владельца */
 export const NO_BOOKING_OWNER_CATEGORY_ORDER = [
