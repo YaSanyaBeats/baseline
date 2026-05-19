@@ -1,7 +1,7 @@
 import type { NoBookingSubgroupId } from '@/lib/noBookingCategorySubgroups';
 
 /** Категория синтетической строки «комиссия за управление» в группе по брони (сортировка + ключ данных). */
-export const BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY = 'Комиссия за управление (авто-рассчёт)';
+export const BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY = 'Комиссия за управление (авто-расчёт)';
 /** Синтетическая строка «Расходы HC» в сводке accountancy. */
 export const HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY = 'Доля Расходов Holy Cow Phuket';
 

@@ -1,11 +1,16 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useMemo, useState } from 'react';
 import { IconButton, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { alpha, useTheme, type Theme } from '@mui/material/styles';
 import type { Object as Obj } from '@/lib/types';
 import type { AccountancyObjectRoomRowHighlight } from '@/lib/accountancyObjectRoomRowHighlight';
+import {
+    groupAccountancyObjectsByName,
+    isAccountancyObjectGroupSelected,
+    stableAccountancyRoomLabel,
+} from '@/lib/accountancyObjectGroups';
 import { useTranslation } from '@/i18n/useTranslation';
 
 /** Подсветка «жёлтый» — не `palette.warning` (в MUI это оранжевый) */
@@ -21,12 +26,6 @@ export type AccountancyObjectTreeTableProps = {
     /** Подсветка подпункта «комната»; без пропа — только стандартные стили */
     getRoomRowHighlight?: (objectId: number, roomName: string) => AccountancyObjectRoomRowHighlight;
 };
-
-function stableTreeRoomLabel(room: { id: number; name?: string }): string {
-    return room.name != null && String(room.name).trim() !== ''
-        ? String(room.name).trim()
-        : `Unit ${room.id}`;
-}
 
 function roomRowBackground(
     theme: Theme,
@@ -59,24 +58,32 @@ export function AccountancyObjectTreeTable({
 }: AccountancyObjectTreeTableProps) {
     const theme = useTheme();
     const { t } = useTranslation();
-    /** Только для первого объекта: комнаты по умолчанию свёрнуты */
-    const [firstObjectRoomsExpanded, setFirstObjectRoomsExpanded] = useState(false);
+    const groups = useMemo(() => groupAccountancyObjectsByName(objects), [objects]);
+    /** Только для первой группы: комнаты по умолчанию свёрнуты */
+    const [firstGroupRoomsExpanded, setFirstGroupRoomsExpanded] = useState(false);
 
     return (
         <Table size="small" sx={{ fontSize: '0.75rem', '& .MuiTableCell-root': { py: 0.5, px: 1 } }}>
             <TableBody>
-                {objects.map((obj, objIndex) => {
-                    const roomTypes = obj.roomTypes ?? [];
-                    const isFirstObject = objIndex === 0;
-                    const showRooms = !isFirstObject || firstObjectRoomsExpanded;
+                {groups.map((group, groupIndex) => {
+                    const isFirstGroup = groupIndex === 0;
+                    const showRooms = !isFirstGroup || firstGroupRoomsExpanded;
                     const isObjectRowSelected =
-                        selectedObjectId !== 'all' && selectedObjectId === obj.id && selectedRoomId === 'all';
+                        isAccountancyObjectGroupSelected(selectedObjectId, group) &&
+                        selectedRoomId === 'all';
+                    const roomEntries = group.members.flatMap((member) =>
+                        (member.roomTypes ?? []).map((room) => ({
+                            member,
+                            room,
+                            roomLabelKey: stableAccountancyRoomLabel(room),
+                        })),
+                    );
                     return (
-                        <Fragment key={`object-${objIndex}-${obj.propertyName || 'obj'}-${obj.id}`}>
+                        <Fragment key={`group-${group.displayName}`}>
                             <TableRow
                                 hover
                                 selected={isObjectRowSelected}
-                                onClick={() => onSelectObject(obj.id)}
+                                onClick={() => onSelectObject(group.primaryObjectId)}
                                 sx={{
                                     cursor: 'pointer',
                                     bgcolor: (t) =>
@@ -114,18 +121,18 @@ export function AccountancyObjectTreeTable({
                                             },
                                         }}
                                     >
-                                        {isFirstObject ? (
+                                        {isFirstGroup ? (
                                             <IconButton
                                                 size="small"
-                                                aria-expanded={firstObjectRoomsExpanded}
+                                                aria-expanded={firstGroupRoomsExpanded}
                                                 aria-label={
-                                                    firstObjectRoomsExpanded
+                                                    firstGroupRoomsExpanded
                                                         ? t('accountancy.firstObjectRoomsCollapse')
                                                         : t('accountancy.firstObjectRoomsExpand')
                                                 }
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    setFirstObjectRoomsExpanded((v) => !v);
+                                                    setFirstGroupRoomsExpanded((v) => !v);
                                                 }}
                                                 sx={{
                                                     p: 0.25,
@@ -136,7 +143,7 @@ export function AccountancyObjectTreeTable({
                                                             t.transitions.create('transform', {
                                                                 duration: t.transitions.duration.shorter,
                                                             }),
-                                                        transform: firstObjectRoomsExpanded
+                                                        transform: firstGroupRoomsExpanded
                                                             ? 'rotate(180deg)'
                                                             : 'rotate(0deg)',
                                                     },
@@ -145,24 +152,25 @@ export function AccountancyObjectTreeTable({
                                                 <ExpandMoreIcon fontSize="small" />
                                             </IconButton>
                                         ) : null}
-                                        <span>{obj.name}</span>
+                                        <span>{group.displayName}</span>
                                     </Typography>
                                 </TableCell>
                             </TableRow>
                             {showRooms &&
-                                roomTypes.map((room, roomIndex) => {
-                                    const roomLabelKey = stableTreeRoomLabel(room);
+                                roomEntries.map(({ member, room, roomLabelKey }, roomIndex) => {
                                     const isRoomRowSelected =
-                                        selectedObjectId === obj.id && selectedRoomId === roomLabelKey;
+                                        selectedObjectId === member.id &&
+                                        selectedRoomId === roomLabelKey;
                                     const roomLabel = room.name || `Room ${room.id}`;
-                                    const hl = getRoomRowHighlight?.(obj.id, roomLabelKey) ?? 'default';
+                                    const hl =
+                                        getRoomRowHighlight?.(member.id, roomLabelKey) ?? 'default';
                                     const rowBg = roomRowBackground(theme, hl, isRoomRowSelected);
                                     return (
                                         <TableRow
-                                            key={`room-${objIndex}-${roomIndex}-${obj.id}-${room.id}`}
+                                            key={`room-${group.displayName}-${member.id}-${room.id}-${roomIndex}`}
                                             hover
                                             selected={isRoomRowSelected}
-                                            onClick={() => onSelectRoom(obj.id, roomLabelKey)}
+                                            onClick={() => onSelectRoom(member.id, roomLabelKey)}
                                             sx={{
                                                 cursor: 'pointer',
                                                 ...(!rowBg

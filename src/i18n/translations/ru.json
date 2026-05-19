@@ -275,7 +275,7 @@
     "quantity": "Количество",
     "amount": "Сумма",
     "bookingId": "ID бронирования",
-    "bookingGroupManagementCommissionAuto": "Комиссия за управление (авто-рассчёт)",
+    "bookingGroupManagementCommissionAuto": "Комиссия за управление (авто-расчёт)",
     "syntheticCommissionTooltipTitle": "Расчёт комиссии",
     "syntheticCommissionScheme": "Схема: {{scheme}}",
     "syntheticCommissionTotal": "Итого комиссия: {{amount}}",

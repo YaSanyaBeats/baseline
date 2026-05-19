@@ -17,7 +17,8 @@ import {
     Tooltip,
     Typography,
 } from '@mui/material';
-import { Delete as DeleteIcon, Visibility } from '@mui/icons-material';
+import { alpha } from '@mui/material/styles';
+import { Check as CheckIcon, Delete as DeleteIcon, Visibility } from '@mui/icons-material';
 import Link from 'next/link';
 import type { BookingCommissionResult, ManagementCommissionPercent } from '@/lib/commissionCalculation';
 import type { CategorySelectItem } from '@/lib/accountancyCategoryUtils';
@@ -44,6 +45,8 @@ export type AccountancyOverviewOperationRowModel = {
     bookingId?: number;
     /** Сводка accountancy: авто-комиссия по схеме комнаты, без записи в БД */
     readOnlySynthetic?: boolean;
+    /** Черновик новой транзакции в сводке (ещё не сохранён в БД) */
+    isPendingDraft?: boolean;
     /** Детализация расчёта для Tooltip (только при readOnlySynthetic) */
     syntheticCommissionDetail?: BookingCommissionResult;
     syntheticCommissionPercent?: ManagementCommissionPercent;
@@ -100,6 +103,8 @@ export type AccountancyOverviewOperationTableRowProps = {
         row: AccountancyOverviewOperationRowModel,
         percent: ManagementCommissionPercent,
     ) => void | Promise<void>;
+    pendingDraftSavingId: string | null;
+    onPendingDraftSave: (row: AccountancyOverviewOperationRowModel) => void | Promise<void>;
 };
 
 const COMMISSION_TOOLTIP_LINE_CAP = 14;
@@ -204,14 +209,25 @@ function SyntheticCommissionTooltipBody({
 function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperationTableRowProps) {
     const { row, t } = p;
     const ro = row.readOnlySynthetic === true;
+    const pending = row.isPendingDraft === true;
     return (
         <TableRow
             sx={
-                ro
+                pending
                     ? {
                           bgcolor: (theme) =>
-                              theme.palette.mode === 'light' ? 'rgba(0, 0, 0, 0.06)' : 'rgba(255, 255, 255, 0.06)',
-                          color: 'text.secondary',
+                              alpha(
+                                  theme.palette.warning.main,
+                                  theme.palette.mode === 'light' ? 0.08 : 0.14,
+                              ),
+                      }
+                    : ro
+                    ? {
+                          bgcolor: (theme) =>
+                              alpha(
+                                  theme.palette.info.main,
+                                  theme.palette.mode === 'light' ? 0.07 : 0.12,
+                              ),
                       }
                     : row.autoCreated
                       ? {
@@ -637,7 +653,24 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 )}
             </TableCell>
             <TableCell sx={{ px: 0.25 }}>
-                {ro ? null : (
+                {ro ? null : pending ? (
+                    <Tooltip title={t('common.save')}>
+                        <span>
+                            <IconButton
+                                size="small"
+                                color="success"
+                                onClick={() => void p.onPendingDraftSave(row)}
+                                disabled={
+                                    p.pendingDraftSavingId === row.id ||
+                                    p.inlinePatchUpdatingId === row.id
+                                }
+                                aria-label={t('common.save')}
+                            >
+                                <CheckIcon fontSize="small" />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
+                ) : (
                 <Stack direction="row" alignItems="center" spacing={0}>
                     <Link
                         href={

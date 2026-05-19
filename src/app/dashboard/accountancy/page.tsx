@@ -45,8 +45,8 @@ import {
     type HolyCowExpenseShareRate,
 } from "@/lib/types";
 import { getExpenseSum, getIncomeSum } from "@/lib/accountancyUtils";
-import { getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
-import { getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
+import { addExpense, getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
+import { addIncome, getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
 import { getBookingsByIds, searchBookings } from "@/lib/bookings";
 import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
@@ -61,6 +61,14 @@ import { AccountancyOverviewOperationTableRow, type AccountancyOverviewOperation
 import { BookingGroupLineText } from "@/components/accountancy/BookingGroupLineText";
 import { AccountancyObjectTreeTable } from "@/components/accountancy/AccountancyObjectTreeTable";
 import { resolveAccountancyObjectRoomRowHighlight } from "@/lib/accountancyObjectRoomRowHighlight";
+import {
+    bookingBelongsToAccountancyObjectGroup,
+    groupAccountancyObjectsByName,
+    mergeRoomsForAccountancyObjectGroup,
+    recordObjectMatchesAccountancySelection,
+    stableAccountancyRoomLabel,
+    getAccountancyObjectGroupMembers,
+} from "@/lib/accountancyObjectGroups";
 import {
     buildBookingGroupLineModel,
     joinBookingGroupSegments,
@@ -99,12 +107,6 @@ const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
 /** Ключ строки сводки: проводки без привязки к известной комнате объекта. */
 const ACCOUNTANCY_UNALLOCATED_ROOM_KEY = '\u0000__unallocated__';
-
-function stableAccountancyRoomLabel(room: { id: number; name?: string }): string {
-    return room.name != null && String(room.name).trim() !== ''
-        ? String(room.name).trim()
-        : `Unit ${room.id}`;
-}
 
 /** Legacy в localStorage: число unit id; после загрузки объектов превращаем в стабильное имя. */
 function normalizeStoredRoomFilter(
@@ -373,23 +375,6 @@ function buildBookingGroupLine(
     };
 }
 
-/**
- * Запись относится к выбранному объекту сводки: совпадение внутреннего id или тот же Beds24 propertyId
- * (в базе могут быть два документа объекта с разным id при одном property).
- */
-function recordObjectMatchesSelected(
-    recordObjectId: number,
-    selected: { id: number; propertyId: number },
-    allObjects: { id: number; propertyId: number }[],
-): boolean {
-    const rid = normalizeUnitOrRoomId(recordObjectId);
-    if (rid != null && rid === selected.id) return true;
-    const row = allObjects.find(
-        (o) => o.id === recordObjectId || normalizeUnitOrRoomId(o.id) === rid,
-    );
-    return row != null && row.propertyId === selected.propertyId;
-}
-
 type OperationRow = AccountancyOverviewOperationRowModel;
 
 type OperationListGroup = {
@@ -403,6 +388,49 @@ type OperationListGroup = {
     /** Сегменты заголовка и полный комментарий (Tooltip) — только для групп `b-*` с известной бронью. */
     bookingGroupLine?: BookingGroupLineModel;
 };
+
+/** Локальный черновик новой транзакции в таблице сводки (до сохранения в БД). */
+type PendingOperationDraft = {
+    clientId: string;
+    type: 'expense' | 'income';
+    status: 'draft' | 'confirmed';
+    date: Date;
+    category: string;
+    comment: string;
+    quantity: number;
+    unitAmount: number;
+    reportMonth: string;
+    source?: string;
+    recipient?: string;
+};
+
+function pendingDraftRowId(clientId: string): string {
+    return `pending-${clientId}`;
+}
+
+function pendingClientIdFromRowId(rowId: string): string | null {
+    if (!rowId.startsWith('pending-')) return null;
+    return rowId.slice('pending-'.length);
+}
+
+function pendingDraftToOperationRow(draft: PendingOperationDraft): OperationRow {
+    const total = draft.unitAmount * draft.quantity;
+    return {
+        id: pendingDraftRowId(draft.clientId),
+        isPendingDraft: true,
+        type: draft.type,
+        entityId: '',
+        status: draft.status,
+        date: draft.date,
+        category: draft.category,
+        comment: draft.comment,
+        quantity: draft.quantity,
+        amount: draft.type === 'expense' ? -total : total,
+        reportMonth: draft.reportMonth,
+        source: draft.source,
+        recipient: draft.recipient,
+    };
+}
 
 export default function Page() {
     const { t } = useTranslation();
@@ -459,6 +487,8 @@ export default function Page() {
     const [collapsedOperationGroups, setCollapsedOperationGroups] = useState<Set<string>>(
         () => new Set(),
     );
+    const [pendingDrafts, setPendingDrafts] = useState<PendingOperationDraft[]>([]);
+    const [pendingDraftSavingId, setPendingDraftSavingId] = useState<string | null>(null);
     useEffect(() => {
         if (overviewFiltersLoadedRef.current) return;
         const s = loadOverviewFilters();
@@ -490,6 +520,10 @@ export default function Page() {
             selectedMonth,
         });
     }, [filtersHydrated, selectedObjectId, selectedRoomId, dateFrom, dateTo, selectedMonth]);
+
+    useEffect(() => {
+        setPendingDrafts([]);
+    }, [selectedObjectId, selectedRoomId]);
 
     const { hasAccess } = useMemo(() => {
         const hasAccess = isAdmin || isAccountant;
@@ -658,6 +692,16 @@ export default function Page() {
         ? null
         : objects.find((o) => o.id === selectedObjectId);
 
+    const accountancyObjectGroups = useMemo(
+        () => groupAccountancyObjectsByName(objects),
+        [objects],
+    );
+
+    const selectedObjectGroupMembers = useMemo(() => {
+        if (!selectedObject) return [];
+        return getAccountancyObjectGroupMembers(objects, selectedObject.id);
+    }, [selectedObject, objects]);
+
     useEffect(() => {
         if (!hasAccess || !selectedMonth) {
             setAllMonthBookingsInPeriod([]);
@@ -703,8 +747,11 @@ export default function Page() {
     }, [hasAccess, selectedMonth, objects, effectiveDateRange.from, effectiveDateRange.to]);
 
     const roomsForSelectedObject = useMemo(
-        () => (selectedObject ? selectedObject.roomTypes : []),
-        [selectedObject],
+        () =>
+            selectedObjectGroupMembers.length > 0
+                ? mergeRoomsForAccountancyObjectGroup(selectedObjectGroupMembers)
+                : [],
+        [selectedObjectGroupMembers],
     );
 
     const selectedRoomRow = useMemo(
@@ -718,14 +765,9 @@ export default function Page() {
     /** Брони месяца только для выбранного в сводке объекта (и комнаты), для списка операций */
     const monthBookingsForReportMonth = useMemo(() => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
-        const objectId = selectedObject.id;
-        const objectPropertyId = selectedObject.propertyId;
-        const bookingBelongsToObject = (booking: Booking) => {
-            const bp = booking.propertyId;
-            if (bp === undefined || bp === null) return true;
-            return bp === objectPropertyId || bp === objectId;
-        };
-        let list = allMonthBookingsInPeriod.filter(bookingBelongsToObject);
+        let list = allMonthBookingsInPeriod.filter((booking) =>
+            bookingBelongsToAccountancyObjectGroup(booking, selectedObjectGroupMembers),
+        );
         if (selectedRoomId !== 'all') {
             const roomRow = roomsForSelectedObject.find(
                 (r) => stableAccountancyRoomLabel(r) === selectedRoomId,
@@ -737,20 +779,20 @@ export default function Page() {
             }
         }
         return list;
-    }, [allMonthBookingsInPeriod, selectedObjectId, selectedObject, selectedRoomId, roomsForSelectedObject]);
+    }, [
+        allMonthBookingsInPeriod,
+        selectedObjectId,
+        selectedObject,
+        selectedObjectGroupMembers,
+        selectedRoomId,
+        roomsForSelectedObject,
+    ]);
 
     const filteredRoomStats = useMemo(() => {
         if (!selectedObject) return [];
 
-        const objectId = selectedObject.id;
-        const objectPropertyId = selectedObject.propertyId;
-
-        /** Бронь относится к выбранному объекту: Beds24 propertyId или внутренний id; если propertyId нет — доверяем привязке записи к objectId */
-        const bookingBelongsToObject = (booking: Booking) => {
-            const bp = booking.propertyId;
-            if (bp === undefined || bp === null) return true;
-            return bp === objectPropertyId || bp === objectId;
-        };
+        const bookingBelongsToObject = (booking: Booking) =>
+            bookingBelongsToAccountancyObjectGroup(booking, selectedObjectGroupMembers);
 
         /**
          * Имя юнита для строки сводки (стабильная метка):
@@ -765,7 +807,7 @@ export default function Page() {
             recordRoomName?: string | null,
             bookingId?: number,
         ): string | null => {
-            if (!recordObjectMatchesSelected(recordObjectId, selectedObject, objects)) return null;
+            if (!recordObjectMatchesAccountancySelection(recordObjectId, selectedObject, objects)) return null;
 
             const ridExplicit = (recordRoomName ?? '').trim();
             if (ridExplicit && nameSet.has(ridExplicit)) {
@@ -809,7 +851,7 @@ export default function Page() {
         };
 
         for (const e of expenses) {
-            if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) continue;
+            if (!recordObjectMatchesAccountancySelection(e.objectId, selectedObject, objects)) continue;
             const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
             if (!lm) continue;
             if (isExcludedFromAccountancyRoomStatsSum(e.category, lm)) continue;
@@ -818,7 +860,7 @@ export default function Page() {
             bumpAgg(lm, key, 'exp', getExpenseSum(e));
         }
         for (const i of incomes) {
-            if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) continue;
+            if (!recordObjectMatchesAccountancySelection(i.objectId, selectedObject, objects)) continue;
             const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
             if (!lm) continue;
             if (isExcludedFromAccountancyRoomStatsSum(i.category, lm)) continue;
@@ -867,13 +909,13 @@ export default function Page() {
         let orphanExp = 0;
         let orphanInc = 0;
         filteredByReportPeriod.expenses.forEach((e) => {
-            if (!recordObjectMatchesSelected(e.objectId, selectedObject, objects)) return;
+            if (!recordObjectMatchesAccountancySelection(e.objectId, selectedObject, objects)) return;
             const lmExp = ledgerMonthFromRecord(e.date, e.reportMonth);
             if (isExcludedFromAccountancyRoomStatsSum(e.category, lmExp)) return;
             if (expenseRoomName(e) === null) orphanExp += getExpenseSum(e);
         });
         filteredByReportPeriod.incomes.forEach((i) => {
-            if (!recordObjectMatchesSelected(i.objectId, selectedObject, objects)) return;
+            if (!recordObjectMatchesAccountancySelection(i.objectId, selectedObject, objects)) return;
             const lmInc = ledgerMonthFromRecord(i.date, i.reportMonth);
             if (isExcludedFromAccountancyRoomStatsSum(i.category, lmInc)) return;
             if (incomeRoomName(i) === null) orphanInc += getIncomeSum(i);
@@ -906,6 +948,7 @@ export default function Page() {
         return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomKey === selectedRoomId);
     }, [
         selectedObject,
+        selectedObjectGroupMembers,
         roomsForSelectedObject,
         filteredByReportPeriod,
         bookings,
@@ -1000,13 +1043,8 @@ export default function Page() {
     const filteredOperations = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
 
-        const objectId = selectedObject.id;
-        const objectPropertyId = selectedObject.propertyId;
-        const bookingBelongsToObject = (booking: Booking) => {
-            const bp = booking.propertyId;
-            if (bp === undefined || bp === null) return true;
-            return bp === objectPropertyId || bp === objectId;
-        };
+        const bookingBelongsToObject = (booking: Booking) =>
+            bookingBelongsToAccountancyObjectGroup(booking, selectedObjectGroupMembers);
         const nameSet = new Set(roomsForSelectedObject.map((r) => stableAccountancyRoomLabel(r)));
 
         const resolveRecordRoomName = (
@@ -1014,7 +1052,7 @@ export default function Page() {
             recordRoomName?: string | null,
             bookingId?: number,
         ): string | null => {
-            if (!recordObjectMatchesSelected(recordObjectId, selectedObject, objects)) return null;
+            if (!recordObjectMatchesAccountancySelection(recordObjectId, selectedObject, objects)) return null;
 
             const ridExplicit = (recordRoomName ?? '').trim();
             if (ridExplicit && nameSet.has(ridExplicit)) {
@@ -1054,7 +1092,7 @@ export default function Page() {
         expenses
             .filter(
                 (e) =>
-                    recordObjectMatchesSelected(e.objectId, selectedObject, objects) &&
+                    recordObjectMatchesAccountancySelection(e.objectId, selectedObject, objects) &&
                     matchRoom(e.objectId, e.roomName ?? null, e.bookingId) &&
                     recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
             )
@@ -1081,7 +1119,7 @@ export default function Page() {
         incomes
             .filter(
                 (i) =>
-                    recordObjectMatchesSelected(i.objectId, selectedObject, objects) &&
+                    recordObjectMatchesAccountancySelection(i.objectId, selectedObject, objects) &&
                     matchRoom(i.objectId, i.roomName ?? null, i.bookingId) &&
                     recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
             )
@@ -1110,6 +1148,7 @@ export default function Page() {
     }, [
         selectedObjectId,
         selectedObject,
+        selectedObjectGroupMembers,
         selectedRoomId,
         expenses,
         incomes,
@@ -1260,19 +1299,6 @@ export default function Page() {
             sortRowsByAccountancyCategoryOrder(gRows, BOOKING_GROUP_CATEGORY_ORDER);
         }
 
-        if (selectedMonth && monthBookingsForReportMonth.length > 0) {
-            const keysWithRows = new Set(map.keys());
-            for (const b of monthBookingsForReportMonth) {
-                const bid = normalizeUnitOrRoomId(b.id);
-                if (bid == null) continue;
-                const key = `b-${bid}`;
-                if (!keysWithRows.has(key)) {
-                    map.set(key, []);
-                    keysWithRows.add(key);
-                }
-            }
-        }
-
         const bookingGroupSortTime = (key: string, gRows: OperationRow[]): number => {
             if (gRows.length) {
                 return Math.max(...gRows.map((r) => new Date(r.date).getTime()));
@@ -1285,9 +1311,9 @@ export default function Page() {
             }
             return 0;
         };
-        const bookingEntries = [...map.entries()].sort(
-            (a, b) => bookingGroupSortTime(b[0], b[1]) - bookingGroupSortTime(a[0], a[1]),
-        );
+        const bookingEntries = [...map.entries()]
+            .filter(([, gRows]) => gRows.some((r) => !r.readOnlySynthetic))
+            .sort((a, b) => bookingGroupSortTime(b[0], b[1]) - bookingGroupSortTime(a[0], a[1]));
         const bookingRoomMismatchForKey = (bookingKey: string): boolean => {
             if (selectedRoomId === 'all' || !bookingKey.startsWith('b-') || !selectedObject) return false;
             const bid = Number(bookingKey.slice(2));
@@ -1472,8 +1498,6 @@ export default function Page() {
     }, [
         filteredOperations,
         bookingsMergedForLabels,
-        monthBookingsForReportMonth,
-        selectedMonth,
         selectedRoomId,
         t,
         roomsForSelectedObject,
@@ -1494,8 +1518,146 @@ export default function Page() {
         });
     };
 
+    const patchPendingDraft = useCallback((rowId: string, patch: Partial<PendingOperationDraft>) => {
+        const clientId = pendingClientIdFromRowId(rowId);
+        if (!clientId) return;
+        setPendingDrafts((prev) =>
+            prev.map((d) => (d.clientId === clientId ? { ...d, ...patch } : d)),
+        );
+    }, []);
+
+    const pendingDraftRows = useMemo(
+        () => pendingDrafts.map(pendingDraftToOperationRow),
+        [pendingDrafts],
+    );
+
+    const defaultReportMonthForPending = useMemo(() => {
+        if (commissionCalculationMonthKey) return commissionCalculationMonthKey;
+        const m = (selectedMonth ?? '').trim();
+        if (/^\d{4}-\d{2}$/.test(m)) return m;
+        return reportMonthOptions[0]?.value ?? '';
+    }, [commissionCalculationMonthKey, selectedMonth, reportMonthOptions]);
+
+    const handleAddPendingDraft = useCallback(
+        (type: 'expense' | 'income') => {
+            if (!selectedObject) return;
+            const draft: PendingOperationDraft = {
+                clientId: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+                type,
+                status: 'draft',
+                date: new Date(),
+                category: '',
+                comment: '',
+                quantity: 1,
+                unitAmount: 0,
+                reportMonth: defaultReportMonthForPending,
+            };
+            setPendingDrafts((prev) => [...prev, draft]);
+        },
+        [selectedObject, defaultReportMonthForPending],
+    );
+
+    const handlePendingDraftSave = async (row: OperationRow) => {
+        if (!row.isPendingDraft || !selectedObject) return;
+        const clientId = pendingClientIdFromRowId(row.id);
+        if (!clientId) return;
+        const draft = pendingDrafts.find((d) => d.clientId === clientId);
+        if (!draft) return;
+
+        if (!draft.category.trim()) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.formErrors'),
+                severity: 'error',
+            });
+            return;
+        }
+        const total = draft.unitAmount * draft.quantity;
+        if (!(total > 0)) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.amountMustBeGreaterThanZero'),
+                severity: 'warning',
+            });
+            return;
+        }
+
+        const roomName = selectedRoomId === 'all' ? undefined : selectedRoomId;
+        setPendingDraftSavingId(row.id);
+        try {
+            if (draft.type === 'expense') {
+                const payload: Expense = {
+                    objectId: selectedObject.id,
+                    roomName,
+                    category: draft.category.trim(),
+                    amount: draft.unitAmount,
+                    quantity: draft.quantity,
+                    date: draft.date,
+                    comment: draft.comment || '',
+                    status: draft.status,
+                    reportMonth: draft.reportMonth || undefined,
+                    source: draft.source,
+                    recipient: draft.recipient,
+                    attachments: [],
+                    accountantId: '',
+                };
+                const res = await addExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseAdded'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success && res.id) {
+                    setExpenses((prev) => [...prev, { ...payload, _id: res.id }]);
+                    setPendingDrafts((prev) => prev.filter((d) => d.clientId !== clientId));
+                }
+            } else {
+                const payload: Income = {
+                    objectId: selectedObject.id,
+                    roomName,
+                    category: draft.category.trim(),
+                    amount: draft.unitAmount,
+                    quantity: draft.quantity,
+                    date: draft.date,
+                    comment: draft.comment || undefined,
+                    status: draft.status,
+                    reportMonth: draft.reportMonth || undefined,
+                    source: draft.source,
+                    recipient: draft.recipient,
+                    attachments: [],
+                    accountantId: '',
+                };
+                const res = await addIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeAdded'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success && res.id) {
+                    setIncomes((prev) => [...prev, { ...payload, _id: res.id }]);
+                    setPendingDrafts((prev) => prev.filter((d) => d.clientId !== clientId));
+                }
+            }
+        } catch (error) {
+            console.error('Error saving pending operation:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setPendingDraftSavingId(null);
+        }
+    };
+
     const handleStatusToggle = async (row: OperationRow) => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            patchPendingDraft(row.id, {
+                status: row.status === 'confirmed' ? 'draft' : 'confirmed',
+            });
+            return;
+        }
         if (!row.entityId) return;
         const newStatus = row.status === 'confirmed' ? 'draft' : 'confirmed';
         setStatusUpdatingId(row.id);
@@ -1557,6 +1719,10 @@ export default function Page() {
 
     const handleReportMonthChange = async (row: OperationRow, newValue: string) => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            patchPendingDraft(row.id, { reportMonth: newValue });
+            return;
+        }
         if (!row.entityId) return;
         setReportMonthUpdatingId(row.id);
         try {
@@ -1617,6 +1783,11 @@ export default function Page() {
 
     const handleQuantityChange = async (row: OperationRow, newQuantity: number) => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            if (newQuantity < 1) return;
+            patchPendingDraft(row.id, { quantity: newQuantity });
+            return;
+        }
         if (!row.entityId || newQuantity < 1) return;
         setQuantityUpdatingId(row.id);
         try {
@@ -1677,6 +1848,10 @@ export default function Page() {
 
     const handleCategoryChange = async (row: OperationRow, newCategory: string) => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            patchPendingDraft(row.id, { category: newCategory });
+            return;
+        }
         if (!row.entityId) return;
         if (!newCategory.trim()) {
             setSnackbar({
@@ -1746,6 +1921,10 @@ export default function Page() {
 
     const handleCommentCommit = async (row: OperationRow, draft: string) => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            patchPendingDraft(row.id, { comment: draft });
+            return;
+        }
         if (!row.entityId) return;
         const next = draft;
         const prev = row.comment ?? '';
@@ -1809,6 +1988,10 @@ export default function Page() {
 
     const handleSourceChange = async (row: OperationRow, value: SourceRecipientOptionValue | '') => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            patchPendingDraft(row.id, { source: value || undefined });
+            return;
+        }
         if (!row.entityId) return;
         const next = value || undefined;
         const prev = row.source || undefined;
@@ -1872,6 +2055,10 @@ export default function Page() {
 
     const handleRecipientChange = async (row: OperationRow, value: SourceRecipientOptionValue | '') => {
         if (row.readOnlySynthetic) return;
+        if (row.isPendingDraft) {
+            patchPendingDraft(row.id, { recipient: value || undefined });
+            return;
+        }
         if (!row.entityId) return;
         const next = value || undefined;
         const prev = row.recipient || undefined;
@@ -1937,6 +2124,24 @@ export default function Page() {
         if (row.readOnlySynthetic) return;
         if (amountEditEscapeRef.current) {
             amountEditEscapeRef.current = false;
+            return;
+        }
+        if (row.isPendingDraft) {
+            const parsed = parseLocalizedTotalAmount(draft);
+            if (parsed === null) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.invalidTotalAmount'),
+                    severity: 'error',
+                });
+                return;
+            }
+            if (parsed > 0) {
+                const q = row.quantity || 1;
+                patchPendingDraft(row.id, { unitAmount: parsed / q });
+            }
+            setAmountEditingId(null);
+            setAmountDraft('');
             return;
         }
         if (!row.entityId) {
@@ -2180,6 +2385,8 @@ export default function Page() {
         commissionPercentUpdatingBookingId,
         syntheticPercentUpdatingKey,
         handleSyntheticCommissionPercentChange,
+        pendingDraftSavingId,
+        onPendingDraftSave: handlePendingDraftSave,
     };
 
     if (!hasAccess) {
@@ -2300,7 +2507,12 @@ export default function Page() {
                         selectedObjectId={selectedObjectId}
                         selectedRoomId={selectedRoomId}
                         onSelectObject={(objectId) => {
-                            setSelectedObjectId(objectId);
+                            const members = getAccountancyObjectGroupMembers(objects, objectId);
+                            const primaryId =
+                                members.length > 0
+                                    ? members.reduce((min, m) => (m.id < min.id ? m : min)).id
+                                    : objectId;
+                            setSelectedObjectId(primaryId);
                             setSelectedRoomId('all');
                         }}
                         onSelectRoom={(objectId, roomName) => {
@@ -2383,7 +2595,15 @@ export default function Page() {
                             <InputLabel>{t('common.object')}</InputLabel>
                             <Select
                                 label={t('common.object')}
-                                value={selectedObjectId === 'all' ? '' : String(selectedObjectId)}
+                                value={
+                                    selectedObjectId === 'all'
+                                        ? ''
+                                        : String(
+                                              accountancyObjectGroups.find((g) =>
+                                                  g.members.some((m) => m.id === selectedObjectId),
+                                              )?.primaryObjectId ?? selectedObjectId,
+                                          )
+                                }
                                 onChange={(e) => {
                                     const value = e.target.value;
                                     setSelectedObjectId(value ? Number(value) : 'all');
@@ -2391,9 +2611,9 @@ export default function Page() {
                                 }}
                             >
                                 <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                {objects.map((obj) => (
-                                    <MenuItem key={`${obj.propertyName || 'obj'}-${obj.id}`} value={String(obj.id)}>
-                                        {obj.name}
+                                {accountancyObjectGroups.map((group) => (
+                                    <MenuItem key={group.displayName} value={String(group.primaryObjectId)}>
+                                        {group.displayName}
                                     </MenuItem>
                                 ))}
                             </Select>
@@ -2478,7 +2698,7 @@ export default function Page() {
                                     <Typography variant="subtitle2" sx={{ mt: 2, mb: 0.5 }}>
                                         {t('accountancy.operationsList')}
                                     </Typography>
-                                    {operationGroups.length === 0 ? (
+                                    {operationGroups.length === 0 && pendingDraftRows.length === 0 ? (
                                         <Typography color="text.secondary">
                                             {t('accountancy.noOperations')}
                                         </Typography>
@@ -2677,10 +2897,43 @@ export default function Page() {
                                                     </Fragment>
                                                     );
                                                 })}
+                                                {pendingDraftRows.map((row) => (
+                                                    <AccountancyOverviewOperationTableRow
+                                                        key={row.id}
+                                                        row={row}
+                                                        {...sharedOperationRowProps}
+                                                    />
+                                                ))}
                                             </TableBody>
                                         </Table>
                                         </TableContainer>
                                     )}
+                                    <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                                        <Tooltip title={t('accountancy.addIncome')}>
+                                            <Button
+                                                variant="outlined"
+                                                color="success"
+                                                size="small"
+                                                onClick={() => handleAddPendingDraft('income')}
+                                                sx={{ minWidth: 40, px: 1, fontWeight: 700, fontSize: '1.1rem', lineHeight: 1 }}
+                                                aria-label={t('accountancy.addIncome')}
+                                            >
+                                                +
+                                            </Button>
+                                        </Tooltip>
+                                        <Tooltip title={t('accountancy.addExpense')}>
+                                            <Button
+                                                variant="outlined"
+                                                color="error"
+                                                size="small"
+                                                onClick={() => handleAddPendingDraft('expense')}
+                                                sx={{ minWidth: 40, px: 1, fontWeight: 700, fontSize: '1.1rem', lineHeight: 1 }}
+                                                aria-label={t('accountancy.addExpense')}
+                                            >
+                                                −
+                                            </Button>
+                                        </Tooltip>
+                                    </Stack>
                                 </>
                             )}
                         </>
