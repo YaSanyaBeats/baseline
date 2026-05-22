@@ -355,7 +355,9 @@ export interface Expense {
     /** Кому: объект+комната или контрагент (cp:id) */
     recipient?: SourceRecipientValue;
     cashflowId?: string | null;    // ID кэшфлоу — учётный центр (опционально; null при снятии привязки)
-    category: string;              // Категория расхода
+    /** ID категории из accountancyCategories */
+    categoryId?: string | null;
+    category: string;              // Название категории (денormalized / legacy)
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
     date: Date;                    // Дата расхода
@@ -376,6 +378,8 @@ export interface Expense {
     childExpenseIds?: string[];
     /** ID дочерних доходов (Mongo) при делимости родительского расхода */
     childIncomeIds?: string[];
+    /** Учитывать расход в расчёте синтетических транзакций сводки (по умолчанию — да) */
+    includeInSynthetic?: boolean;
 }
 
 export interface Income {
@@ -391,7 +395,9 @@ export interface Income {
     date: Date;                    // Дата дохода
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
-    category: string;              // Категория дохода
+    /** ID категории из accountancyCategories */
+    categoryId?: string | null;
+    category: string;              // Название категории (денormalized / legacy)
     comment?: string;              // Комментарий
     status: IncomeStatus;          // Черновик / Подтверждён
     reportMonth?: string;          // Месяц отчёта в формате YYYY-MM
@@ -473,7 +479,9 @@ export interface AutoAccountingRule {
     roomMetadataValue?: string | number;
     /** Второе значение для оператора between */
     roomMetadataValueTo?: string | number;
-    /** Категория расхода/дохода */
+    /** ID категории из accountancyCategories */
+    categoryId?: string | null;
+    /** Категория расхода/дохода (название, legacy) */
     category: string;
     /** Количество (при quantitySource === 'manual') */
     quantity: number;

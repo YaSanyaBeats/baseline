@@ -28,7 +28,7 @@ import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useUser } from '@/providers/UserProvider';
 import { useObjects } from '@/providers/ObjectsProvider';
@@ -43,6 +43,7 @@ import {
 } from '@/lib/autoAccounting';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import type { AutoAccountingRule as AutoRule, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
 import { getCounterparties } from '@/lib/counterparties';
 import { getCashflows } from '@/lib/cashflows';
@@ -88,6 +89,7 @@ export default function AutoAccountingPage() {
         roomMetadataField: '',
         roomMetadataOperator: 'eq' as 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between',
         roomMetadataValue: '' as string | number,
+        categoryId: '',
         category: '',
         quantity: 1,
         quantitySource: 'manual' as AutoAccountingQuantitySource,
@@ -154,15 +156,23 @@ export default function AutoAccountingPage() {
     }, [hasAccess]);
 
     const categoriesByType = form.ruleType === 'expense' ? expenseCategories : incomeCategories;
+    const categoryNameById = useMemo(() => {
+        const map = new Map<string, string>();
+        for (const c of expenseCategories) map.set(c.id, c.name);
+        for (const c of incomeCategories) map.set(c.id, c.name);
+        return map;
+    }, [expenseCategories, incomeCategories]);
 
     const selectedObject = typeof form.objectId === 'number' ? objects.find((o) => o.id === form.objectId) : null;
     const rooms = selectedObject?.roomTypes ?? [];
 
     const handleSaveRule = async () => {
-        if (!form.category.trim()) {
+        if (!form.categoryId.trim()) {
             setSnackbar({ open: true, message: t('accountancy.autoAccounting.categoryLabel') + ' — обязательное поле', severity: 'warning' });
             return;
         }
+        const categoryName =
+            categoriesByType.find((c) => c.id === form.categoryId)?.name ?? form.category.trim();
         if (form.objectMetadataField === 'district' && form.objectMetadataDistricts.length === 0) {
             setSnackbar({
                 open: true,
@@ -190,7 +200,8 @@ export default function AutoAccountingPage() {
                   }
                 : { objectMetadataField: '', objectMetadataValue: '' }),
             ...(form.roomMetadataField ? { roomMetadataField: form.roomMetadataField, roomMetadataOperator: form.roomMetadataOperator, roomMetadataValue: form.roomMetadataValue === '' ? undefined : form.roomMetadataValue } : { roomMetadataField: '' }),
-            category: form.category.trim(),
+            categoryId: form.categoryId.trim(),
+            category: categoryName,
             quantity: form.quantity,
             quantitySource: form.quantitySource,
             amount,
@@ -298,6 +309,7 @@ export default function AutoAccountingPage() {
             roomMetadataField: '',
             roomMetadataOperator: 'eq',
             roomMetadataValue: '',
+            categoryId: '',
             category: '',
             quantity: 1,
             quantitySource: 'manual',
@@ -328,6 +340,7 @@ export default function AutoAccountingPage() {
             roomMetadataField: r.roomMetadataField ?? '',
             roomMetadataOperator: (r.roomMetadataOperator ?? 'eq') as 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between',
             roomMetadataValue: r.roomMetadataValue ?? '',
+            categoryId: r.categoryId ?? categoriesByType.find((c) => c.name === r.category)?.id ?? '',
             category: r.category,
             quantity: r.quantity,
             quantitySource: r.quantitySource ?? 'manual',
@@ -660,12 +673,16 @@ export default function AutoAccountingPage() {
                         <FormControl sx={{ minWidth: 200 }}>
                             <InputLabel>{t('accountancy.autoAccounting.categoryLabel')}</InputLabel>
                             <Select
-                                value={form.category}
+                                value={form.categoryId}
                                 label={t('accountancy.autoAccounting.categoryLabel')}
-                                onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
+                                onChange={(e) => {
+                                    const id = e.target.value;
+                                    const name = categoriesByType.find((c) => c.id === id)?.name ?? '';
+                                    setForm((f) => ({ ...f, categoryId: id, category: name }));
+                                }}
                             >
                                 {categoriesByType.map((c) => (
-                                    <MenuItem key={c.id} value={c.name}>
+                                    <MenuItem key={c.id} value={c.id}>
                                         {'\u00A0'.repeat(c.depth * 2)}{c.name}
                                     </MenuItem>
                                 ))}
@@ -822,7 +839,7 @@ export default function AutoAccountingPage() {
                                                 t('accountancy.sourceRecipientRoomFromBooking'),
                                             )}
                                         </TableCell>
-                                        <TableCell>{r.category}</TableCell>
+                                        <TableCell>{resolveCategoryName(r, categoryNameById)}</TableCell>
                                         <TableCell align="right">{quantitySourceLabel(r)}</TableCell>
                                         <TableCell>{amountSourceLabel(r.amountSource)}</TableCell>
                                         <TableCell align="right">{(r.amountSource === 'manual' && r.amount != null) ? r.amount : '—'}</TableCell>

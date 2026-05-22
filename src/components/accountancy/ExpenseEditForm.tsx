@@ -35,6 +35,7 @@ import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from '@/lib/accountancyCategoryResolve';
 
 function stableExpenseRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -140,6 +141,7 @@ export default function ExpenseEditForm({
                     source: found.source ?? '',
                     recipient: found.recipient ?? '',
                     cashflowId: found.cashflowId,
+                    categoryId: resolveCategoryIdFromRecord(found, cats, 'expense'),
                     category: found.category,
                     amount: found.amount,
                     quantity: found.quantity ?? 1,
@@ -260,7 +262,7 @@ export default function ExpenseEditForm({
         if (!expense.objectId) {
             validationErrors.objectId = t('accountancy.objectError');
         }
-        if (!expense.category) {
+        if (!expense.categoryId?.trim()) {
             validationErrors.category = t('accountancy.category');
         }
         if (!expense.date) {
@@ -323,6 +325,7 @@ export default function ExpenseEditForm({
             source: expense.source || undefined,
             recipient: expense.recipient || undefined,
             cashflowId: expense.cashflowId ?? null,
+            categoryId: expense.categoryId ?? null,
             category: expense.category as string,
             amount: getEffectiveCost(),
             quantity: expense.quantity ?? 1,
@@ -433,14 +436,20 @@ export default function ExpenseEditForm({
                         <FormControl sx={{ width: '100%' }} error={!!errors.category}>
                             <InputLabel>{t('accountancy.category')}</InputLabel>
                             <Select
-                                value={expense.category || ''}
+                                value={expense.categoryId || ''}
                                 label={t('accountancy.category')}
-                                onChange={(e) =>
-                                    setExpense((prev) => ({ ...prev, category: e.target.value as string }))
-                                }
+                                onChange={(e) => {
+                                    const id = e.target.value as string;
+                                    const resolved = resolveCategoryFieldsFromId(id, categories, 'expense');
+                                    setExpense((prev) => ({
+                                        ...prev,
+                                        categoryId: id,
+                                        category: resolved?.category ?? prev.category,
+                                    }));
+                                }}
                             >
                                 {buildCategoriesForSelect(categories, 'expense').map((item) => (
-                                    <MenuItem key={item.id} value={item.name}>
+                                    <MenuItem key={item.id} value={item.id}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
                                         {item.name}
                                     </MenuItem>

@@ -173,6 +173,14 @@ export default function Page() {
 
             <Stack spacing={3} sx={{ maxWidth: 480 }}>
                 <TextField
+                    label={t('accountancy.categoryIdColumn')}
+                    value={category._id ?? categoryId}
+                    fullWidth
+                    slotProps={{ input: { readOnly: true } }}
+                    sx={{ '& input': { fontFamily: 'monospace', fontSize: 14 } }}
+                />
+
+                <TextField
                     label={t('accountancy.categoryName')}
                     value={category.name ?? ''}
                     onChange={(e) => setCategory((p) => ({ ...p, name: e.target.value }))}

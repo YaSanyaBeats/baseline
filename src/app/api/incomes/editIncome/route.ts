@@ -6,6 +6,7 @@ import { Income, IncomeStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 
 export async function POST(request: NextRequest) {
     try {
@@ -29,7 +30,6 @@ export async function POST(request: NextRequest) {
             !incomeData ||
             !incomeData._id ||
             typeof incomeData.objectId !== 'number' ||
-            !incomeData.category ||
             typeof incomeData.amount !== 'number' ||
             !incomeData.date
         ) {
@@ -38,6 +38,16 @@ export async function POST(request: NextRequest) {
                 { status: 400 },
             );
         }
+
+        const categoryNorm = await normalizeTransactionCategoryFields(db, 'income', {
+            categoryId: incomeData.categoryId,
+            category: incomeData.category,
+        });
+        if (!categoryNorm.ok) {
+            return NextResponse.json({ success: false, message: categoryNorm.message }, { status: 400 });
+        }
+        incomeData.category = categoryNorm.data.category;
+        incomeData.categoryId = categoryNorm.data.categoryId ?? undefined;
 
         if (incomeData.amount <= 0) {
             return NextResponse.json(
@@ -122,6 +132,7 @@ export async function POST(request: NextRequest) {
                     ? (incomeData.cashflowId ?? null)
                     : (existingIncome.cashflowId ?? null),
             category: incomeData.category,
+            categoryId: incomeData.categoryId ?? null,
             amount: incomeData.amount,
             quantity,
             date: new Date(incomeData.date),

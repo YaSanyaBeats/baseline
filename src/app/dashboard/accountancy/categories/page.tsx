@@ -143,6 +143,14 @@ const CategoryTreeItem = React.forwardRef<
                 <Typography variant="body2" sx={{ flex: 1 }}>
                     {item.name}
                 </Typography>
+                <Typography
+                    variant="caption"
+                    color="text.secondary"
+                    sx={{ fontFamily: 'monospace', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis' }}
+                    title={String(item.id)}
+                >
+                    {String(item.id)}
+                </Typography>
                 <Link href={`/dashboard/accountancy/categories/edit/${item.id}`}>
                     <IconButton size="small" aria-label="edit">
                         <EditIcon fontSize="small" />
@@ -365,6 +373,14 @@ export default function Page() {
             <Typography variant="h4" sx={{ mb: 3 }}>
                 {t('accountancy.categoriesTitle')}
             </Typography>
+
+            <Box sx={{ mb: 3 }}>
+                <Link href="/dashboard/accountancy/categories/migrate">
+                    <Button variant="outlined" size="small">
+                        {t('accountancy.migrateCategoryIdsLink')}
+                    </Button>
+                </Link>
+            </Box>
 
             {loading ? (
                 <Typography>{t('accountancy.loading')}</Typography>

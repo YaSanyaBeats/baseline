@@ -4,6 +4,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react';
 import { memo } from 'react';
 import {
     Box,
+    Checkbox,
     Chip,
     FormControl,
     IconButton,
@@ -18,7 +19,13 @@ import {
     Typography,
 } from '@mui/material';
 import { alpha } from '@mui/material/styles';
-import { Check as CheckIcon, Delete as DeleteIcon, Visibility } from '@mui/icons-material';
+import {
+    Check as CheckIcon,
+    Close as CloseIcon,
+    Delete as DeleteIcon,
+    SubdirectoryArrowRight as SubdirectoryArrowRightIcon,
+    Visibility,
+} from '@mui/icons-material';
 import Link from 'next/link';
 import type { BookingCommissionResult, ManagementCommissionPercent } from '@/lib/commissionCalculation';
 import type { CategorySelectItem } from '@/lib/accountancyCategoryUtils';
@@ -34,6 +41,9 @@ export type AccountancyOverviewOperationRowModel = {
     entityId: string;
     status: 'draft' | 'confirmed';
     date: Date | string;
+    /** ID категории из справочника */
+    categoryId?: string;
+    /** Отображаемое название (из справочника по categoryId) */
     category: string;
     comment: string;
     quantity: number;
@@ -43,6 +53,8 @@ export type AccountancyOverviewOperationRowModel = {
     recipient?: string;
     autoCreated?: boolean;
     bookingId?: number;
+    /** Учитывать в расчёте синтетических транзакций (только расходы в группах броней) */
+    includeInSynthetic?: boolean;
     /** Сводка accountancy: авто-комиссия по схеме комнаты, без записи в БД */
     readOnlySynthetic?: boolean;
     /** Черновик новой транзакции в сводке (ещё не сохранён в БД) */
@@ -53,10 +65,18 @@ export type AccountancyOverviewOperationRowModel = {
     syntheticCommissionPercentOverridden?: boolean;
     syntheticPercentKey?: string;
     syntheticPercentUpdatingKey?: string;
+    /** Родительская транзакция, если строка — подтранзакция */
+    parentTransaction?: {
+        id: string;
+        type: 'expense' | 'income';
+        label: string;
+    };
 };
 
 export type AccountancyOverviewOperationTableRowProps = {
     row: AccountancyOverviewOperationRowModel;
+    /** Показать чекбокс «Делимость» (группы броней, только расходы) */
+    showDivisibilityCheckbox?: boolean;
     t: (key: string) => string;
     opTableSelectFormSx: object;
     opTableCatSelectFormSx: object;
@@ -98,13 +118,18 @@ export type AccountancyOverviewOperationTableRowProps = {
     operationDeletingId: string | null;
     handleOperationDeleteClick: (row: AccountancyOverviewOperationRowModel) => void;
     commissionPercentUpdatingBookingId: number | null;
-    syntheticPercentUpdatingKey: string | null;
     handleSyntheticCommissionPercentChange: (
         row: AccountancyOverviewOperationRowModel,
         percent: ManagementCommissionPercent,
     ) => void | Promise<void>;
     pendingDraftSavingId: string | null;
     onPendingDraftSave: (row: AccountancyOverviewOperationRowModel) => void | Promise<void>;
+    onPendingDraftCancel: (row: AccountancyOverviewOperationRowModel) => void;
+    includeInSyntheticUpdatingId: string | null;
+    handleIncludeInSyntheticChange: (
+        row: AccountancyOverviewOperationRowModel,
+        included: boolean,
+    ) => void | Promise<void>;
 };
 
 const COMMISSION_TOOLTIP_LINE_CAP = 14;
@@ -210,6 +235,18 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
     const { row, t } = p;
     const ro = row.readOnlySynthetic === true;
     const pending = row.isPendingDraft === true;
+    const isSubtransaction = Boolean(row.parentTransaction);
+    const parentHref =
+        row.parentTransaction != null
+            ? row.parentTransaction.type === 'expense'
+                ? `/dashboard/accountancy/expense/edit/${row.parentTransaction.id}`
+                : `/dashboard/accountancy/income/edit/${row.parentTransaction.id}`
+            : null;
+    const addSubtransactionHref =
+        row.type === 'expense'
+            ? `/dashboard/accountancy/income/add?parentExpenseId=${encodeURIComponent(row.entityId)}`
+            : `/dashboard/accountancy/expense/add?parentIncomeId=${encodeURIComponent(row.entityId)}`;
+    const showAddSubtransactionButton = !ro && !pending && !isSubtransaction;
     return (
         <TableRow
             sx={
@@ -229,6 +266,15 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                   theme.palette.mode === 'light' ? 0.07 : 0.12,
                               ),
                       }
+                    : isSubtransaction
+                      ? {
+                            bgcolor: (theme) =>
+                                alpha(
+                                    theme.palette.secondary.main,
+                                    theme.palette.mode === 'light' ? 0.06 : 0.12,
+                                ),
+                            boxShadow: (theme) => `inset 3px 0 0 ${theme.palette.secondary.main}`,
+                        }
                     : row.autoCreated
                       ? {
                             bgcolor: (theme) =>
@@ -278,13 +324,31 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 </FormControl>
             </TableCell>
             <TableCell sx={{ px: 0.25, pl: 1, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
-                {row.date
-                    ? new Date(row.date).toLocaleDateString('ru-RU', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: '2-digit',
-                      })
-                    : '—'}
+                <Stack spacing={0.25}>
+                    <Box component="span">
+                        {row.date
+                            ? new Date(row.date).toLocaleDateString('ru-RU', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: '2-digit',
+                              })
+                            : '—'}
+                    </Box>
+                    {pending ? (
+                        <Typography
+                            variant="caption"
+                            component="span"
+                            sx={{
+                                display: 'block',
+                                fontSize: '0.5625rem',
+                                lineHeight: 1.2,
+                                color: row.type === 'expense' ? 'error.main' : 'success.main',
+                            }}
+                        >
+                            {row.type === 'expense' ? t('accountancy.expense') : t('accountancy.income')}
+                        </Typography>
+                    ) : null}
+                </Stack>
             </TableCell>
             <TableCell sx={{ px: 0.25, overflow: 'hidden' }}>
                 <Stack direction="row" alignItems="center" spacing={0.5} flexWrap="nowrap" sx={{ minWidth: 0 }}>
@@ -304,11 +368,11 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                             {row.category || t('accountancy.bookingGroupManagementCommissionAuto')}
                         </Typography>
                     ) : (
-                    <FormControl size="small" sx={{ ...p.opTableCatSelectFormSx, flexShrink: 0 }}>
+                    <FormControl size="small" sx={{ ...p.opTableCatSelectFormSx, flexShrink: 1, minWidth: 0 }}>
                         <Select
                             sx={p.opTableInlineSelectSx}
                             IconComponent={() => null}
-                            value={row.category || ''}
+                            value={row.categoryId || ''}
                             displayEmpty
                             onChange={(e) => void p.handleCategoryChange(row, e.target.value as string)}
                             disabled={
@@ -318,6 +382,13 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                 p.statusUpdatingId === row.id
                             }
                             MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
+                            renderValue={(selected) => {
+                                if (!selected) return '—';
+                                const items =
+                                    row.type === 'expense' ? p.categoryItemsExpense : p.categoryItemsIncome;
+                                const found = items.find((it) => it.id === selected);
+                                return found?.name ?? row.category ?? selected;
+                            }}
                         >
                             <MenuItem value="">
                                 <em>—</em>
@@ -325,18 +396,18 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                             {(() => {
                                 const items =
                                     row.type === 'expense' ? p.categoryItemsExpense : p.categoryItemsIncome;
-                                const names = new Set(items.map((it) => it.name));
-                                const orphan = !!(row.category && !names.has(row.category));
+                                const ids = new Set(items.map((it) => it.id));
+                                const orphan = !!(row.categoryId && !ids.has(row.categoryId));
                                 return [
                                     ...(orphan
                                         ? [
-                                              <MenuItem key={`orphan-${row.id}`} value={row.category}>
-                                                  {row.category}
+                                              <MenuItem key={`orphan-${row.id}`} value={row.categoryId}>
+                                                  {row.category || row.categoryId}
                                               </MenuItem>,
                                           ]
                                         : []),
                                     ...items.map((item) => (
-                                        <MenuItem key={item.id} value={item.name}>
+                                        <MenuItem key={item.id} value={item.id}>
                                             {item.depth > 0
                                                 ? '\u00A0'.repeat(item.depth * 2) + '↳ '
                                                 : ''}
@@ -369,6 +440,29 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         </Tooltip>
                     )}
                 </Stack>
+                {isSubtransaction && row.parentTransaction && parentHref ? (
+                    <Tooltip title={row.parentTransaction.label}>
+                        <Typography
+                            variant="caption"
+                            component={Link}
+                            href={parentHref}
+                            sx={{
+                                display: 'block',
+                                mt: 0.35,
+                                fontSize: '0.5625rem',
+                                lineHeight: 1.25,
+                                color: 'secondary.main',
+                                textDecoration: 'none',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap',
+                                '&:hover': { textDecoration: 'underline' },
+                            }}
+                        >
+                            {row.parentTransaction.label}
+                        </Typography>
+                    </Tooltip>
+                ) : null}
             </TableCell>
             <TableCell
                 sx={{
@@ -377,7 +471,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     width: p.OP_TABLE_COMMENT_COL_WIDTH_PX,
                 }}
             >
-                {ro ? (
+                {ro && row.bookingId != null ? (
                     <Stack direction="row" alignItems="center" spacing={0.75}>
                         <FormControl size="small" sx={{ width: 86 }}>
                             <Select
@@ -390,9 +484,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                     )
                                 }
                                 disabled={
-                                    (row.bookingId == null && !row.syntheticPercentKey) ||
-                                    p.commissionPercentUpdatingBookingId === row.bookingId ||
-                                    p.syntheticPercentUpdatingKey === row.syntheticPercentKey
+                                    p.commissionPercentUpdatingBookingId === row.bookingId
                                 }
                                 MenuProps={{ PaperProps: { sx: { maxHeight: 240 } } }}
                             >
@@ -409,6 +501,10 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                             </Typography>
                         ) : null}
                     </Stack>
+                ) : ro ? (
+                    <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
+                        —
+                    </Typography>
                 ) : (
                 <TextField
                     size="small"
@@ -600,6 +696,23 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     </Tooltip>
                 )}
             </TableCell>
+            <TableCell align="center" sx={{ px: 0.25, verticalAlign: 'middle' }}>
+                {p.showDivisibilityCheckbox ? (
+                    <Checkbox
+                        checked={row.includeInSynthetic !== false}
+                        onChange={(e) => void p.handleIncludeInSyntheticChange(row, e.target.checked)}
+                        disabled={
+                            p.includeInSyntheticUpdatingId === row.id ||
+                            p.inlinePatchUpdatingId === row.id
+                        }
+                        size="small"
+                        sx={{ p: 0.25 }}
+                        inputProps={{
+                            'aria-label': t('accountancy.divisibility'),
+                        }}
+                    />
+                ) : null}
+            </TableCell>
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
                 {ro ? (
                     <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
@@ -614,7 +727,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     usersWithCashflow={p.usersWithCashflow}
                     prefetchedOptions={p.sourceRecipientOptions}
                     hideLabel
-                    popperMinWidth={240}
+                    popperMinWidth={220}
                     disabled={
                         p.inlinePatchUpdatingId === row.id ||
                         p.quantityUpdatingId === row.id ||
@@ -641,7 +754,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     includeCashflows
                     prefetchedOptions={p.recipientRecipientOptions}
                     hideLabel
-                    popperMinWidth={240}
+                    popperMinWidth={220}
                     disabled={
                         p.inlinePatchUpdatingId === row.id ||
                         p.quantityUpdatingId === row.id ||
@@ -652,26 +765,57 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 />
                 )}
             </TableCell>
-            <TableCell sx={{ px: 0.25 }}>
+            <TableCell align="right" sx={{ px: 0.25, whiteSpace: 'nowrap' }}>
                 {ro ? null : pending ? (
-                    <Tooltip title={t('common.save')}>
-                        <span>
-                            <IconButton
-                                size="small"
-                                color="success"
-                                onClick={() => void p.onPendingDraftSave(row)}
-                                disabled={
-                                    p.pendingDraftSavingId === row.id ||
-                                    p.inlinePatchUpdatingId === row.id
-                                }
-                                aria-label={t('common.save')}
-                            >
-                                <CheckIcon fontSize="small" />
-                            </IconButton>
-                        </span>
-                    </Tooltip>
+                    <Stack direction="row" alignItems="center" justifyContent="flex-end" spacing={0}>
+                        <Tooltip title={t('common.save')}>
+                            <span>
+                                <IconButton
+                                    size="small"
+                                    color="success"
+                                    onClick={() => void p.onPendingDraftSave(row)}
+                                    disabled={
+                                        p.pendingDraftSavingId === row.id ||
+                                        p.inlinePatchUpdatingId === row.id
+                                    }
+                                    aria-label={t('common.save')}
+                                >
+                                    <CheckIcon fontSize="small" />
+                                </IconButton>
+                            </span>
+                        </Tooltip>
+                        <Tooltip title={t('common.cancel')}>
+                            <span>
+                                <IconButton
+                                    size="small"
+                                    color="inherit"
+                                    onClick={() => p.onPendingDraftCancel(row)}
+                                    disabled={
+                                        p.pendingDraftSavingId === row.id ||
+                                        p.inlinePatchUpdatingId === row.id
+                                    }
+                                    aria-label={t('common.cancel')}
+                                >
+                                    <CloseIcon fontSize="small" />
+                                </IconButton>
+                            </span>
+                        </Tooltip>
+                    </Stack>
                 ) : (
-                <Stack direction="row" alignItems="center" spacing={0}>
+                <Stack direction="row" alignItems="center" justifyContent="flex-end" spacing={0}>
+                    {showAddSubtransactionButton ? (
+                        <Tooltip title={t('accountancy.addSubtransaction')}>
+                            <Link
+                                href={addSubtransactionHref}
+                                aria-label={t('accountancy.addSubtransaction')}
+                                style={{ display: 'inline-flex' }}
+                            >
+                                <IconButton size="small" color="secondary" component="span">
+                                    <SubdirectoryArrowRightIcon fontSize="small" />
+                                </IconButton>
+                            </Link>
+                        </Tooltip>
+                    ) : null}
                     <Link
                         href={
                             row.type === 'expense'

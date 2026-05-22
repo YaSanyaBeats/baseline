@@ -49,6 +49,11 @@ import { getUsersWithCashflow } from '@/lib/users';
 import { formatSourceRecipientLabel } from '@/components/accountancy/SourceRecipientSelect';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import {
+    buildCategoryNameByIdMap,
+    mergeCategoryNameMaps,
+    resolveCategoryName,
+} from '@/lib/accountancyCategoryResolve';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
@@ -148,6 +153,15 @@ export default function Page() {
     const [categoriesIncome, setCategoriesIncome] = useState<Awaited<ReturnType<typeof getAccountancyCategories>>>(
         [],
     );
+    const categoryNameById = useMemo(
+        () =>
+            mergeCategoryNameMaps(
+                buildCategoryNameByIdMap(categoriesExpense),
+                buildCategoryNameByIdMap(categoriesIncome),
+            ),
+        [categoriesExpense, categoriesIncome],
+    );
+    const getRowCategoryName = (row: TransactionListRow) => resolveCategoryName(row, categoryNameById);
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [filterRecordType, setFilterRecordType] = useState<FilterRecordType>('');
     const [filterObjectId, setFilterObjectId] = useState<string>('');
@@ -256,7 +270,8 @@ export default function Page() {
         const statuses = new Set<ExpenseStatus | IncomeStatus>();
 
         rows.forEach((row) => {
-            if (row.category) categories.add(row.category);
+            const catName = getRowCategoryName(row);
+            if (catName) categories.add(catName);
             statuses.add(getRowStatus(row));
         });
 
@@ -264,7 +279,7 @@ export default function Page() {
             categories: Array.from(categories).sort(),
             statuses: statuses.size > 0 ? Array.from(statuses) : (['draft', 'confirmed'] as const),
         };
-    }, [rows]);
+    }, [rows, categoryNameById]);
 
     const roomsForSelectedObject = useMemo(
         () => (filterObjectId ? (objects.find((o) => o.id === Number(filterObjectId))?.roomTypes ?? []) : []),
@@ -326,7 +341,7 @@ export default function Page() {
         }
 
         if (filterCategory) {
-            filtered = filtered.filter((e) => e.category === filterCategory);
+            filtered = filtered.filter((e) => getRowCategoryName(e) === filterCategory);
         }
 
         if (filterStatus) {
@@ -383,6 +398,7 @@ export default function Page() {
         objects,
         sortByAmountAsc,
         sortByDateAsc,
+        categoryNameById,
     ]);
 
     useEffect(() => {
@@ -817,7 +833,7 @@ export default function Page() {
                                         <TableCell>{row.bookingId ?? '-'}</TableCell>
                                         <TableCell>
                                             <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap">
-                                                <span>{row.category}</span>
+                                                <span>{getRowCategoryName(row)}</span>
                                                 {(row as { autoCreated?: { ruleId?: string } }).autoCreated && (
                                                     <Chip
                                                         size="small"

@@ -5,6 +5,74 @@ import type {
     CashflowRuleFilter,
     CashflowRuleCompareOperator,
 } from './types';
+import { normalizeMongoIdString } from './mongoId';
+import { resolveCategoryName } from './accountancyCategoryResolve';
+
+export type AccountancyParentTransactionRef = {
+    id: string;
+    type: 'expense' | 'income';
+    label: string;
+};
+
+/** ID и тип родительской транзакции (если запись — подтранзакция). */
+export function getParentTransactionPointer(
+    record: Expense | Income,
+): { id: string; type: 'expense' | 'income' } | null {
+    const parentExpenseId =
+        record.parentExpenseId != null ? normalizeMongoIdString(record.parentExpenseId).trim() : '';
+    const parentIncomeId =
+        record.parentIncomeId != null ? normalizeMongoIdString(record.parentIncomeId).trim() : '';
+    if (parentExpenseId) return { id: parentExpenseId, type: 'expense' };
+    if (parentIncomeId) return { id: parentIncomeId, type: 'income' };
+    return null;
+}
+
+export function formatAccountancyTransactionLabel(
+    record: Expense | Income,
+    type: 'expense' | 'income',
+    expenseTypeLabel: string,
+    incomeTypeLabel: string,
+    nameById?: Map<string, string>,
+): string {
+    const categoryLabel = nameById ? resolveCategoryName(record, nameById) : (record.category ?? '');
+    const total = ((record.quantity ?? 1) * (record.amount ?? 0)).toLocaleString('ru-RU', {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+    });
+    const typeLabel = type === 'expense' ? expenseTypeLabel : incomeTypeLabel;
+    return `${typeLabel}: ${categoryLabel} - ${total}`;
+}
+
+export function resolveAccountancyParentTransactionRef(
+    record: Expense | Income,
+    transactionById: Map<string, { type: 'expense' | 'income'; record: Expense | Income }>,
+    expenseTypeLabel: string,
+    incomeTypeLabel: string,
+    nameById?: Map<string, string>,
+): AccountancyParentTransactionRef | undefined {
+    const pointer = getParentTransactionPointer(record);
+    if (!pointer) return undefined;
+    const found = transactionById.get(pointer.id);
+    if (found) {
+        return {
+            id: pointer.id,
+            type: pointer.type,
+            label: formatAccountancyTransactionLabel(
+                found.record,
+                found.type,
+                expenseTypeLabel,
+                incomeTypeLabel,
+                nameById,
+            ),
+        };
+    }
+    const typeLabel = pointer.type === 'expense' ? expenseTypeLabel : incomeTypeLabel;
+    return {
+        id: pointer.id,
+        type: pointer.type,
+        label: typeLabel,
+    };
+}
 
 /** Сумма по расходу: количество × стоимость (для старых записей quantity = 1). */
 export function getExpenseSum(e: Expense): number {

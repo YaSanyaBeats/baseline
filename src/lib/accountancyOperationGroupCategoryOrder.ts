@@ -116,10 +116,12 @@ export function getNoBookingSubgroupCategoryOrder(
 export interface RowWithCategoryAndDate {
     category: string;
     date: string | Date;
+    readOnlySynthetic?: boolean;
 }
 
 /**
- * Сначала по позиции категории в `order` (не из списка — в конце группы),
+ * Сначала синтетические строки (`readOnlySynthetic`) — всегда в конце группы,
+ * затем по позиции категории в `order` (не из списка — в конце обычных строк),
  * внутри одной «ступени» — по дате по убыванию.
  */
 export function sortRowsByAccountancyCategoryOrder<T extends RowWithCategoryAndDate>(
@@ -128,6 +130,10 @@ export function sortRowsByAccountancyCategoryOrder<T extends RowWithCategoryAndD
 ): void {
     const afterListed = order.length;
     rows.sort((a, b) => {
+        const synA = a.readOnlySynthetic === true;
+        const synB = b.readOnlySynthetic === true;
+        if (synA !== synB) return synA ? 1 : -1;
+
         const nameA = (a.category ?? '').trim();
         const nameB = (b.category ?? '').trim();
         const idxA = order.indexOf(nameA);

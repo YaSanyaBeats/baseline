@@ -6,6 +6,7 @@ import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 
 export async function POST(request: NextRequest) {
     try {
@@ -29,7 +30,6 @@ export async function POST(request: NextRequest) {
             !expenseData ||
             !expenseData._id ||
             typeof expenseData.objectId !== 'number' ||
-            !expenseData.category ||
             typeof expenseData.amount !== 'number' ||
             !expenseData.date ||
             !expenseData.status
@@ -39,6 +39,16 @@ export async function POST(request: NextRequest) {
                 { status: 400 },
             );
         }
+
+        const categoryNorm = await normalizeTransactionCategoryFields(db, 'expense', {
+            categoryId: expenseData.categoryId,
+            category: expenseData.category,
+        });
+        if (!categoryNorm.ok) {
+            return NextResponse.json({ success: false, message: categoryNorm.message }, { status: 400 });
+        }
+        expenseData.category = categoryNorm.data.category;
+        expenseData.categoryId = categoryNorm.data.categoryId ?? undefined;
 
         if (expenseData.amount <= 0) {
             return NextResponse.json(
@@ -125,6 +135,7 @@ export async function POST(request: NextRequest) {
                     ? (expenseData.cashflowId ?? null)
                     : (existingExpense.cashflowId ?? null),
             category: expenseData.category,
+            categoryId: expenseData.categoryId ?? null,
             amount: expenseData.amount,
             quantity,
             date: new Date(expenseData.date),
@@ -133,6 +144,7 @@ export async function POST(request: NextRequest) {
             status: expenseData.status,
             attachments: expenseData.attachments ?? [],
             autoCreated: null,
+            includeInSynthetic: expenseData.includeInSynthetic !== false,
         };
 
         await expensesCollection.updateOne(

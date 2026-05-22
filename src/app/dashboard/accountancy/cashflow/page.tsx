@@ -20,7 +20,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Cashflow, CashflowRule, Expense, Income, User } from '@/lib/types';
 import { getCashflows, deleteCashflow } from '@/lib/cashflows';
 import {
@@ -35,6 +35,7 @@ import { getIncomes } from '@/lib/incomes';
 import { getExpenseSum, getIncomeSum, getBalanceByRule, type ObjectWithMeta } from '@/lib/accountancyUtils';
 import { getBookingsByIds } from '@/lib/bookings';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
+import { buildCategoryNameByIdMap, resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { getUsers } from '@/lib/users';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
@@ -78,6 +79,13 @@ export default function Page() {
     const [ownerDialogOwner, setOwnerDialogOwner] = useState<User | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
+
+    const categoryNameById = useMemo(
+        () => buildCategoryNameByIdMap(categories as import('@/lib/types').AccountancyCategory[]),
+        [categories],
+    );
+    const resolveCat = (record: { categoryId?: string | null; category?: string }) =>
+        resolveCategoryName(record, categoryNameById);
 
     const loadData = async () => {
         try {
@@ -153,8 +161,12 @@ export default function Page() {
         return acc;
     }, {});
 
-    const ownerBalanceExpenses = expenses.filter((e) => OWNER_BALANCE_CATEGORIES.includes(e.category));
-    const ownerBalanceIncomes = incomes.filter((i) => OWNER_BALANCE_CATEGORIES.includes(i.category));
+    const ownerBalanceExpenses = expenses.filter((e) =>
+        OWNER_BALANCE_CATEGORIES.includes(resolveCat(e)),
+    );
+    const ownerBalanceIncomes = incomes.filter((i) =>
+        OWNER_BALANCE_CATEGORIES.includes(resolveCat(i)),
+    );
 
     const isOwnerRoomMatch = (owner: User, objectId: number, roomName: string | null | undefined): boolean => {
         if (!owner.objects?.length) return false;
@@ -191,7 +203,7 @@ export default function Page() {
                 _id: e._id,
                 recordType: 'expense',
                 date: e.date,
-                category: e.category,
+                category: resolveCat(e),
                 objectId: e.objectId,
                 roomName: e.roomName,
                 reportMonth: e.reportMonth,
@@ -206,7 +218,7 @@ export default function Page() {
                 _id: i._id,
                 recordType: 'income',
                 date: i.date,
-                category: i.category,
+                category: resolveCat(i),
                 objectId: i.objectId,
                 roomName: i.roomName,
                 reportMonth: i.reportMonth,

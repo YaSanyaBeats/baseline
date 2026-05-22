@@ -839,7 +839,7 @@ export default function BulkAddTransactionsPage() {
             });
 
             if (successCount > 0) {
-                router.push('/dashboard/accountancy/transactions');
+                router.back();
             }
         } catch (e) {
             console.error('bulk-add submit:', e);
@@ -1603,7 +1603,7 @@ export default function BulkAddTransactionsPage() {
             </Button>
 
             <Stack direction="row" spacing={2}>
-                <Button variant="outlined" onClick={() => router.push('/dashboard/accountancy/transactions')}>
+                <Button variant="outlined" onClick={() => router.back()}>
                     {t('common.cancel')}
                 </Button>
                 <Button variant="contained" endIcon={<SendIcon />} onClick={handleSubmit} disabled={loading}>

@@ -35,6 +35,7 @@ import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from "@/lib/accountancyCategoryResolve";
 
 function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -97,6 +98,7 @@ export default function Page() {
                             objectId: found.objectId,
                             roomName,
                             bookingId: found.bookingId,
+                            categoryId: found.categoryId ?? '',
                             category: found.category,
                             amount: found.amount,
                             quantity: found.quantity ?? 1,
@@ -141,6 +143,17 @@ export default function Page() {
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasAccess, incomeId, router, objects]);
+
+    useEffect(() => {
+        if (!categories.length || !income._id) return;
+        setIncome((prev) => {
+            if (prev.categoryId) return prev;
+            const id = resolveCategoryIdFromRecord(prev as Income, categories, 'income');
+            if (!id) return prev;
+            const resolved = resolveCategoryFieldsFromId(id, categories, 'income');
+            return resolved ? { ...prev, categoryId: id, category: resolved.category } : prev;
+        });
+    }, [categories, income._id]);
 
     const handleChangeObject = (value: UserObject[]) => {
         setSelectedObjects(value);
@@ -203,7 +216,7 @@ export default function Page() {
         if (!income.objectId) {
             validationErrors.objectId = t('accountancy.objectError');
         }
-        if (!income.category) {
+        if (!income.categoryId?.trim()) {
             validationErrors.category = t('accountancy.category');
         }
         if (!income.dateString) {
@@ -260,6 +273,7 @@ export default function Page() {
             objectId: income.objectId as number,
             roomName: income.roomName,
             bookingId: income.bookingId,
+            categoryId: income.categoryId ?? null,
             category: income.category as string,
             amount: getEffectiveCost(),
             quantity: income.quantity ?? 1,
@@ -376,14 +390,20 @@ export default function Page() {
                         <FormControl sx={{ width: '100%' }} error={!!errors.category}>
                             <InputLabel>{t('accountancy.category')}</InputLabel>
                             <Select
-                                value={income.category || ''}
+                                value={income.categoryId || ''}
                                 label={t('accountancy.category')}
-                                onChange={(e) =>
-                                    setIncome((prev) => ({ ...prev, category: e.target.value as string }))
-                                }
+                                onChange={(e) => {
+                                    const id = e.target.value as string;
+                                    const resolved = resolveCategoryFieldsFromId(id, categories, 'income');
+                                    setIncome((prev) => ({
+                                        ...prev,
+                                        categoryId: id,
+                                        category: resolved?.category ?? prev.category,
+                                    }));
+                                }}
                             >
                                 {buildCategoriesForSelect(categories, 'income').map((item) => (
-                                    <MenuItem key={item.id} value={item.name}>
+                                    <MenuItem key={item.id} value={item.id}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
                                         {item.name}
                                     </MenuItem>

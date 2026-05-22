@@ -47,6 +47,7 @@ import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { buildCategoryNameByIdMap, resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { formatRoomSourceRecipient } from '@/lib/roomBinding';
 import { useObjects } from '@/providers/ObjectsProvider';
 
@@ -70,6 +71,8 @@ type SubItemForm = LineFields & {
 
 type ItemForm = LineFields & {
     splittable: boolean;
+    /** Учитывать в расчёте синтетических транзакций сводки (только расход) */
+    includeInSynthetic: boolean;
     subItems: SubItemForm[];
 };
 
@@ -132,6 +135,7 @@ function createDefaultItem(): ItemForm {
     return {
         ...createDefaultLineFields(),
         splittable: false,
+        includeInSynthetic: true,
         subItems: [],
     };
 }
@@ -216,7 +220,13 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
             maximumFractionDigits: 2,
         });
         const typeLabel = recordType === 'expense' ? t('accountancy.expense') : t('accountancy.income');
-        return `${typeLabel}: ${record.category} - ${total} (#${id})`;
+        const nameById = buildCategoryNameByIdMap([
+            ...subIncomeCategories,
+            ...subExpenseCategories,
+            ...categories,
+        ]);
+        const categoryLabel = resolveCategoryName(record, nameById);
+        return `${typeLabel}: ${categoryLabel} - ${total} (#${id})`;
     };
 
     const applySharedReportMonth = (value: string) => {
@@ -471,6 +481,12 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         );
     };
 
+    const handleChangeIncludeInSynthetic = (index: number, checked: boolean) => {
+        setItems((prev) =>
+            prev.map((item, i) => (i === index ? { ...item, includeInSynthetic: checked } : item))
+        );
+    };
+
     const handleChangeSubItem = (
         parentIndex: number,
         subIndex: number,
@@ -686,6 +702,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             reportMonth: sharedReportMonth || undefined,
                             attachments: item.attachments ?? [],
                             accountantId: '',
+                            includeInSynthetic: item.includeInSynthetic,
                             ...parentLink,
                         };
                         if (item.splittable) {
@@ -902,7 +919,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const titleKey = type === 'expense' ? 'accountancy.addExpense' : 'accountancy.addIncome';
     const dateLabelKey = type === 'expense' ? 'accountancy.expenseDate' : 'accountancy.incomeDate';
 
-    const mainRowColSpan = type === 'expense' ? 13 : 12;
+    const mainRowColSpan = type === 'expense' ? 14 : 12;
 
     const renderSubTransactionRow = (sub: SubItemForm, parentIndex: number, subIndex: number) => (
         <TableRow key={`${parentIndex}-sub-${subIndex}`}>
@@ -1214,6 +1231,11 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                 {type === 'expense' && <TableCell>{t('accountancy.status')}</TableCell>}
                                 {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
                                     <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                                        {t('accountancy.subtransactionColumn')}
+                                    </TableCell>
+                                )}
+                                {type === 'expense' && !isSubtransactionMode && (
+                                    <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                                         {t('accountancy.divisibility')}
                                     </TableCell>
                                 )}
@@ -1445,6 +1467,20 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                                 checked={item.splittable}
                                                 onChange={(e) =>
                                                     handleChangeSplittable(index, e.target.checked)
+                                                }
+                                                size="small"
+                                                inputProps={{
+                                                    'aria-label': t('accountancy.subtransactionColumn'),
+                                                }}
+                                            />
+                                        </TableCell>
+                                    )}
+                                    {type === 'expense' && !isSubtransactionMode && (
+                                        <TableCell align="center" sx={{ verticalAlign: 'middle' }}>
+                                            <Checkbox
+                                                checked={item.includeInSynthetic}
+                                                onChange={(e) =>
+                                                    handleChangeIncludeInSynthetic(index, e.target.checked)
                                                 }
                                                 size="small"
                                                 inputProps={{

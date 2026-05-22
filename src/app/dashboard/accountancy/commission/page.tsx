@@ -29,7 +29,7 @@ import CalculateIcon from '@mui/icons-material/Calculate';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -37,6 +37,7 @@ import { useObjects } from '@/providers/ObjectsProvider';
 import { getExpenses } from '@/lib/expenses';
 import { getIncomes } from '@/lib/incomes';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
+import { buildCategoryNameByIdMap, resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { getBookingsByIds, searchBookings } from '@/lib/bookings';
 import {
     CommissionSchemeId,
@@ -168,6 +169,9 @@ export default function Page() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
+    const categoryNameById = useMemo(() => buildCategoryNameByIdMap(categories), [categories]);
+    const transactionCategoryName = (record: Expense | Income) =>
+        resolveCategoryName(record, categoryNameById);
     const [loading, setLoading] = useState(true);
     const [calculating, setCalculating] = useState(false);
 
@@ -819,7 +823,7 @@ export default function Page() {
                                                         return (
                                                             <TableRow key={i._id ?? `${i.date}-${i.category}-${sum}`}>
                                                                 <TableCell>{new Date(i.date).toLocaleDateString(locale)}</TableCell>
-                                                                <TableCell>{i.category}</TableCell>
+                                                                <TableCell>{transactionCategoryName(i)}</TableCell>
                                                                 <TableCell align="right">{i.quantity ?? 1}</TableCell>
                                                                 <TableCell align="right">{formatAmount(i.amount ?? 0)}</TableCell>
                                                                 <TableCell align="right">{formatAmount(sum)}</TableCell>
@@ -885,12 +889,12 @@ export default function Page() {
                                                         return (
                                                             <TableRow key={e._id ?? `${e.date}-${e.category}-${sum}`}>
                                                                 <TableCell>{new Date(e.date).toLocaleDateString(locale)}</TableCell>
-                                                                <TableCell>{e.category}</TableCell>
+                                                                <TableCell>{transactionCategoryName(e)}</TableCell>
                                                                 <TableCell align="right">{e.quantity ?? 1}</TableCell>
                                                                 <TableCell align="right">{formatAmount(e.amount ?? 0)}</TableCell>
                                                                 <TableCell align="right">{formatAmount(sum)}</TableCell>
-                                                                <TableCell>{isOtaCommission(e.category) ? '✓' : ''}</TableCell>
-                                                                <TableCell>{isCoAgentCommission(e.category) ? '✓' : ''}</TableCell>
+                                                                <TableCell>{isOtaCommission(transactionCategoryName(e)) ? '✓' : ''}</TableCell>
+                                                                <TableCell>{isCoAgentCommission(transactionCategoryName(e)) ? '✓' : ''}</TableCell>
                                                                 <TableCell>{e.roomName ?? '—'}</TableCell>
                                                                 <TableCell>{formatStatus(e.status)}</TableCell>
                                                                 <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
@@ -973,7 +977,7 @@ export default function Page() {
                                                 return (
                                                     <TableRow key={i._id ?? `${i.date}-${i.category}`}>
                                                         <TableCell>{new Date(i.date).toLocaleDateString(locale)}</TableCell>
-                                                        <TableCell>{i.category}</TableCell>
+                                                        <TableCell>{transactionCategoryName(i)}</TableCell>
                                                         <TableCell align="right">{i.quantity ?? 1}</TableCell>
                                                         <TableCell align="right">{formatAmount(i.amount ?? 0)}</TableCell>
                                                         <TableCell align="right">{formatAmount(sum)}</TableCell>
@@ -1022,7 +1026,7 @@ export default function Page() {
                                                 return (
                                                     <TableRow key={e._id ?? `${e.date}-${e.category}`}>
                                                         <TableCell>{new Date(e.date).toLocaleDateString(locale)}</TableCell>
-                                                        <TableCell>{e.category}</TableCell>
+                                                        <TableCell>{transactionCategoryName(e)}</TableCell>
                                                         <TableCell align="right">{e.quantity ?? 1}</TableCell>
                                                         <TableCell align="right">{formatAmount(e.amount ?? 0)}</TableCell>
                                                         <TableCell align="right">{formatAmount(sum)}</TableCell>
