@@ -75,7 +75,7 @@ export type AccountancyOverviewOperationRowModel = {
 
 export type AccountancyOverviewOperationTableRowProps = {
     row: AccountancyOverviewOperationRowModel;
-    /** Показать чекбокс «Делимость» (группы броней, только расходы) */
+    /** Показать чекбокс «Делимость» (брони — расходы; «Общие/расходы гостя» — расходы и приходы) */
     showDivisibilityCheckbox?: boolean;
     t: (key: string) => string;
     opTableSelectFormSx: object;

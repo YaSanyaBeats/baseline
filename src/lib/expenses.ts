@@ -1,6 +1,7 @@
 import axios from 'axios';
 import { CommonResponse, Expense } from './types';
 import { apiClient, getApiUrl } from './api-client';
+import { extractCommonResponseFromAxiosError } from './axiosResponseMessage';
 
 /** Фильтры для GET /api/expenses (сводка бухгалтерии и др.). Без аргумента — полный список по правам. */
 export type ExpensesListQuery = {
@@ -39,13 +40,24 @@ export async function getExpenseById(id: string): Promise<Expense | null> {
     }
 }
 
-export async function addExpense(expense: Expense): Promise<CommonResponse> {
-    const response = await axios.post(getApiUrl('expenses'), {
-        params: {
-            expense,
-        },
-    });
-    return response.data;
+export type AddTransactionOptions = {
+    allowDuplicate?: boolean;
+};
+
+export async function addExpense(expense: Expense, options?: AddTransactionOptions): Promise<CommonResponse> {
+    try {
+        const response = await axios.post(getApiUrl('expenses'), {
+            params: {
+                expense,
+                allowDuplicate: options?.allowDuplicate,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const parsed = extractCommonResponseFromAxiosError(error);
+        if (parsed?.code === 'FORBID_DUPLICATES') return parsed;
+        throw error;
+    }
 }
 
 export async function updateExpense(expense: Expense): Promise<CommonResponse> {

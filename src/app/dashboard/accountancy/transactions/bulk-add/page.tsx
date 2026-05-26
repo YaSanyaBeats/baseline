@@ -15,9 +15,11 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableContainer,
     TableHead,
     TableRow,
     TextField,
+    Tooltip,
     Typography,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
@@ -25,6 +27,34 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EventNoteIcon from '@mui/icons-material/EventNote';
+import {
+    BULK_ADD_TABLE_MIN_WIDTH_PX,
+    bulkAddTableColCount,
+    COMPACT_COL_AMOUNT as BULK_COL_AMOUNT,
+    COMPACT_COL_ATTACH as BULK_COL_ATTACH,
+    COMPACT_COL_BOOKING as BULK_COL_BOOKING,
+    COMPACT_COL_CAT as BULK_COL_CAT,
+    COMPACT_COL_COMMENT as BULK_COL_COMMENT,
+    COMPACT_COL_DATE as BULK_COL_DATE,
+    COMPACT_COL_DEL as BULK_COL_DEL,
+    COMPACT_COL_DIVISIBILITY as BULK_COL_DIVISIBILITY,
+    COMPACT_COL_PARTY as BULK_COL_PARTY,
+    COMPACT_COL_QTY as BULK_COL_QTY,
+    COMPACT_COL_ROOM as BULK_COL_ROOM,
+    COMPACT_COL_STATUS as BULK_COL_STATUS,
+    COMPACT_COL_SUB_TX as BULK_COL_SUB_TX,
+    COMPACT_COL_SUM as BULK_COL_SUM,
+    compactCellTextFieldSx as bulkCellTextFieldSx,
+    compactGroupParentRowSx as bulkGroupParentRowSx,
+    compactGroupSubHeaderRowSx as bulkGroupSubHeaderRowSx,
+    compactGroupSubRowSx as bulkGroupSubRowSx,
+    compactInlineSelectSx as bulkInlineSelectSx,
+    compactRoomSelectSx as bulkRoomSelectSx,
+    compactSourceRecipientSx as bulkSourceRecipientSx,
+    compactTableSx as bulkTableSx,
+    formatCompactLineTotal as formatBulkLineTotal,
+} from '@/lib/accountancyCompactTableStyles';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -40,8 +70,13 @@ import {
     UserObject,
 } from '@/lib/types';
 import { formatTitle } from '@/lib/format';
-import { addExpense } from '@/lib/expenses';
-import { addIncome } from '@/lib/incomes';
+import {
+    addExpenseHandlingDuplicate,
+    addIncomeHandlingDuplicate,
+    isTransactionAdded,
+    isTransactionFailed,
+} from '@/lib/accountancyDuplicateSubmit';
+import { useDuplicateTransactionDialog } from '@/components/accountancy/useDuplicateTransactionDialog';
 import { getApiErrorMessage } from '@/lib/axiosResponseMessage';
 import { formatPartialTransactionAddWarning } from '@/lib/accountancyPartialAddMessage';
 import { getCounterparties } from '@/lib/counterparties';
@@ -49,6 +84,7 @@ import FileAttachments from '@/components/accountancy/FileAttachments';
 import { getCashflows } from '@/lib/cashflows';
 import { getUsersWithCashflow } from '@/lib/users';
 import SourceRecipientSelect, {
+    buildSourceRecipientAutocompleteOptions,
     type SourceRecipientOptionValue,
     PREFIX_ROOM,
     PREFIX_USER,
@@ -61,6 +97,15 @@ import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import {
+    findCategoryByName,
+    resolveCategorySourceRecipientValue,
+    resolveCategoryTransactionDefaults,
+    type CategoryDefaultsContext,
+    type ObjectForRoomDefaults,
+} from '@/lib/accountancyCategoryResolve';
+import { isResolvableRoomContextToken } from '@/lib/sourceRecipientParse';
+import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
 
 function newRowKey(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -80,6 +125,7 @@ type BulkSubRow = {
     recordKind: 'expense' | 'income';
     category: string;
     amount: number | undefined;
+    quantity: number;
     comment: string;
     /** Дата транзакции YYYY-MM-DD */
     transactionDate: string;
@@ -100,10 +146,14 @@ type BulkRow = {
     recipient: SourceRecipientOptionValue | '';
     comment: string;
     amount: number | undefined;
+    quantity: number;
     /** Дата транзакции YYYY-MM-DD */
     transactionDate: string;
     status: ExpenseStatus | IncomeStatus;
+    /** Подтранзакции (родитель + дочерние записи) */
     splittable: boolean;
+    /** Учитывать в расчёте синтетических транзакций (только расход) */
+    includeInSynthetic: boolean;
     subItems: BulkSubRow[];
     attachments: AccountancyAttachment[];
 };
@@ -113,6 +163,22 @@ function roomPrefixFromRow(row: BulkRow): SourceRecipientOptionValue | '' {
     const objId = row.selectedRoom[0].id;
     const rId = row.selectedRoom[0].rooms[0];
     return `${PREFIX_ROOM}${objId}:${rId}`;
+}
+
+function roomContextFromRow(
+    row: BulkRow,
+    objectsList: { id: number; propertyId?: number; district?: string; roomTypes: ObjectForRoomDefaults['roomTypes'] }[],
+): CategoryDefaultsContext {
+    if (!row.selectedRoom.length || !row.selectedRoom[0].rooms.length) {
+        return { objects: objectsList };
+    }
+    const objectId = row.selectedRoom[0].id;
+    return {
+        objectId,
+        roomName: String(row.selectedRoom[0].rooms[0]),
+        district: resolveDistrictForObjectId(objectsList, objectId),
+        objects: objectsList,
+    };
 }
 
 function createDefaultBulkSub(
@@ -127,6 +193,7 @@ function createDefaultBulkSub(
         recordKind: opp,
         category: '',
         amount: undefined,
+        quantity: 1,
         comment: '',
         transactionDate:
             row.transactionDate.trim() ||
@@ -159,9 +226,11 @@ function emptyRowDefaults(): Omit<BulkRow, 'key'> {
         recipient: '',
         comment: '',
         amount: undefined,
+        quantity: 1,
         transactionDate: '',
         status: 'draft',
         splittable: false,
+        includeInSynthetic: true,
         subItems: [],
         attachments: [],
     };
@@ -224,6 +293,7 @@ export default function BulkAddTransactionsPage() {
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
     const { setSnackbar } = useSnackbar();
+    const { askOnDuplicate, DuplicateDialog } = useDuplicateTransactionDialog();
 
     const [transactionType, setTransactionType] = useState<AccountancyCategoryType>('expense');
     const [category, setCategory] = useState('');
@@ -349,22 +419,82 @@ export default function BulkAddTransactionsPage() {
         const roomPrefix: SourceRecipientOptionValue | '' =
             objId != null && rId != null ? `${PREFIX_ROOM}${objId}:${rId}` : '';
 
+        const district = resolveDistrictForObjectId(objects, objId);
+        const roomContext: CategoryDefaultsContext = {
+            objectId: objId,
+            roomName: rId != null ? String(rId) : undefined,
+            district,
+            objects,
+        };
+        const resolveField = (
+            v: SourceRecipientOptionValue | '',
+            field: 'source' | 'recipient',
+        ): SourceRecipientOptionValue | '' => {
+            const resolved = resolveCategorySourceRecipientValue(v, roomContext);
+            if (resolved) return resolved as SourceRecipientOptionValue;
+            if (isResolvableRoomContextToken(v)) return v;
+            if (field === 'source' && transactionType === 'expense' && !sourceLockedForCashflow && roomPrefix) {
+                return roomPrefix;
+            }
+            if (field === 'recipient' && transactionType === 'income' && !recipientLockedForCashflow && roomPrefix) {
+                return roomPrefix;
+            }
+            return v;
+        };
+
         setRows((prev) =>
             prev.map((r) => {
                 if (r.key !== rowKey) return r;
-                const next: BulkRow = { ...r, selectedRoom: value };
-                if (transactionType === 'expense' && !sourceLockedForCashflow && roomPrefix) {
-                    next.source = roomPrefix;
-                } else if (transactionType === 'income' && !recipientLockedForCashflow && roomPrefix) {
-                    next.recipient = roomPrefix;
-                }
+                const effCatName = getEffectiveRowCategory(r, category);
+                const rowCat = findCategoryByName(categories, effCatName, transactionType);
+                const rowDefaults = rowCat
+                    ? resolveCategoryTransactionDefaults(rowCat, roomContext)
+                    : {};
+                const next: BulkRow = {
+                    ...r,
+                    selectedRoom: value,
+                    source: (rowDefaults.source ??
+                        resolveField(r.source, 'source')) as SourceRecipientOptionValue,
+                    recipient: (rowDefaults.recipient ??
+                        resolveField(r.recipient, 'recipient')) as SourceRecipientOptionValue,
+                    amount: rowDefaults.pricePerUnit != null ? rowDefaults.pricePerUnit : r.amount,
+                };
                 next.subItems = r.subItems.map((sub) => {
-                    const sn = { ...sub };
-                    if (roomPrefix) {
-                        if (sub.recordKind === 'expense') sn.source = roomPrefix;
-                        else sn.recipient = roomPrefix;
-                    }
-                    return sn;
+                    const subList =
+                        sub.recordKind === 'income'
+                            ? transactionType === 'expense'
+                                ? subIncomeCategories
+                                : categories
+                            : transactionType === 'expense'
+                              ? categories
+                              : subExpenseCategories;
+                    const subCat = findCategoryByName(subList, sub.category, sub.recordKind);
+                    const subDefaults = subCat
+                        ? resolveCategoryTransactionDefaults(subCat, roomContext)
+                        : {};
+                    const resolveSubField = (
+                        v: SourceRecipientOptionValue | '',
+                        field: 'source' | 'recipient',
+                    ): SourceRecipientOptionValue | '' => {
+                        const resolved = resolveCategorySourceRecipientValue(v, roomContext);
+                        if (resolved) return resolved as SourceRecipientOptionValue;
+                        if (isResolvableRoomContextToken(v)) return v;
+                        if (field === 'source' && sub.recordKind === 'expense' && roomPrefix) {
+                            return roomPrefix;
+                        }
+                        if (field === 'recipient' && sub.recordKind === 'income' && roomPrefix) {
+                            return roomPrefix;
+                        }
+                        return v;
+                    };
+                    return {
+                        ...sub,
+                        source: (subDefaults.source ??
+                            resolveSubField(sub.source, 'source')) as SourceRecipientOptionValue,
+                        recipient: (subDefaults.recipient ??
+                            resolveSubField(sub.recipient, 'recipient')) as SourceRecipientOptionValue,
+                        amount: subDefaults.pricePerUnit != null ? subDefaults.pricePerUnit : sub.amount,
+                    };
                 });
                 return next;
             }),
@@ -380,6 +510,16 @@ export default function BulkAddTransactionsPage() {
     const handleChangeAmount = (rowKey: string, raw: string) => {
         const num = Number(raw);
         updateRow(rowKey, { amount: Number.isFinite(num) && raw !== '' ? num : undefined });
+    };
+
+    const handleChangeQuantity = (rowKey: string, raw: string) => {
+        const num = Number(raw);
+        const q = Number.isInteger(num) && num >= 1 ? num : 1;
+        updateRow(rowKey, { quantity: q });
+    };
+
+    const handleChangeIncludeInSynthetic = (rowKey: string, checked: boolean) => {
+        updateRow(rowKey, { includeInSynthetic: checked });
     };
 
     const updateSubRow = (rowKey: string, subKey: string, patch: Partial<BulkSubRow>) => {
@@ -442,6 +582,21 @@ export default function BulkAddTransactionsPage() {
                     if (s.key !== subKey) return s;
                     const next = { ...s, [field]: value } as BulkSubRow;
                     if (field === 'recordKind') return { ...next, category: '' };
+                    if (field === 'category') {
+                        const list =
+                            next.recordKind === 'income'
+                                ? transactionType === 'expense'
+                                    ? subIncomeCategories
+                                    : categories
+                                : transactionType === 'expense'
+                                  ? categories
+                                  : subExpenseCategories;
+                        const cat = findCategoryByName(list, String(value), next.recordKind);
+                        const defaults = resolveCategoryTransactionDefaults(cat, roomContextFromRow(r, objects));
+                        if (defaults.source) next.source = defaults.source as SourceRecipientOptionValue;
+                        if (defaults.recipient) next.recipient = defaults.recipient as SourceRecipientOptionValue;
+                        if (defaults.pricePerUnit != null) next.amount = defaults.pricePerUnit;
+                    }
                     return next;
                 });
                 return { ...r, subItems };
@@ -535,6 +690,9 @@ export default function BulkAddTransactionsPage() {
             if (getEffectiveCost(row) < 0) {
                 validationErrors[`row_${index}_amount`] = t('accountancy.cost');
             }
+            if (row.quantity != null && (row.quantity < 1 || !Number.isInteger(row.quantity))) {
+                validationErrors[`row_${index}_quantity`] = t('accountancy.quantity');
+            }
             if (!parseTransactionDateString(row.transactionDate)) {
                 validationErrors[`row_${index}_transactionDate`] = t('accountancy.transactionDate');
             }
@@ -551,6 +709,9 @@ export default function BulkAddTransactionsPage() {
                     }
                     if (getEffectiveCostSub(sub) < 0) {
                         validationErrors[`row_${index}_sub_${sIdx}_amount`] = t('accountancy.cost');
+                    }
+                    if (sub.quantity != null && (sub.quantity < 1 || !Number.isInteger(sub.quantity))) {
+                        validationErrors[`row_${index}_sub_${sIdx}_quantity`] = t('accountancy.quantity');
                     }
                     if (!sub.status) {
                         validationErrors[`row_${index}_sub_${sIdx}_status`] = t('accountancy.status');
@@ -581,11 +742,17 @@ export default function BulkAddTransactionsPage() {
         setLoading(true);
         let successCount = 0;
         const failures: { category: string; message: string }[] = [];
+        const duplicateOpts = { onDuplicateConflict: askOnDuplicate };
 
         try {
             for (const row of rows) {
                 const objectId = row.selectedRoom[0].id;
                 const roomName = String(row.selectedRoom[0].rooms[0]);
+                const roomContext = {
+                    ...roomContextFromRow(row, objects),
+                };
+                const resolveSr = (v: SourceRecipientOptionValue | '' | undefined) =>
+                    resolveCategorySourceRecipientValue(v, roomContext);
                 const effectiveCat = getEffectiveRowCategory(row, category);
                 const effectiveCost = getEffectiveCost(row);
                 const rowDate =
@@ -601,22 +768,26 @@ export default function BulkAddTransactionsPage() {
                         objectId,
                         roomName,
                         bookingId: row.bookingId,
-                        source: (sourceLockedForCashflow ? currentUserSourceValue : row.source) || undefined,
-                        recipient: row.recipient || undefined,
+                        source: sourceLockedForCashflow
+                            ? resolveSr(currentUserSourceValue)
+                            : resolveSr(row.source),
+                        recipient: resolveSr(row.recipient),
                         category: effectiveCat,
                         amount: effectiveCost,
-                        quantity: 1,
+                        quantity: row.quantity ?? 1,
                         date: rowDate,
                         comment: row.comment || '',
                         status: expenseStatus,
                         reportMonth: reportMonth || undefined,
                         attachments: row.attachments ?? [],
                         accountantId: '',
+                        includeInSynthetic: row.includeInSynthetic,
                     };
 
                     try {
                         if (row.splittable) {
-                            const parentRes = await addExpense(basePayload);
+                            const parentRes = await addExpenseHandlingDuplicate(basePayload, duplicateOpts);
+                            if (parentRes.skipped) continue;
                             if (!parentRes.success || !parentRes.id) {
                                 failures.push({
                                     category: effectiveCat,
@@ -636,11 +807,11 @@ export default function BulkAddTransactionsPage() {
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             category: sub.category,
                                             amount: subCost,
-                                            quantity: 1,
+                                            quantity: sub.quantity ?? 1,
                                             date: subDate,
                                             comment: sub.comment || '',
                                             status: sub.status,
@@ -649,9 +820,9 @@ export default function BulkAddTransactionsPage() {
                                             accountantId: '',
                                             parentExpenseId: parentId,
                                         };
-                                        const subRes = await addExpense(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addExpenseHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -663,20 +834,20 @@ export default function BulkAddTransactionsPage() {
                                             bookingId: sub.bookingId,
                                             category: sub.category,
                                             amount: subCost,
-                                            quantity: 1,
+                                            quantity: sub.quantity ?? 1,
                                             date: subDate,
                                             status: sub.status,
                                             reportMonth: reportMonth || undefined,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             comment: sub.comment || undefined,
                                             attachments: sub.attachments ?? [],
                                             accountantId: '',
                                             parentExpenseId: parentId,
                                         };
-                                        const subRes = await addIncome(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addIncomeHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -692,9 +863,9 @@ export default function BulkAddTransactionsPage() {
                             continue;
                         }
 
-                        const res = await addExpense(basePayload);
-                        if (res.success) successCount++;
-                        else
+                        const res = await addExpenseHandlingDuplicate(basePayload, duplicateOpts);
+                        if (isTransactionAdded(res)) successCount++;
+                        else if (isTransactionFailed(res))
                             failures.push({
                                 category: effectiveCat,
                                 message: res.message || t('common.serverError'),
@@ -717,14 +888,14 @@ export default function BulkAddTransactionsPage() {
                         bookingId: row.bookingId,
                         category: effectiveCat,
                         amount: effectiveCost,
-                        quantity: 1,
+                        quantity: row.quantity ?? 1,
                         date: rowDate,
                         status: row.splittable ? 'draft' : incomeStatus,
                         reportMonth: reportMonth || undefined,
-                        source: row.source || undefined,
-                        recipient:
-                            (recipientLockedForCashflow ? currentUserRecipientValue : row.recipient) ||
-                            undefined,
+                        source: resolveSr(row.source),
+                        recipient: recipientLockedForCashflow
+                            ? resolveSr(currentUserRecipientValue)
+                            : resolveSr(row.recipient),
                         comment: row.comment || undefined,
                         attachments: row.attachments ?? [],
                         accountantId: '',
@@ -732,7 +903,8 @@ export default function BulkAddTransactionsPage() {
 
                     try {
                         if (row.splittable) {
-                            const parentRes = await addIncome(baseIncomePayload);
+                            const parentRes = await addIncomeHandlingDuplicate(baseIncomePayload, duplicateOpts);
+                            if (parentRes.skipped) continue;
                             if (!parentRes.success || !parentRes.id) {
                                 failures.push({
                                     category: effectiveCat,
@@ -752,11 +924,11 @@ export default function BulkAddTransactionsPage() {
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             category: sub.category,
                                             amount: subCost,
-                                            quantity: 1,
+                                            quantity: sub.quantity ?? 1,
                                             date: subDate,
                                             comment: sub.comment || '',
                                             status: sub.status,
@@ -765,9 +937,9 @@ export default function BulkAddTransactionsPage() {
                                             accountantId: '',
                                             parentIncomeId: parentId,
                                         };
-                                        const subRes = await addExpense(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addExpenseHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -779,20 +951,20 @@ export default function BulkAddTransactionsPage() {
                                             bookingId: sub.bookingId,
                                             category: sub.category,
                                             amount: subCost,
-                                            quantity: 1,
+                                            quantity: sub.quantity ?? 1,
                                             date: subDate,
                                             status: sub.status,
                                             reportMonth: reportMonth || undefined,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             comment: sub.comment || undefined,
                                             attachments: sub.attachments ?? [],
                                             accountantId: '',
                                             parentIncomeId: parentId,
                                         };
-                                        const subRes = await addIncome(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addIncomeHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -808,9 +980,9 @@ export default function BulkAddTransactionsPage() {
                             continue;
                         }
 
-                        const res = await addIncome(baseIncomePayload);
-                        if (res.success) successCount++;
-                        else
+                        const res = await addIncomeHandlingDuplicate(baseIncomePayload, duplicateOpts);
+                        if (isTransactionAdded(res)) successCount++;
+                        else if (isTransactionFailed(res))
                             failures.push({
                                 category: effectiveCat,
                                 message: res.message || t('common.serverError'),
@@ -882,6 +1054,36 @@ export default function BulkAddTransactionsPage() {
 
     const monthOptions = useMemo(() => reportMonthSelectOptions(t), [t]);
 
+    const sourceRecipientOptions = useMemo(
+        () =>
+            buildSourceRecipientAutocompleteOptions({
+                objects,
+                counterparties,
+                usersWithCashflow,
+                cashflows: [],
+                includeCashflows: false,
+                includeBookingRoomOption: false,
+                t,
+            }),
+        [objects, counterparties, usersWithCashflow, t],
+    );
+
+    const recipientRecipientOptions = useMemo(
+        () =>
+            buildSourceRecipientAutocompleteOptions({
+                objects,
+                counterparties,
+                usersWithCashflow,
+                cashflows,
+                includeCashflows: true,
+                includeBookingRoomOption: false,
+                t,
+            }),
+        [objects, counterparties, usersWithCashflow, cashflows, t],
+    );
+
+    const bulkColCount = bulkAddTableColCount(transactionType);
+
     if (!hasAccess) {
         return (
             <Box>
@@ -895,24 +1097,23 @@ export default function BulkAddTransactionsPage() {
 
     return (
         <>
-            <Box sx={{ mb: 2 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                 <Link href="/dashboard/accountancy/transactions">
-                    <Button variant="text" startIcon={<ArrowBackIcon />}>
+                    <Button variant="text" size="small" startIcon={<ArrowBackIcon fontSize="small" />} sx={{ minWidth: 0, px: 1 }}>
                         {t('common.back')}
                     </Button>
                 </Link>
-            </Box>
-
-            <Typography variant="h4" sx={{ mb: 2 }}>
-                {t('accountancy.bulkAddTransactionsTitle')}
-            </Typography>
-
-            <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-                    {t('accountancy.bulkAddCommonFields')}
+                <Typography variant="h6" sx={{ fontSize: '1.05rem', fontWeight: 600 }}>
+                    {t('accountancy.bulkAddTransactionsTitle')}
                 </Typography>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
-                    <FormControl sx={{ minWidth: 220 }} size="small">
+            </Stack>
+
+            <Paper variant="outlined" sx={{ px: 1, py: 0.75, mb: 1 }}>
+                <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="center">
+                    <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, fontWeight: 600 }}>
+                        {t('accountancy.bulkAddCommonFields')}:
+                    </Typography>
+                    <FormControl sx={{ minWidth: 120, maxWidth: 140 }} size="small">
                         <InputLabel>{t('accountancy.transactionRecordType')}</InputLabel>
                         <Select
                             value={transactionType}
@@ -925,7 +1126,7 @@ export default function BulkAddTransactionsPage() {
                             <MenuItem value="income">{t('accountancy.income')}</MenuItem>
                         </Select>
                     </FormControl>
-                    <FormControl sx={{ minWidth: 260 }} size="small">
+                    <FormControl sx={{ minWidth: 160, maxWidth: 220 }} size="small">
                         <InputLabel>{t('accountancy.category')}</InputLabel>
                         <Select
                             value={category}
@@ -951,7 +1152,7 @@ export default function BulkAddTransactionsPage() {
                             ))}
                         </Select>
                     </FormControl>
-                    <FormControl sx={{ minWidth: 220 }} size="small" error={!!errors.reportMonth}>
+                    <FormControl sx={{ minWidth: 140, maxWidth: 160 }} size="small" error={!!errors.reportMonth}>
                         <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
                         <Select
                             value={reportMonth}
@@ -973,37 +1174,48 @@ export default function BulkAddTransactionsPage() {
                             ))}
                         </Select>
                     </FormControl>
+                    <Box sx={{ flex: 1 }} />
+                    <Button variant="outlined" size="small" startIcon={<AddIcon fontSize="small" />} onClick={addRow}>
+                        {t('accountancy.addRow')}
+                    </Button>
                 </Stack>
             </Paper>
 
-            <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                {t('accountancy.bulkAddRowsTitle')}
-            </Typography>
-
-            <Box sx={{ overflowX: 'auto', mb: 2 }}>
-                <Table size="small" sx={{ minWidth: 1960 }}>
+            <TableContainer
+                component={Paper}
+                variant="outlined"
+                sx={{ mb: 1, overflowX: 'auto', overflowY: 'visible' }}
+            >
+                <Table size="small" stickyHeader sx={{ ...bulkTableSx, minWidth: BULK_ADD_TABLE_MIN_WIDTH_PX }}>
                     <TableHead>
                         <TableRow>
-                            <TableCell width={48} />
-                            <TableCell sx={{ minWidth: 240 }}>{t('common.room')}</TableCell>
-                            <TableCell sx={{ minWidth: 200 }}>{t('accountancy.bookingColumn')}</TableCell>
-                            <TableCell sx={{ minWidth: 200 }}>{t('accountancy.category')}</TableCell>
-                            <TableCell sx={{ minWidth: 200 }}>{t('accountancy.source')}</TableCell>
-                            <TableCell sx={{ minWidth: 200 }}>{t('accountancy.recipient')}</TableCell>
-                            <TableCell sx={{ minWidth: 140 }}>{t('accountancy.comment')}</TableCell>
-                            <TableCell sx={{ minWidth: 110 }}>{t('accountancy.cost')}</TableCell>
-                            <TableCell sx={{ minWidth: 158 }}>{t('accountancy.transactionDate')}</TableCell>
-                            <TableCell sx={{ minWidth: 130 }}>{t('accountancy.status')}</TableCell>
-                            <TableCell align="center" sx={{ minWidth: 88, whiteSpace: 'nowrap' }}>
-                                {t('accountancy.divisibility')}
+                            <TableCell sx={{ width: BULK_COL_DEL, maxWidth: BULK_COL_DEL }} />
+                            <TableCell sx={{ width: BULK_COL_ROOM, maxWidth: BULK_COL_ROOM }}>{t('common.room')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_BOOKING, maxWidth: BULK_COL_BOOKING }}>{t('accountancy.bookingColumn')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_CAT, maxWidth: BULK_COL_CAT }}>{t('accountancy.category')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_PARTY, maxWidth: BULK_COL_PARTY }}>{t('accountancy.source')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_PARTY, maxWidth: BULK_COL_PARTY }}>{t('accountancy.recipient')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_COMMENT, maxWidth: BULK_COL_COMMENT }}>{t('accountancy.comment')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_AMOUNT, maxWidth: BULK_COL_AMOUNT }}>{t('accountancy.cost')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_QTY, maxWidth: BULK_COL_QTY }}>{t('accountancy.quantity')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_SUM, maxWidth: BULK_COL_SUM }}>{t('accountancy.amountColumn')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_DATE, maxWidth: BULK_COL_DATE }}>{t('accountancy.transactionDate')}</TableCell>
+                            <TableCell sx={{ width: BULK_COL_STATUS, maxWidth: BULK_COL_STATUS }}>{t('accountancy.status')}</TableCell>
+                            <TableCell align="center" sx={{ width: BULK_COL_SUB_TX, maxWidth: BULK_COL_SUB_TX }}>
+                                {t('accountancy.subtransactionColumn')}
                             </TableCell>
-                            <TableCell sx={{ minWidth: 200 }}>{t('accountancy.attachments')}</TableCell>
+                            {transactionType === 'expense' && (
+                                <TableCell align="center" sx={{ width: BULK_COL_DIVISIBILITY, maxWidth: BULK_COL_DIVISIBILITY }}>
+                                    {t('accountancy.divisibility')}
+                                </TableCell>
+                            )}
+                            <TableCell sx={{ width: BULK_COL_ATTACH, maxWidth: BULK_COL_ATTACH }} />
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {rows.map((row, index) => (
                             <Fragment key={row.key}>
-                                <TableRow>
+                                <TableRow hover sx={row.splittable ? bulkGroupParentRowSx : undefined}>
                                     <TableCell>
                                         <IconButton
                                             size="small"
@@ -1011,7 +1223,7 @@ export default function BulkAddTransactionsPage() {
                                             disabled={rows.length <= 1}
                                             aria-label={t('accountancy.removeItem')}
                                         >
-                                            <DeleteOutlineIcon fontSize="small" />
+                                            <DeleteOutlineIcon sx={{ fontSize: '1rem' }} />
                                         </IconButton>
                                     </TableCell>
                                     <TableCell>
@@ -1020,85 +1232,135 @@ export default function BulkAddTransactionsPage() {
                                             onChange={(v) => handleRowRoomChange(row.key, v)}
                                             label={t('common.room')}
                                             multiple={false}
+                                            hideLabel
+                                            sx={bulkRoomSelectSx}
                                         />
                                         {errors[`row_${index}_selectedRoom`] && (
-                                            <Typography variant="caption" color="error" display="block">
+                                            <Typography variant="caption" color="error" sx={{ fontSize: '0.6rem', lineHeight: 1.1 }}>
                                                 {errors[`row_${index}_selectedRoom`]}
                                             </Typography>
                                         )}
                                     </TableCell>
                                     <TableCell>
-                                        <Stack
-                                            direction="row"
-                                            spacing={1}
-                                            alignItems="center"
-                                            flexWrap="wrap"
-                                            useFlexGap
-                                        >
-                                            <FormControl size="small" sx={{ minWidth: 130 }}>
-                                                <InputLabel>{t('accountancy.bookingQuickSelect')}</InputLabel>
-                                                <Select
-                                                    value={row.bookingId ?? ''}
-                                                    label={t('accountancy.bookingQuickSelect')}
-                                                    onChange={(e) => {
-                                                        const v = e.target.value;
-                                                        const num =
-                                                            typeof v === 'number'
-                                                                ? v
-                                                                : String(v).trim() === ''
-                                                                  ? undefined
-                                                                  : Number(v);
-                                                        updateRow(row.key, { bookingId: num });
-                                                    }}
-                                                >
-                                                    <MenuItem value="">—</MenuItem>
-                                                    {usedBookingIds.map((id) => (
-                                                        <MenuItem key={id} value={id}>
-                                                            {bookingLabels[id] ?? `#${id}`}
+                                        <Stack direction="row" spacing={0.25} alignItems="center">
+                                            <Tooltip title={t('accountancy.selectBooking')}>
+                                                <span>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleOpenBookingModal(row.key)}
+                                                        disabled={!row.selectedRoom.length}
+                                                        aria-label={t('accountancy.selectBooking')}
+                                                    >
+                                                        <EventNoteIcon sx={{ fontSize: '1rem' }} />
+                                                    </IconButton>
+                                                </span>
+                                            </Tooltip>
+                                            {row.bookingId != null ? (
+                                                <>
+                                                    <Typography
+                                                        variant="caption"
+                                                        noWrap
+                                                        sx={{ fontSize: '0.65rem', maxWidth: 56, flex: 1 }}
+                                                        title={bookingLabels[row.bookingId] ?? `#${row.bookingId}`}
+                                                    >
+                                                        {bookingLabels[row.bookingId] ?? `#${row.bookingId}`}
+                                                    </Typography>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleDetachBooking(row.key)}
+                                                        aria-label={t('accountancy.detachBooking')}
+                                                    >
+                                                        <CloseIcon sx={{ fontSize: '0.85rem' }} />
+                                                    </IconButton>
+                                                </>
+                                            ) : usedBookingIds.length > 0 ? (
+                                                <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+                                                    <Select
+                                                        value=""
+                                                        displayEmpty
+                                                        sx={bulkInlineSelectSx}
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            const num =
+                                                                typeof v === 'number'
+                                                                    ? v
+                                                                    : String(v).trim() === ''
+                                                                      ? undefined
+                                                                      : Number(v);
+                                                            if (num != null) updateRow(row.key, { bookingId: num });
+                                                        }}
+                                                        MenuProps={{ PaperProps: { sx: { maxHeight: 280 } } }}
+                                                    >
+                                                        <MenuItem value="" disabled sx={{ fontSize: '0.6875rem' }}>
+                                                            —
                                                         </MenuItem>
-                                                    ))}
-                                                </Select>
-                                            </FormControl>
-                                            <Button
-                                                variant="outlined"
-                                                size="small"
-                                                onClick={() => handleOpenBookingModal(row.key)}
-                                                disabled={!row.selectedRoom.length}
-                                            >
-                                                {t('accountancy.selectBooking')}
-                                            </Button>
-                                            {row.bookingId != null && (
-                                                <IconButton
-                                                    size="small"
-                                                    color="secondary"
-                                                    onClick={() => handleDetachBooking(row.key)}
-                                                    aria-label={t('accountancy.detachBooking')}
-                                                >
-                                                    <CloseIcon fontSize="small" />
-                                                </IconButton>
-                                            )}
+                                                        {usedBookingIds.map((id) => (
+                                                            <MenuItem key={id} value={id} sx={{ fontSize: '0.6875rem' }}>
+                                                                {bookingLabels[id] ?? `#${id}`}
+                                                            </MenuItem>
+                                                        ))}
+                                                    </Select>
+                                                </FormControl>
+                                            ) : null}
                                         </Stack>
                                     </TableCell>
                                     <TableCell>
                                         <FormControl
                                             size="small"
-                                            sx={{ minWidth: 180 }}
+                                            fullWidth
                                             error={!!errors[`row_${index}_category`]}
                                         >
-                                            <InputLabel>{t('accountancy.category')}</InputLabel>
                                             <Select
                                                 value={getEffectiveRowCategory(row, category) || ''}
-                                                label={t('accountancy.category')}
+                                                displayEmpty
+                                                sx={bulkInlineSelectSx}
                                                 onChange={(e) => {
                                                     const v = e.target.value as string;
-                                                    updateRow(row.key, {
+                                                    const effectiveName = v === category ? category : v;
+                                                    const cat = findCategoryByName(
+                                                        categories,
+                                                        effectiveName,
+                                                        transactionType,
+                                                    );
+                                                    const defaults = resolveCategoryTransactionDefaults(
+                                                        cat,
+                                                        roomContextFromRow(row, objects),
+                                                    );
+                                                    const patch: Partial<BulkRow> = {
                                                         rowCategory: v === category ? '' : v,
-                                                    });
+                                                    };
+                                                    if (
+                                                        defaults.source &&
+                                                        !(
+                                                            transactionType === 'expense' &&
+                                                            sourceLockedForCashflow
+                                                        )
+                                                    ) {
+                                                        patch.source =
+                                                            defaults.source as SourceRecipientOptionValue;
+                                                    }
+                                                    if (
+                                                        defaults.recipient &&
+                                                        !(
+                                                            transactionType === 'income' &&
+                                                            recipientLockedForCashflow
+                                                        )
+                                                    ) {
+                                                        patch.recipient =
+                                                            defaults.recipient as SourceRecipientOptionValue;
+                                                    }
+                                                    if (defaults.pricePerUnit != null) {
+                                                        patch.amount = defaults.pricePerUnit;
+                                                    }
+                                                    updateRow(row.key, patch);
                                                 }}
+                                                MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
                                             >
-                                                <MenuItem value="">—</MenuItem>
+                                                <MenuItem value="" sx={{ fontSize: '0.6875rem' }}>
+                                                    —
+                                                </MenuItem>
                                                 {buildCategoriesForSelect(categories, transactionType).map((c) => (
-                                                    <MenuItem key={c.id} value={c.name}>
+                                                    <MenuItem key={c.id} value={c.name} sx={{ fontSize: '0.6875rem' }}>
                                                         {c.depth > 0 ? '\u00A0'.repeat(c.depth * 2) + '↳ ' : ''}
                                                         {c.name}
                                                     </MenuItem>
@@ -1113,8 +1375,11 @@ export default function BulkAddTransactionsPage() {
                                             label={t('accountancy.source')}
                                             counterparties={counterparties}
                                             usersWithCashflow={usersWithCashflow}
+                                            prefetchedOptions={sourceRecipientOptions}
+                                            hideLabel
+                                            popperMinWidth={220}
                                             disabled={transactionType === 'expense' && sourceLockedForCashflow}
-                                            sx={{ minWidth: 180 }}
+                                            sx={bulkSourceRecipientSx}
                                         />
                                     </TableCell>
                                     <TableCell>
@@ -1130,52 +1395,91 @@ export default function BulkAddTransactionsPage() {
                                             usersWithCashflow={usersWithCashflow}
                                             cashflows={cashflows}
                                             includeCashflows
+                                            prefetchedOptions={recipientRecipientOptions}
+                                            hideLabel
+                                            popperMinWidth={220}
                                             disabled={transactionType === 'income' && recipientLockedForCashflow}
-                                            sx={{ minWidth: 180 }}
+                                            sx={bulkSourceRecipientSx}
                                         />
                                     </TableCell>
                                     <TableCell>
                                         <TextField
                                             size="small"
+                                            hiddenLabel
                                             placeholder={t('accountancy.comment')}
                                             value={row.comment}
                                             onChange={(e) => updateRow(row.key, { comment: e.target.value })}
-                                            sx={{ minWidth: 120 }}
+                                            slotProps={{
+                                                htmlInput: { 'aria-label': t('accountancy.comment') },
+                                            }}
+                                            sx={bulkCellTextFieldSx}
                                         />
                                     </TableCell>
                                     <TableCell>
                                         <TextField
                                             size="small"
+                                            hiddenLabel
                                             type="number"
-                                            label={t('accountancy.cost')}
+                                            placeholder={t('accountancy.cost')}
                                             value={row.amount ?? ''}
                                             onChange={(e) => handleChangeAmount(row.key, e.target.value)}
                                             error={!!errors[`row_${index}_amount`]}
-                                            inputProps={{ min: 0, step: 0.01 }}
-                                            sx={{ width: 110 }}
+                                            slotProps={{
+                                                htmlInput: {
+                                                    min: 0,
+                                                    step: 0.01,
+                                                    'aria-label': t('accountancy.cost'),
+                                                },
+                                            }}
+                                            sx={bulkCellTextFieldSx}
                                         />
                                     </TableCell>
                                     <TableCell>
                                         <TextField
                                             size="small"
+                                            hiddenLabel
+                                            type="number"
+                                            placeholder={t('accountancy.quantity')}
+                                            value={row.quantity ?? 1}
+                                            onChange={(e) => handleChangeQuantity(row.key, e.target.value)}
+                                            error={!!errors[`row_${index}_quantity`]}
+                                            slotProps={{
+                                                htmlInput: {
+                                                    min: 1,
+                                                    step: 1,
+                                                    'aria-label': t('accountancy.quantity'),
+                                                },
+                                            }}
+                                            sx={bulkCellTextFieldSx}
+                                        />
+                                    </TableCell>
+                                    <TableCell>
+                                        <Typography variant="caption" sx={{ fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
+                                            {formatBulkLineTotal(row.quantity, getEffectiveCost(row))}
+                                        </Typography>
+                                    </TableCell>
+                                    <TableCell>
+                                        <TextField
+                                            size="small"
+                                            hiddenLabel
                                             type="date"
-                                            label={t('accountancy.transactionDate')}
-                                            InputLabelProps={{ shrink: true }}
                                             value={row.transactionDate}
                                             onChange={(e) =>
                                                 updateRow(row.key, { transactionDate: e.target.value })
                                             }
                                             error={!!errors[`row_${index}_transactionDate`]}
-                                            sx={{ width: 158 }}
+                                            slotProps={{
+                                                htmlInput: { 'aria-label': t('accountancy.transactionDate') },
+                                            }}
+                                            sx={bulkCellTextFieldSx}
                                         />
                                     </TableCell>
                                     <TableCell>
                                         <FormControl
                                             size="small"
-                                            sx={{ minWidth: 120 }}
+                                            fullWidth
                                             error={!!errors[`row_${index}_status`]}
                                         >
-                                            <InputLabel>{t('accountancy.status')}</InputLabel>
                                             <Select
                                                 value={
                                                     transactionType === 'expense' && sourceLockedForCashflow
@@ -1184,7 +1488,7 @@ export default function BulkAddTransactionsPage() {
                                                           ? 'draft'
                                                           : row.status
                                                 }
-                                                label={t('accountancy.status')}
+                                                sx={bulkInlineSelectSx}
                                                 onChange={(e) =>
                                                     updateRow(row.key, {
                                                         status: e.target.value as ExpenseStatus | IncomeStatus,
@@ -1194,419 +1498,437 @@ export default function BulkAddTransactionsPage() {
                                                     (transactionType === 'expense' && sourceLockedForCashflow) ||
                                                     (transactionType === 'income' && recipientLockedForCashflow)
                                                 }
+                                                MenuProps={{ PaperProps: { sx: { maxHeight: 200 } } }}
                                             >
-                                                <MenuItem value="draft">{t('accountancy.statusDraft')}</MenuItem>
-                                                <MenuItem value="confirmed">
+                                                <MenuItem value="draft" sx={{ fontSize: '0.6875rem' }}>
+                                                    {t('accountancy.statusDraft')}
+                                                </MenuItem>
+                                                <MenuItem value="confirmed" sx={{ fontSize: '0.6875rem' }}>
                                                     {t('accountancy.statusConfirmed')}
                                                 </MenuItem>
                                             </Select>
                                         </FormControl>
                                     </TableCell>
-                                    <TableCell align="center" sx={{ verticalAlign: 'middle' }}>
+                                    <TableCell align="center">
                                         <Checkbox
                                             checked={row.splittable}
                                             onChange={(e) => handleChangeSplittable(row.key, e.target.checked)}
                                             size="small"
                                             inputProps={{
-                                                'aria-label': t('accountancy.divisibility'),
+                                                'aria-label': t('accountancy.subtransactionColumn'),
                                             }}
                                         />
                                     </TableCell>
-                                    <TableCell sx={{ verticalAlign: 'top', minWidth: 200 }}>
+                                    {transactionType === 'expense' && (
+                                        <TableCell align="center">
+                                            <Checkbox
+                                                checked={row.includeInSynthetic}
+                                                onChange={(e) =>
+                                                    handleChangeIncludeInSynthetic(row.key, e.target.checked)
+                                                }
+                                                size="small"
+                                                inputProps={{
+                                                    'aria-label': t('accountancy.divisibility'),
+                                                }}
+                                            />
+                                        </TableCell>
+                                    )}
+                                    <TableCell align="center">
                                         <FileAttachments
                                             value={row.attachments ?? []}
                                             onChange={(atts: AccountancyAttachment[]) =>
                                                 updateRow(row.key, { attachments: atts })
                                             }
                                             disabled={loading}
+                                            compact
                                         />
                                     </TableCell>
                                 </TableRow>
                                 {row.splittable && (
-                                    <TableRow>
-                                        <TableCell colSpan={13} sx={{ py: 2, verticalAlign: 'top' }}>
-                                            <Box
-                                                sx={{
-                                                    p: 2,
-                                                    borderRadius: 1,
-                                                    bgcolor: (theme) =>
-                                                        theme.palette.mode === 'dark'
-                                                            ? 'rgba(255,255,255,0.05)'
-                                                            : 'rgba(0,0,0,0.03)',
-                                                }}
-                                            >
-                                                <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                                    {t('accountancy.subtransactions')}
-                                                </Typography>
-                                                {errors[`row_${index}_sub`] && (
+                                    <>
+                                        <TableRow sx={bulkGroupSubHeaderRowSx(row.subItems.length === 0)}>
+                                            <TableCell colSpan={bulkColCount} sx={{ py: 0.25 }}>
+                                                <Stack direction="row" alignItems="center" spacing={1}>
                                                     <Typography
                                                         variant="caption"
-                                                        color="error"
-                                                        display="block"
-                                                        sx={{ mb: 1 }}
+                                                        sx={{
+                                                            fontWeight: 700,
+                                                            fontSize: '0.65rem',
+                                                            color: 'primary.main',
+                                                            textTransform: 'uppercase',
+                                                            letterSpacing: '0.04em',
+                                                        }}
                                                     >
-                                                        {errors[`row_${index}_sub`]}
+                                                        {t('accountancy.subtransactions')}
                                                     </Typography>
-                                                )}
-                                                <Table size="small">
-                                                    <TableHead>
-                                                        <TableRow>
-                                                            <TableCell width={40} />
-                                                            <TableCell>{t('accountancy.recordKindColumn')}</TableCell>
-                                                            <TableCell sx={{ minWidth: 200 }}>
-                                                                {t('accountancy.bookingColumn')}
-                                                            </TableCell>
-                                                            <TableCell>{t('accountancy.category')}</TableCell>
-                                                            <TableCell>{t('accountancy.source')}</TableCell>
-                                                            <TableCell>{t('accountancy.recipient')}</TableCell>
-                                                            <TableCell>{t('accountancy.comment')}</TableCell>
-                                                            <TableCell>{t('accountancy.cost')}</TableCell>
-                                                            <TableCell sx={{ minWidth: 158 }}>
-                                                                {t('accountancy.transactionDate')}
-                                                            </TableCell>
-                                                            <TableCell>{t('accountancy.status')}</TableCell>
-                                                            <TableCell>{t('accountancy.attachments')}</TableCell>
-                                                        </TableRow>
-                                                    </TableHead>
-                                                    <TableBody>
-                                                        {row.subItems.map((sub, sIdx) => (
-                                                            <TableRow key={sub.key}>
-                                                                <TableCell>
-                                                                    <IconButton
-                                                                        size="small"
-                                                                        onClick={() =>
-                                                                            handleRemoveSubItem(row.key, sub.key)
-                                                                        }
-                                                                        disabled={row.subItems.length <= 1}
-                                                                        aria-label={t('accountancy.removeItem')}
-                                                                    >
-                                                                        <DeleteOutlineIcon fontSize="small" />
-                                                                    </IconButton>
-                                                                </TableCell>
-                                                                <TableCell sx={{ minWidth: 120 }}>
-                                                                    <FormControl size="small" sx={{ minWidth: 110 }}>
-                                                                        <InputLabel>
-                                                                            {t('accountancy.recordKindColumn')}
-                                                                        </InputLabel>
-                                                                        <Select
-                                                                            value={sub.recordKind}
-                                                                            label={t('accountancy.recordKindColumn')}
-                                                                            onChange={(e) =>
-                                                                                handleChangeSubItem(
-                                                                                    row.key,
-                                                                                    sub.key,
-                                                                                    'recordKind',
-                                                                                    e.target.value as
-                                                                                        | 'expense'
-                                                                                        | 'income',
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            <MenuItem value="expense">
-                                                                                {t('accountancy.expense')}
-                                                                            </MenuItem>
-                                                                            <MenuItem value="income">
-                                                                                {t('accountancy.income')}
-                                                                            </MenuItem>
-                                                                        </Select>
-                                                                    </FormControl>
-                                                                </TableCell>
-                                                                <TableCell sx={{ minWidth: 200 }}>
-                                                                    <Stack
-                                                                        direction="row"
-                                                                        spacing={1}
-                                                                        alignItems="center"
-                                                                        flexWrap="wrap"
-                                                                        useFlexGap
-                                                                    >
-                                                                        <FormControl size="small" sx={{ minWidth: 140 }}>
-                                                                            <InputLabel>
-                                                                                {t('accountancy.bookingQuickSelect')}
-                                                                            </InputLabel>
-                                                                            <Select
-                                                                                value={sub.bookingId ?? ''}
-                                                                                label={t('accountancy.bookingQuickSelect')}
-                                                                                onChange={(e) => {
-                                                                                    const v = e.target.value;
-                                                                                    const num =
-                                                                                        typeof v === 'number'
-                                                                                            ? v
-                                                                                            : String(v).trim() === ''
-                                                                                              ? undefined
-                                                                                              : Number(v);
-                                                                                    handleChangeSubItem(
-                                                                                        row.key,
-                                                                                        sub.key,
-                                                                                        'bookingId',
-                                                                                        num,
-                                                                                    );
-                                                                                }}
-                                                                            >
-                                                                                <MenuItem value="">—</MenuItem>
-                                                                                {usedBookingIds.map((id) => (
-                                                                                    <MenuItem key={id} value={id}>
-                                                                                        {bookingLabels[id] ?? `#${id}`}
-                                                                                    </MenuItem>
-                                                                                ))}
-                                                                            </Select>
-                                                                        </FormControl>
-                                                                        <Button
-                                                                            variant="outlined"
-                                                                            size="small"
-                                                                            onClick={() =>
-                                                                                handleOpenSubBookingModal(
-                                                                                    row.key,
-                                                                                    sub.key,
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            {t('accountancy.selectBooking')}
-                                                                        </Button>
-                                                                        {sub.bookingId != null && (
-                                                                            <IconButton
-                                                                                size="small"
-                                                                                color="secondary"
-                                                                                onClick={() =>
-                                                                                    handleDetachSubBooking(
-                                                                                        row.key,
-                                                                                        sub.key,
-                                                                                    )
-                                                                                }
-                                                                                aria-label={t(
-                                                                                    'accountancy.detachBooking',
-                                                                                )}
-                                                                            >
-                                                                                <CloseIcon fontSize="small" />
-                                                                            </IconButton>
-                                                                        )}
-                                                                    </Stack>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <FormControl
-                                                                        size="small"
-                                                                        sx={{ minWidth: 160 }}
-                                                                        error={
-                                                                            !!errors[
-                                                                                `row_${index}_sub_${sIdx}_category`
-                                                                            ]
-                                                                        }
-                                                                    >
-                                                                        <InputLabel>{t('accountancy.category')}</InputLabel>
-                                                                        <Select
-                                                                            value={sub.category || ''}
-                                                                            label={t('accountancy.category')}
-                                                                            onChange={(e) =>
-                                                                                handleChangeSubItem(
-                                                                                    row.key,
-                                                                                    sub.key,
-                                                                                    'category',
-                                                                                    e.target.value as string,
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            {buildCategoriesForSelect(
-                                                                                sub.recordKind === 'income'
-                                                                                    ? transactionType === 'expense'
-                                                                                        ? subIncomeCategories
-                                                                                        : categories
-                                                                                    : transactionType === 'expense'
-                                                                                      ? categories
-                                                                                      : subExpenseCategories,
-                                                                                sub.recordKind,
-                                                                            ).map((cat) => (
-                                                                                <MenuItem key={cat.id} value={cat.name}>
-                                                                                    {cat.depth > 0
-                                                                                        ? '\u00A0'.repeat(cat.depth * 2) +
-                                                                                          '↳ '
-                                                                                        : ''}
-                                                                                    {cat.name}
-                                                                                </MenuItem>
-                                                                            ))}
-                                                                        </Select>
-                                                                    </FormControl>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <SourceRecipientSelect
-                                                                        value={sub.source}
-                                                                        onChange={(v) =>
+                                                    {errors[`row_${index}_sub`] && (
+                                                        <Typography variant="caption" color="error" sx={{ fontSize: '0.6rem' }}>
+                                                            {errors[`row_${index}_sub`]}
+                                                        </Typography>
+                                                    )}
+                                                    <Button
+                                                        variant="text"
+                                                        size="small"
+                                                        startIcon={<AddIcon sx={{ fontSize: '0.9rem !important' }} />}
+                                                        onClick={() => handleAddSubItem(row.key)}
+                                                        sx={{ minWidth: 0, py: 0, fontSize: '0.65rem' }}
+                                                    >
+                                                        {t('accountancy.addSubtransaction')}
+                                                    </Button>
+                                                </Stack>
+                                            </TableCell>
+                                        </TableRow>
+                                        {row.subItems.map((sub, sIdx) => (
+                                            <TableRow
+                                                key={sub.key}
+                                                sx={bulkGroupSubRowSx(sIdx === row.subItems.length - 1)}
+                                            >
+                                                <TableCell>
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleRemoveSubItem(row.key, sub.key)}
+                                                        disabled={row.subItems.length <= 1}
+                                                        aria-label={t('accountancy.removeItem')}
+                                                    >
+                                                        <DeleteOutlineIcon sx={{ fontSize: '1rem' }} />
+                                                    </IconButton>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <FormControl size="small" fullWidth>
+                                                        <Select
+                                                            value={sub.recordKind}
+                                                            sx={bulkInlineSelectSx}
+                                                            onChange={(e) =>
+                                                                handleChangeSubItem(
+                                                                    row.key,
+                                                                    sub.key,
+                                                                    'recordKind',
+                                                                    e.target.value as 'expense' | 'income',
+                                                                )
+                                                            }
+                                                        >
+                                                            <MenuItem value="expense" sx={{ fontSize: '0.6875rem' }}>
+                                                                {t('accountancy.expense')}
+                                                            </MenuItem>
+                                                            <MenuItem value="income" sx={{ fontSize: '0.6875rem' }}>
+                                                                {t('accountancy.income')}
+                                                            </MenuItem>
+                                                        </Select>
+                                                    </FormControl>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Stack direction="row" spacing={0.25} alignItems="center">
+                                                        <Tooltip title={t('accountancy.selectBooking')}>
+                                                            <span>
+                                                                <IconButton
+                                                                    size="small"
+                                                                    onClick={() =>
+                                                                        handleOpenSubBookingModal(row.key, sub.key)
+                                                                    }
+                                                                    aria-label={t('accountancy.selectBooking')}
+                                                                >
+                                                                    <EventNoteIcon sx={{ fontSize: '1rem' }} />
+                                                                </IconButton>
+                                                            </span>
+                                                        </Tooltip>
+                                                        {sub.bookingId != null ? (
+                                                            <>
+                                                                <Typography
+                                                                    variant="caption"
+                                                                    noWrap
+                                                                    sx={{ fontSize: '0.65rem', maxWidth: 56, flex: 1 }}
+                                                                    title={bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
+                                                                >
+                                                                    {bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
+                                                                </Typography>
+                                                                <IconButton
+                                                                    size="small"
+                                                                    onClick={() =>
+                                                                        handleDetachSubBooking(row.key, sub.key)
+                                                                    }
+                                                                    aria-label={t('accountancy.detachBooking')}
+                                                                >
+                                                                    <CloseIcon sx={{ fontSize: '0.85rem' }} />
+                                                                </IconButton>
+                                                            </>
+                                                        ) : usedBookingIds.length > 0 ? (
+                                                            <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+                                                                <Select
+                                                                    value=""
+                                                                    displayEmpty
+                                                                    sx={bulkInlineSelectSx}
+                                                                    onChange={(e) => {
+                                                                        const v = e.target.value;
+                                                                        const num =
+                                                                            typeof v === 'number'
+                                                                                ? v
+                                                                                : String(v).trim() === ''
+                                                                                  ? undefined
+                                                                                  : Number(v);
+                                                                        if (num != null) {
                                                                             handleChangeSubItem(
                                                                                 row.key,
                                                                                 sub.key,
-                                                                                'source',
-                                                                                v,
-                                                                            )
-                                                                        }
-                                                                        label={t('accountancy.source')}
-                                                                        counterparties={counterparties}
-                                                                        usersWithCashflow={usersWithCashflow}
-                                                                        sx={{ minWidth: 200 }}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <SourceRecipientSelect
-                                                                        value={sub.recipient}
-                                                                        onChange={(v) =>
-                                                                            handleChangeSubItem(
-                                                                                row.key,
-                                                                                sub.key,
-                                                                                'recipient',
-                                                                                v,
-                                                                            )
-                                                                        }
-                                                                        label={t('accountancy.recipient')}
-                                                                        counterparties={counterparties}
-                                                                        usersWithCashflow={usersWithCashflow}
-                                                                        cashflows={cashflows}
-                                                                        includeCashflows
-                                                                        sx={{ minWidth: 200 }}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <TextField
-                                                                        size="small"
-                                                                        placeholder={t('accountancy.comment')}
-                                                                        value={sub.comment || ''}
-                                                                        onChange={(e) =>
-                                                                            handleChangeSubItem(
-                                                                                row.key,
-                                                                                sub.key,
-                                                                                'comment',
-                                                                                e.target.value,
-                                                                            )
-                                                                        }
-                                                                        sx={{ minWidth: 120 }}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <TextField
-                                                                        size="small"
-                                                                        type="number"
-                                                                        label={t('accountancy.cost')}
-                                                                        value={sub.amount ?? ''}
-                                                                        onChange={(e) => {
-                                                                            const num = Number(e.target.value);
-                                                                            handleChangeSubItem(
-                                                                                row.key,
-                                                                                sub.key,
-                                                                                'amount',
-                                                                                Number.isFinite(num) &&
-                                                                                    e.target.value !== ''
-                                                                                    ? num
-                                                                                    : undefined,
+                                                                                'bookingId',
+                                                                                num,
                                                                             );
-                                                                        }}
-                                                                        error={
-                                                                            !!errors[
-                                                                                `row_${index}_sub_${sIdx}_amount`
-                                                                            ]
                                                                         }
-                                                                        inputProps={{ min: 0, step: 0.01 }}
-                                                                        sx={{ width: 120 }}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <TextField
-                                                                        size="small"
-                                                                        type="date"
-                                                                        label={t('accountancy.transactionDate')}
-                                                                        InputLabelProps={{ shrink: true }}
-                                                                        value={sub.transactionDate}
-                                                                        onChange={(e) =>
-                                                                            handleChangeSubItem(
-                                                                                row.key,
-                                                                                sub.key,
-                                                                                'transactionDate',
-                                                                                e.target.value,
-                                                                            )
-                                                                        }
-                                                                        error={
-                                                                            !!errors[
-                                                                                `row_${index}_sub_${sIdx}_transactionDate`
-                                                                            ]
-                                                                        }
-                                                                        sx={{ width: 158 }}
-                                                                    />
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <FormControl
-                                                                        size="small"
-                                                                        sx={{ minWidth: 120 }}
-                                                                        error={
-                                                                            !!errors[
-                                                                                `row_${index}_sub_${sIdx}_status`
-                                                                            ]
-                                                                        }
-                                                                    >
-                                                                        <InputLabel>{t('accountancy.status')}</InputLabel>
-                                                                        <Select
-                                                                            value={sub.status || 'draft'}
-                                                                            label={t('accountancy.status')}
-                                                                            onChange={(e) =>
-                                                                                handleChangeSubItem(
-                                                                                    row.key,
-                                                                                    sub.key,
-                                                                                    'status',
-                                                                                    e.target.value as
-                                                                                        | ExpenseStatus
-                                                                                        | IncomeStatus,
-                                                                                )
-                                                                            }
-                                                                        >
-                                                                            <MenuItem value="draft">
-                                                                                {t('accountancy.statusDraft')}
-                                                                            </MenuItem>
-                                                                            <MenuItem value="confirmed">
-                                                                                {t('accountancy.statusConfirmed')}
-                                                                            </MenuItem>
-                                                                        </Select>
-                                                                    </FormControl>
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    <FileAttachments
-                                                                        value={sub.attachments ?? []}
-                                                                        onChange={(attachments: AccountancyAttachment[]) =>
-                                                                            handleChangeSubItem(
-                                                                                row.key,
-                                                                                sub.key,
-                                                                                'attachments',
-                                                                                attachments,
-                                                                            )
-                                                                        }
-                                                                        disabled={loading}
-                                                                    />
-                                                                </TableCell>
-                                                            </TableRow>
-                                                        ))}
-                                                    </TableBody>
-                                                </Table>
-                                                <Button
-                                                    variant="outlined"
-                                                    size="small"
-                                                    startIcon={<AddIcon />}
-                                                    onClick={() => handleAddSubItem(row.key)}
-                                                    sx={{ mt: 1 }}
-                                                >
-                                                    {t('accountancy.addSubtransaction')}
-                                                </Button>
-                                            </Box>
-                                        </TableCell>
+                                                                    }}
+                                                                >
+                                                                    <MenuItem value="" disabled sx={{ fontSize: '0.6875rem' }}>
+                                                                        —
+                                                                    </MenuItem>
+                                                                    {usedBookingIds.map((id) => (
+                                                                        <MenuItem key={id} value={id} sx={{ fontSize: '0.6875rem' }}>
+                                                                            {bookingLabels[id] ?? `#${id}`}
+                                                                        </MenuItem>
+                                                                    ))}
+                                                                </Select>
+                                                            </FormControl>
+                                                        ) : null}
+                                                    </Stack>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <FormControl
+                                                        size="small"
+                                                        fullWidth
+                                                        error={!!errors[`row_${index}_sub_${sIdx}_category`]}
+                                                    >
+                                                        <Select
+                                                            value={sub.category || ''}
+                                                            displayEmpty
+                                                            sx={bulkInlineSelectSx}
+                                                            onChange={(e) =>
+                                                                handleChangeSubItem(
+                                                                    row.key,
+                                                                    sub.key,
+                                                                    'category',
+                                                                    e.target.value as string,
+                                                                )
+                                                            }
+                                                            MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
+                                                        >
+                                                            <MenuItem value="" sx={{ fontSize: '0.6875rem' }}>
+                                                                —
+                                                            </MenuItem>
+                                                            {buildCategoriesForSelect(
+                                                                sub.recordKind === 'income'
+                                                                    ? transactionType === 'expense'
+                                                                        ? subIncomeCategories
+                                                                        : categories
+                                                                    : transactionType === 'expense'
+                                                                      ? categories
+                                                                      : subExpenseCategories,
+                                                                sub.recordKind,
+                                                            ).map((cat) => (
+                                                                <MenuItem key={cat.id} value={cat.name} sx={{ fontSize: '0.6875rem' }}>
+                                                                    {cat.depth > 0
+                                                                        ? '\u00A0'.repeat(cat.depth * 2) + '↳ '
+                                                                        : ''}
+                                                                    {cat.name}
+                                                                </MenuItem>
+                                                            ))}
+                                                        </Select>
+                                                    </FormControl>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <SourceRecipientSelect
+                                                        value={sub.source}
+                                                        onChange={(v) =>
+                                                            handleChangeSubItem(row.key, sub.key, 'source', v)
+                                                        }
+                                                        label={t('accountancy.source')}
+                                                        counterparties={counterparties}
+                                                        usersWithCashflow={usersWithCashflow}
+                                                        prefetchedOptions={sourceRecipientOptions}
+                                                        hideLabel
+                                                        popperMinWidth={220}
+                                                        sx={bulkSourceRecipientSx}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <SourceRecipientSelect
+                                                        value={sub.recipient}
+                                                        onChange={(v) =>
+                                                            handleChangeSubItem(row.key, sub.key, 'recipient', v)
+                                                        }
+                                                        label={t('accountancy.recipient')}
+                                                        counterparties={counterparties}
+                                                        usersWithCashflow={usersWithCashflow}
+                                                        cashflows={cashflows}
+                                                        includeCashflows
+                                                        prefetchedOptions={recipientRecipientOptions}
+                                                        hideLabel
+                                                        popperMinWidth={220}
+                                                        sx={bulkSourceRecipientSx}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField
+                                                        size="small"
+                                                        hiddenLabel
+                                                        placeholder={t('accountancy.comment')}
+                                                        value={sub.comment || ''}
+                                                        onChange={(e) =>
+                                                            handleChangeSubItem(
+                                                                row.key,
+                                                                sub.key,
+                                                                'comment',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        sx={bulkCellTextFieldSx}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField
+                                                        size="small"
+                                                        hiddenLabel
+                                                        type="number"
+                                                        placeholder={t('accountancy.cost')}
+                                                        value={sub.amount ?? ''}
+                                                        onChange={(e) => {
+                                                            const num = Number(e.target.value);
+                                                            handleChangeSubItem(
+                                                                row.key,
+                                                                sub.key,
+                                                                'amount',
+                                                                Number.isFinite(num) && e.target.value !== ''
+                                                                    ? num
+                                                                    : undefined,
+                                                            );
+                                                        }}
+                                                        error={!!errors[`row_${index}_sub_${sIdx}_amount`]}
+                                                        sx={bulkCellTextFieldSx}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField
+                                                        size="small"
+                                                        hiddenLabel
+                                                        type="number"
+                                                        placeholder={t('accountancy.quantity')}
+                                                        value={sub.quantity ?? 1}
+                                                        onChange={(e) => {
+                                                            const num = Number(e.target.value);
+                                                            const q =
+                                                                Number.isInteger(num) && num >= 1 ? num : 1;
+                                                            handleChangeSubItem(
+                                                                row.key,
+                                                                sub.key,
+                                                                'quantity',
+                                                                q,
+                                                            );
+                                                        }}
+                                                        error={!!errors[`row_${index}_sub_${sIdx}_quantity`]}
+                                                        slotProps={{
+                                                            htmlInput: {
+                                                                min: 1,
+                                                                step: 1,
+                                                                'aria-label': t('accountancy.quantity'),
+                                                            },
+                                                        }}
+                                                        sx={bulkCellTextFieldSx}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Typography
+                                                        variant="caption"
+                                                        sx={{ fontSize: '0.6875rem', whiteSpace: 'nowrap' }}
+                                                    >
+                                                        {formatBulkLineTotal(sub.quantity, getEffectiveCostSub(sub))}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <TextField
+                                                        size="small"
+                                                        hiddenLabel
+                                                        type="date"
+                                                        value={sub.transactionDate}
+                                                        onChange={(e) =>
+                                                            handleChangeSubItem(
+                                                                row.key,
+                                                                sub.key,
+                                                                'transactionDate',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        error={!!errors[`row_${index}_sub_${sIdx}_transactionDate`]}
+                                                        sx={bulkCellTextFieldSx}
+                                                    />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <FormControl
+                                                        size="small"
+                                                        fullWidth
+                                                        error={!!errors[`row_${index}_sub_${sIdx}_status`]}
+                                                    >
+                                                        <Select
+                                                            value={sub.status || 'draft'}
+                                                            sx={bulkInlineSelectSx}
+                                                            onChange={(e) =>
+                                                                handleChangeSubItem(
+                                                                    row.key,
+                                                                    sub.key,
+                                                                    'status',
+                                                                    e.target.value as ExpenseStatus | IncomeStatus,
+                                                                )
+                                                            }
+                                                        >
+                                                            <MenuItem value="draft" sx={{ fontSize: '0.6875rem' }}>
+                                                                {t('accountancy.statusDraft')}
+                                                            </MenuItem>
+                                                            <MenuItem value="confirmed" sx={{ fontSize: '0.6875rem' }}>
+                                                                {t('accountancy.statusConfirmed')}
+                                                            </MenuItem>
+                                                        </Select>
+                                                    </FormControl>
+                                                </TableCell>
+                                                <TableCell />
+                                                {transactionType === 'expense' && <TableCell />}
+                                                <TableCell align="center">
+                                                    <FileAttachments
+                                                        value={sub.attachments ?? []}
+                                                        onChange={(attachments: AccountancyAttachment[]) =>
+                                                            handleChangeSubItem(
+                                                                row.key,
+                                                                sub.key,
+                                                                'attachments',
+                                                                attachments,
+                                                            )
+                                                        }
+                                                        disabled={loading}
+                                                        compact
+                                                    />
+                                                </TableCell>
+                                            </TableRow>
+                                        ))}
+                                    </>
+                                )}
+                                {index < rows.length - 1 && (
+                                    <TableRow aria-hidden>
+                                        <TableCell
+                                            colSpan={bulkColCount}
+                                            sx={{
+                                                height: 10,
+                                                p: 0,
+                                                border: 'none !important',
+                                                bgcolor: 'background.default',
+                                            }}
+                                        />
                                     </TableRow>
                                 )}
                             </Fragment>
                         ))}
                     </TableBody>
                 </Table>
-            </Box>
+            </TableContainer>
 
-            <Button variant="outlined" startIcon={<AddIcon />} onClick={addRow} sx={{ mb: 2 }}>
-                {t('accountancy.addRow')}
-            </Button>
-
-            <Stack direction="row" spacing={2}>
-                <Button variant="outlined" onClick={() => router.back()}>
+            <Stack direction="row" spacing={1} justifyContent="flex-end">
+                <Button variant="outlined" size="small" onClick={() => router.back()}>
                     {t('common.cancel')}
                 </Button>
-                <Button variant="contained" endIcon={<SendIcon />} onClick={handleSubmit} disabled={loading}>
+                <Button variant="contained" size="small" endIcon={<SendIcon fontSize="small" />} onClick={handleSubmit} disabled={loading}>
                     {t('common.send')}
                 </Button>
             </Stack>
@@ -1619,6 +1941,7 @@ export default function BulkAddTransactionsPage() {
                 reportMonth={reportMonth}
                 initialRoomId={bookingModalInitialRoomId}
             />
+            {DuplicateDialog}
         </>
     );
 }

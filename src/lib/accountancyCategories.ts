@@ -27,9 +27,16 @@ export async function addAccountancyCategory(
     return response.data;
 }
 
+export type UpdateAccountancyCategoryPayload = Partial<
+    Omit<AccountancyCategory, '_id' | 'createdAt' | 'source' | 'recipient'>
+> & {
+    source?: AccountancyCategory['source'] | null;
+    recipient?: AccountancyCategory['recipient'] | null;
+};
+
 export async function updateAccountancyCategory(
     id: string,
-    data: Partial<Omit<AccountancyCategory, '_id' | 'createdAt'>>,
+    data: UpdateAccountancyCategoryPayload,
 ): Promise<CommonResponse> {
     const response = await axios.put(getApiUrl('accountancyCategories'), {
         _id: id,

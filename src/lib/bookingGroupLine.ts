@@ -32,20 +32,6 @@ export function formatBookingNightsLabel(arrival: unknown, departure: unknown): 
     return `(${days} ${ruNightsWord(days)})`;
 }
 
-/** Сумма брони (бат): максимум по строкам charge в invoice. Пустая строка, если суммы нет. */
-export function getBookingLineChargeTotal(b: Booking): string {
-    const items = b.invoiceItems;
-    if (!items?.length) return '';
-    let max = 0;
-    for (const item of items) {
-        if (item.type === 'charge' && typeof item.lineTotal === 'number' && item.lineTotal > max) {
-            max = item.lineTotal;
-        }
-    }
-    if (max <= 0) return '';
-    return `${max.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} бат`;
-}
-
 export const BOOKING_GROUP_COMMENT_MAX = 50;
 
 /** Полный комментарий к брони (без усечения) или null, если пусто. */
@@ -86,7 +72,6 @@ export type BookingGroupLineModel = {
         string,
         string,
         string,
-        string,
     ];
     /** Для подсказки: полный комментарий, если в строке он усечён. */
     commentFull: string | null;
@@ -98,7 +83,7 @@ export function joinBookingGroupSegments(parts: readonly string[]): string {
 }
 
 /**
- * Сегменты заголовка группы брони: заезд · выезд · ночи · источник · заголовок · имя · фамилия · комментарий · (гостей) · сумма.
+ * Сегменты заголовка группы брони: заезд · выезд · ночи · источник · заголовок · имя · фамилия · комментарий · (гостей).
  */
 export function buildBookingGroupLineModel(b: Booking): BookingGroupLineModel {
     const segText = (v: unknown) => {
@@ -131,7 +116,6 @@ export function buildBookingGroupLineModel(b: Booking): BookingGroupLineModel {
         segText(b.lastName),
         getBookingGroupCommentText(b),
         formatGuestCountInParens(b),
-        getBookingLineChargeTotal(b),
     ];
     return { segments, commentFull };
 }

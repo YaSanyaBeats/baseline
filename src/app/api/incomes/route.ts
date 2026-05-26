@@ -5,7 +5,7 @@ import { getDB } from '@/lib/db/getDB';
 import { Income, IncomeStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
-import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import { resolveForbidDuplicateOnCreate } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import { mergeAccountancyListQuery } from '@/lib/accountancyListServerFilter';
@@ -205,20 +205,30 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (
-            await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
+        const allowDuplicate = Boolean(body.params?.allowDuplicate ?? body.allowDuplicate);
+
+        const dupResolution = await resolveForbidDuplicateOnCreate(
+            db,
+            'incomes',
+            'income',
+            {
                 objectId: incomeData.objectId,
                 category: incomeData.category,
                 roomName: incomeData.roomName ?? null,
                 reportMonth: incomeData.reportMonth,
-            })
-        ) {
+            },
+            allowDuplicate,
+        );
+
+        if (dupResolution.action === 'confirm') {
             return NextResponse.json(
                 {
                     success: false,
                     code: 'FORBID_DUPLICATES',
                     message:
                         'Для этой категории включён запрет дублей: уже есть запись с тем же объектом, комнатой, категорией и отчётным месяцем.',
+                    existingAmount: dupResolution.existingAmount,
+                    existingLineTotal: dupResolution.existingLineTotal,
                 },
                 { status: 400 },
             );
@@ -350,6 +360,62 @@ export async function POST(request: NextRequest) {
             parentExpenseId: parentExpenseIdBin,
             parentIncomeId: parentIncomeIdBin,
         };
+
+        if (dupResolution.action === 'overwrite') {
+            const existingIncome = dupResolution.existingDoc;
+            const updateData = {
+                recordType: 'income' as const,
+                objectId: incomeData.objectId,
+                roomName: incomeData.roomName ?? null,
+                bookingId: incomeData.bookingId ?? null,
+                source: incomeData.source ?? null,
+                recipient: incomeData.recipient ?? null,
+                cashflowId: incomeData.cashflowId ?? null,
+                category: incomeData.category,
+                categoryId: incomeData.categoryId ?? null,
+                amount: incomeData.amount,
+                quantity,
+                date: new Date(incomeData.date),
+                comment: incomeData.comment ?? '',
+                reportMonth: incomeData.reportMonth ?? null,
+                status,
+                attachments: incomeData.attachments ?? [],
+                accountantId,
+                accountantName: accountant.name,
+                autoCreated: null,
+                parentExpenseId: parentExpenseIdBin,
+                parentIncomeId: parentIncomeIdBin,
+            };
+
+            await incomesCollection.updateOne(
+                { _id: dupResolution.existingId },
+                { $set: updateData },
+            );
+
+            await logAuditAction({
+                entity: 'income',
+                entityId: dupResolution.existingId.toString(),
+                action: 'update',
+                userId: accountantId,
+                userName: accountant.name,
+                userRole: userRole,
+                description: `Перезаписан доход (дубль с нулевой суммой): ${incomeData.category}, сумма ${quantity * incomeData.amount}`,
+                oldData: existingIncome,
+                newData: updateData,
+                metadata: {
+                    objectId: incomeData.objectId,
+                    bookingId: incomeData.bookingId,
+                    category: incomeData.category,
+                    amount: incomeData.amount,
+                },
+            });
+
+            return NextResponse.json({
+                success: true,
+                message: 'Доход успешно добавлен',
+                id: dupResolution.existingId.toString(),
+            });
+        }
 
         const result = await incomesCollection.insertOne(incomeToInsert as any);
 

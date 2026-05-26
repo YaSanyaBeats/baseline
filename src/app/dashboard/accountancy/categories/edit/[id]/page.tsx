@@ -19,13 +19,19 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SendIcon from '@mui/icons-material/Send';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AccountancyCategory, CategoryDivisibility } from '@/lib/types';
+import { AccountancyCategory, CategoryDivisibility, NoBookingSubgroupId } from '@/lib/types';
 import {
     getAccountancyCategories,
     getAccountancyCategoryById,
     updateAccountancyCategory,
+    type UpdateAccountancyCategoryPayload,
 } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { NO_BOOKING_SUBGROUP_BINDABLE } from '@/lib/noBookingCategorySubgroups';
+import { getCounterparties } from '@/lib/counterparties';
+import { getCashflows } from '@/lib/cashflows';
+import { getUsersWithCashflow } from '@/lib/users';
+import SourceRecipientSelect, { type SourceRecipientOptionValue } from '@/components/accountancy/SourceRecipientSelect';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -43,6 +49,9 @@ export default function Page() {
 
     const [category, setCategory] = useState<Partial<AccountancyCategory>>({});
     const [allCategories, setAllCategories] = useState<AccountancyCategory[]>([]);
+    const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
+    const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
@@ -55,11 +64,17 @@ export default function Page() {
         const load = async () => {
             setLoading(true);
             try {
-                const [found, categories] = await Promise.all([
+                const [found, categories, cps, cfsRaw, usersCf] = await Promise.all([
                     getAccountancyCategoryById(categoryId),
                     getAccountancyCategories(),
+                    getCounterparties(),
+                    getCashflows(),
+                    getUsersWithCashflow(),
                 ]);
                 setAllCategories(categories);
+                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCashflows(cfsRaw.map((c) => ({ _id: c._id!, name: c.name })));
+                setUsersWithCashflow(usersCf);
                 if (found) {
                     setCategory(found);
                 } else {
@@ -110,7 +125,7 @@ export default function Page() {
 
         setSaving(true);
         try {
-            const res = await updateAccountancyCategory(category._id, {
+            const payload: UpdateAccountancyCategoryPayload = {
                 name: category.name!.trim(),
                 parentId: category.parentId || null,
                 order: category.order,
@@ -118,7 +133,13 @@ export default function Page() {
                 divisibility: category.divisibility,
                 pricePerUnit: category.pricePerUnit,
                 forbidDuplicates: Boolean(category.forbidDuplicates),
-            });
+                source: category.source?.trim() ? category.source : null,
+                recipient: category.recipient?.trim() ? category.recipient : null,
+            };
+            if (category.noBookingSubgroupId !== undefined) {
+                payload.noBookingSubgroupId = category.noBookingSubgroupId;
+            }
+            const res = await updateAccountancyCategory(category._id, payload);
             setSnackbar({
                 open: true,
                 message: res.message,
@@ -212,6 +233,28 @@ export default function Page() {
                     </Select>
                 </FormControl>
 
+                <FormControl fullWidth>
+                    <InputLabel>{t('accountancy.groupBinding')}</InputLabel>
+                    <Select
+                        value={category.noBookingSubgroupId ?? ''}
+                        label={t('accountancy.groupBinding')}
+                        onChange={(e) => {
+                            const value = e.target.value as NoBookingSubgroupId | '';
+                            setCategory((p) => ({
+                                ...p,
+                                noBookingSubgroupId: value === '' ? null : value,
+                            }));
+                        }}
+                    >
+                        <MenuItem value="">{t('accountancy.groupBindingNone')}</MenuItem>
+                        {NO_BOOKING_SUBGROUP_BINDABLE.map((sid) => (
+                            <MenuItem key={sid} value={sid}>
+                                {t(`accountancy.noBookingSubgroup.${sid}`)}
+                            </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
+
                 <TextField
                     label={t('accountancy.unit')}
                     value={category.unit ?? ''}
@@ -254,6 +297,43 @@ export default function Page() {
                     fullWidth
                     inputProps={{ min: 0, step: 0.01 }}
                 />
+
+                <Box>
+                    <SourceRecipientSelect
+                        value={(category.source as SourceRecipientOptionValue) ?? ''}
+                        onChange={(v) => setCategory((p) => ({ ...p, source: v || undefined }))}
+                        label={t('accountancy.source')}
+                        counterparties={counterparties}
+                        usersWithCashflow={usersWithCashflow}
+                        includeCurrentRoomOption
+                        includeCurrentCommissionFundOption
+                        includeCurrentManagerFundOption
+                        includeInternalObjectsList
+                        includeRoomList={false}
+                        size="medium"
+                        sx={{ width: '100%' }}
+                    />
+                </Box>
+
+                <Box>
+                    <SourceRecipientSelect
+                        value={(category.recipient as SourceRecipientOptionValue) ?? ''}
+                        onChange={(v) => setCategory((p) => ({ ...p, recipient: v || undefined }))}
+                        label={t('accountancy.recipient')}
+                        counterparties={counterparties}
+                        usersWithCashflow={usersWithCashflow}
+                        cashflows={cashflows}
+                        includeCashflows
+                        includeCurrentRoomOption
+                        includeCurrentCommissionFundOption
+                        includeCurrentManagerFundOption
+                        includeCurrentInternetProviderOption
+                        includeInternalObjectsList
+                        includeRoomList={false}
+                        size="medium"
+                        sx={{ width: '100%' }}
+                    />
+                </Box>
 
                 <FormControlLabel
                     control={

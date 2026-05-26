@@ -175,6 +175,10 @@ export interface CommonResponse {
     code?: string;
     /** ID созданной сущности (например расхода после POST) */
     id?: string;
+    /** Сумма существующей записи при FORBID_DUPLICATES (amount) */
+    existingAmount?: number;
+    /** Сумма строки существующей записи (amount × quantity) при FORBID_DUPLICATES */
+    existingLineTotal?: number;
 }
 
 export interface BusynessRow {
@@ -340,7 +344,7 @@ export interface AutoCreatedMeta {
     ruleId?: string;               // ID правила из конструктора
 }
 
-/** Значение поля «От кого»/«Кому»: "room:objectId:encodedRoomName", "room:from_booking" (только в правилах автоучёта), "cp:…", "user:…", "cf:…" */
+/** Значение поля «От кого»/«Кому»: "room:objectId:encodedRoomName", "room:from_booking", "room:current", "room:current_commission_fund", "room:current_manager_fund", "room:current_internet_provider", "cp:…", "user:…", "cf:…" */
 export type SourceRecipientValue = string;
 
 export interface Expense {
@@ -415,6 +419,8 @@ export interface Income {
     childExpenseIds?: string[];
     /** ID дочерних доходов (Mongo), если приход разбит на подтранзакции */
     childIncomeIds?: string[];
+    /** Учитывать доход в расчёте синтетических транзакций сводки (по умолчанию — да) */
+    includeInSynthetic?: boolean;
 }
 
 /** Ручной процент авторасчёта «Комиссия за управление» для конкретной брони. */
@@ -510,6 +516,9 @@ export type CategoryDivisibility = '/2' | '/3' | 'неделимый';
 /** Чекин / чекаут */
 export type CategoryCheckInOut = 'checkin' | 'checkout';
 
+/** Подгруппа «Без брони» на странице accountancy (кроме «Прочее» — это fallback). */
+export type NoBookingSubgroupId = 'common' | 'guest' | 'hc' | 'owner' | 'mutual' | 'other';
+
 export interface AccountancyCategory {
     _id?: string;
     name: string;
@@ -519,12 +528,18 @@ export interface AccountancyCategory {
     unit?: string;                      // Единица измерения
     divisibility?: CategoryDivisibility; // Делимость
     pricePerUnit?: number;              // Цена за единицу
+    /** От кого по умолчанию при выборе категории в транзакциях */
+    source?: SourceRecipientValue;
+    /** Кому по умолчанию при выборе категории в транзакциях */
+    recipient?: SourceRecipientValue;
     attributionDate?: string;           // Дата отнесения (ISO)
     isAuto?: boolean;                   // Авто / не авто
     checkInOut?: CategoryCheckInOut;    // Чекин / чекаут
     reportingPeriod?: string;           // Отчётный период (дата, ISO)
     /** Не допускать вторую запись с тем же объектом, комнатой, категорией и отчётным месяцем (бронь не учитывается) */
     forbidDuplicates?: boolean;
+    /** Привязка к группе «Без брони» на странице accountancy; null = явно «Прочее» */
+    noBookingSubgroupId?: NoBookingSubgroupId | null;
     createdAt?: Date;
 }
 

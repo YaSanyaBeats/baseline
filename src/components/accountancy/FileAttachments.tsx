@@ -1,12 +1,14 @@
 'use client';
 
 import {
+    Badge,
     Box,
     Button,
     IconButton,
     List,
     ListItem,
     ListItemText,
+    Tooltip,
     Typography,
 } from '@mui/material';
 import AttachFileIcon from '@mui/icons-material/AttachFile';
@@ -28,8 +30,10 @@ export default function FileAttachments(props: {
     value: AccountancyAttachment[];
     onChange: (attachments: AccountancyAttachment[]) => void;
     disabled?: boolean;
+    /** Иконка с бейджем — для плотных таблиц */
+    compact?: boolean;
 }) {
-    const { value, onChange, disabled } = props;
+    const { value, onChange, disabled, compact = false } = props;
     const { t } = useTranslation();
     const { setSnackbar } = useSnackbar();
     const inputRef = useRef<HTMLInputElement>(null);
@@ -107,6 +111,46 @@ export default function FileAttachments(props: {
     const handleRemove = (index: number) => {
         onChange(value.filter((_, i) => i !== index));
     };
+
+    if (compact) {
+        const tooltipTitle =
+            value.length > 0
+                ? value.map((a) => a.name).join(', ')
+                : t('accountancy.addFiles');
+        return (
+            <Box sx={{ display: 'inline-flex', alignItems: 'center' }}>
+                <input
+                    ref={inputRef}
+                    type="file"
+                    accept={ACCEPT_ATTACHMENTS}
+                    multiple
+                    style={{ display: 'none' }}
+                    onChange={handleSelectFiles}
+                    disabled={disabled || uploading || !canAddMore}
+                />
+                <Tooltip title={tooltipTitle}>
+                    <span>
+                        <IconButton
+                            size="small"
+                            onClick={() => inputRef.current?.click()}
+                            disabled={disabled || uploading || !canAddMore}
+                            aria-label={t('accountancy.attachments')}
+                            sx={{ p: 0.25 }}
+                        >
+                            <Badge
+                                badgeContent={value.length || undefined}
+                                color="primary"
+                                overlap="circular"
+                                sx={{ '& .MuiBadge-badge': { fontSize: '0.6rem', height: 14, minWidth: 14 } }}
+                            >
+                                <AttachFileIcon sx={{ fontSize: '1rem' }} />
+                            </Badge>
+                        </IconButton>
+                    </span>
+                </Tooltip>
+            </Box>
+        );
+    }
 
     return (
         <Box>

@@ -141,6 +141,7 @@ export async function POST(request: NextRequest) {
             status,
             attachments: incomeData.attachments ?? [],
             autoCreated: null,
+            includeInSynthetic: incomeData.includeInSynthetic !== false,
         };
 
         await incomesCollection.updateOne(

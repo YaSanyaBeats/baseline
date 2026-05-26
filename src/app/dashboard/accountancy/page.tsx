@@ -54,9 +54,13 @@ import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import {
     buildCategoryNameByIdMap,
+    buildAccountancyQuickAddCategoryContext,
+    findCategoryById,
     mergeCategoryNameMaps,
     resolveCategoryFieldsFromId,
     resolveCategoryName,
+    resolveCategorySourceRecipientValue,
+    resolveCategoryTransactionDefaults,
 } from "@/lib/accountancyCategoryResolve";
 import {
     buildSourceRecipientAutocompleteOptions,
@@ -83,7 +87,7 @@ import {
 import {
     NO_BOOKING_SUBGROUP_ORDER,
     isExcludedFromAccountancyRoomStatsSum,
-    resolveNoBookingSubgroupId,
+    resolveNoBookingSubgroupForTransaction,
 } from "@/lib/noBookingCategorySubgroups";
 import {
     BOOKING_GROUP_CATEGORY_ORDER,
@@ -397,11 +401,20 @@ type OperationListGroup = {
     rows: OperationRow[];
     /** Бронь привязана к другой комнате, чем в фильтре (только для групп `b-*`) */
     bookingRoomMismatch?: boolean;
-    /** `unitId` брони (нормализованный), только для групп `b-*` */
-    bookingUnitRoomId?: number | null;
+    /** Название комнаты брони, только для групп `b-*` */
+    bookingUnitRoomName?: string | null;
     /** Сегменты заголовка и полный комментарий (Tooltip) — только для групп `b-*` с известной бронью. */
     bookingGroupLine?: BookingGroupLineModel;
 };
+
+/** Группы «Без брони», в которых показывается чекбокс «Делимость» у расходов и приходов. */
+const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common', 'nobook-guest']);
+
+function operationRowShowsDivisibilityCheckbox(groupKey: string, row: OperationRow): boolean {
+    if (row.readOnlySynthetic) return false;
+    if (groupKey.startsWith('b-')) return row.type === 'expense';
+    return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey);
+}
 
 /** Локальный черновик новой транзакции в таблице сводки (до сохранения в БД). */
 type PendingOperationDraft = {
@@ -477,6 +490,10 @@ export default function Page() {
                 buildCategoryNameByIdMap(categoriesExpense),
                 buildCategoryNameByIdMap(categoriesIncome),
             ),
+        [categoriesExpense, categoriesIncome],
+    );
+    const allCategories = useMemo(
+        () => [...categoriesExpense, ...categoriesIncome],
         [categoriesExpense, categoriesIncome],
     );
     const [referenceLoading, setReferenceLoading] = useState(true);
@@ -582,7 +599,7 @@ export default function Page() {
                 if (cancelled) return;
                 setCategoriesExpense(catExp);
                 setCategoriesIncome(catInc);
-                setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
+                setCounterparties(cps.map((c) => ({ _id: normalizeMongoIdString(c._id), name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
             } finally {
@@ -1197,6 +1214,7 @@ export default function Page() {
                     source: i.source,
                     recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
+                    includeInSynthetic: i.includeInSynthetic,
                     ...(parentTransaction ? { parentTransaction } : {}),
                     ...(bidInc != null ? { bookingId: bidInc } : {}),
                 });
@@ -1341,6 +1359,13 @@ export default function Page() {
         const bookingEntries = [...map.entries()]
             .filter(([, gRows]) => gRows.some((r) => !r.readOnlySynthetic))
             .sort((a, b) => bookingGroupSortTime(b[0], b[1]) - bookingGroupSortTime(a[0], a[1]));
+        const resolveBookingUnitRoomName = (unitId: unknown): string | null => {
+            const uid = normalizeUnitOrRoomId(unitId);
+            if (uid == null) return null;
+            const roomRow = roomsForSelectedObject.find((r) => r.id === uid);
+            return roomRow ? stableAccountancyRoomLabel(roomRow) : `Unit ${uid}`;
+        };
+
         const bookingRoomMismatchForKey = (bookingKey: string): boolean => {
             if (selectedRoomId === 'all' || !bookingKey.startsWith('b-') || !selectedObject) return false;
             const bid = Number(bookingKey.slice(2));
@@ -1390,7 +1415,7 @@ export default function Page() {
                 ...(bookingGroupLine != null ? { bookingGroupLine } : {}),
                 rows: finalRows,
                 bookingRoomMismatch: bookingRoomMismatchForKey(key),
-                bookingUnitRoomId: b != null ? normalizeUnitOrRoomId(b.unitId) : null,
+                bookingUnitRoomName: b != null ? resolveBookingUnitRoomName(b.unitId) : null,
             };
         });
 
@@ -1399,7 +1424,11 @@ export default function Page() {
             bySub.set(sid, []);
         }
         for (const row of noneRows) {
-            const sid = resolveNoBookingSubgroupId(row.category);
+            const sid = resolveNoBookingSubgroupForTransaction(
+                row.categoryId,
+                row.category,
+                allCategories,
+            );
             bySub.get(sid)!.push(row);
         }
 
@@ -1445,8 +1474,15 @@ export default function Page() {
                     row.category !== BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
             );
             const commonAndGuestRows = noneRows.filter((row) => {
-                const sid = resolveNoBookingSubgroupId(row.category);
-                return sid === 'common' || sid === 'guest';
+                const sid = resolveNoBookingSubgroupForTransaction(
+                    row.categoryId,
+                    row.category,
+                    allCategories,
+                );
+                return (
+                    (sid === 'common' || sid === 'guest') &&
+                    row.includeInSynthetic !== false
+                );
             });
             const toLineItems = (rows: OperationRow[]) =>
                 rows.map((row) => ({
@@ -1550,6 +1586,7 @@ export default function Page() {
         commissionCalculationMonthKey,
         bookingAutoCommissionByBookingId,
         commissionRatesByBookingId,
+        allCategories,
     ]);
 
     const toggleOperationGroupCollapsed = (groupKey: string) => {
@@ -1580,6 +1617,47 @@ export default function Page() {
         if (/^\d{4}-\d{2}$/.test(m)) return m;
         return reportMonthOptions[0]?.value ?? '';
     }, [commissionCalculationMonthKey, selectedMonth, reportMonthOptions]);
+
+    const quickAddCategoryContext = useMemo(
+        () =>
+            buildAccountancyQuickAddCategoryContext({
+                selectedObject: selectedObject ?? null,
+                selectedRoomId,
+                selectedRoom: selectedRoomRow,
+                objects,
+                objectGroupMembers: selectedObjectGroupMembers,
+            }),
+        [selectedObject, selectedRoomId, selectedRoomRow, objects, selectedObjectGroupMembers],
+    );
+
+    useEffect(() => {
+        if (!selectedObject) return;
+        setPendingDrafts((prev) => {
+            let changed = false;
+            const next = prev.map((draft) => {
+                if (!draft.categoryId.trim()) return draft;
+                const cats = draft.type === 'expense' ? categoriesExpense : categoriesIncome;
+                const cat = findCategoryById(cats, draft.categoryId);
+                if (!cat) return draft;
+                const defaults = resolveCategoryTransactionDefaults(cat, quickAddCategoryContext);
+                const patched = {
+                    ...draft,
+                    source: defaults.source,
+                    recipient: defaults.recipient,
+                    ...(defaults.pricePerUnit != null ? { unitAmount: defaults.pricePerUnit } : {}),
+                };
+                if (
+                    patched.source !== draft.source ||
+                    patched.recipient !== draft.recipient ||
+                    (defaults.pricePerUnit != null && patched.unitAmount !== draft.unitAmount)
+                ) {
+                    changed = true;
+                }
+                return patched;
+            });
+            return changed ? next : prev;
+        });
+    }, [quickAddCategoryContext, selectedObject, categoriesExpense, categoriesIncome]);
 
     const handleAddPendingDraft = useCallback(
         (type: 'expense' | 'income') => {
@@ -1646,6 +1724,7 @@ export default function Page() {
         }
 
         const roomName = selectedRoomId === 'all' ? undefined : selectedRoomId;
+        const roomContext = quickAddCategoryContext;
         setPendingDraftSavingId(row.id);
         try {
             if (draft.type === 'expense') {
@@ -1660,8 +1739,8 @@ export default function Page() {
                     comment: draft.comment || '',
                     status: draft.status,
                     reportMonth: draft.reportMonth || undefined,
-                    source: draft.source,
-                    recipient: draft.recipient,
+                    source: resolveCategorySourceRecipientValue(draft.source, roomContext),
+                    recipient: resolveCategorySourceRecipientValue(draft.recipient, roomContext),
                     attachments: [],
                     accountantId: '',
                 };
@@ -1687,8 +1766,8 @@ export default function Page() {
                     comment: draft.comment || undefined,
                     status: draft.status,
                     reportMonth: draft.reportMonth || undefined,
-                    source: draft.source,
-                    recipient: draft.recipient,
+                    source: resolveCategorySourceRecipientValue(draft.source, roomContext),
+                    recipient: resolveCategorySourceRecipientValue(draft.recipient, roomContext),
                     attachments: [],
                     accountantId: '',
                 };
@@ -1916,9 +1995,14 @@ export default function Page() {
         if (row.isPendingDraft) {
             const cats = row.type === 'expense' ? categoriesExpense : categoriesIncome;
             const resolved = resolveCategoryFieldsFromId(newCategoryId, cats, row.type);
+            const cat = findCategoryById(cats, newCategoryId);
+            const defaults = resolveCategoryTransactionDefaults(cat, quickAddCategoryContext);
             patchPendingDraft(row.id, {
                 categoryId: newCategoryId,
                 category: resolved?.category ?? '',
+                source: defaults.source,
+                recipient: defaults.recipient,
+                ...(defaults.pricePerUnit != null ? { unitAmount: defaults.pricePerUnit } : {}),
             });
             return;
         }
@@ -2403,29 +2487,53 @@ export default function Page() {
     };
 
     const handleIncludeInSyntheticChange = async (row: OperationRow, included: boolean) => {
-        if (row.readOnlySynthetic || row.type !== 'expense' || row.bookingId == null) return;
-        if (!row.entityId) return;
+        if (row.readOnlySynthetic || !row.entityId) return;
         setIncludeInSyntheticUpdatingId(row.id);
         try {
-            const expense = expenses.find((e) => e._id === row.entityId);
-            if (!expense) return;
-            const payload: Expense = {
-                ...expense,
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    includeInSynthetic: included,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) =>
+                            e._id === row.entityId ? { ...e, includeInSynthetic: included } : e,
+                        ),
+                    );
+                }
+                return;
+            }
+            const income = incomes.find((i) => i._id === row.entityId);
+            if (!income) return;
+            const payload: Income = {
+                ...income,
                 includeInSynthetic: included,
-                date: expense.date
-                    ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                date: income.date
+                    ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
                     : new Date(),
             };
-            const res = await updateExpense(payload);
+            const res = await updateIncome(payload);
             setSnackbar({
                 open: true,
-                message: res.message || t('accountancy.expenseUpdated'),
+                message: res.message || t('accountancy.incomeUpdated'),
                 severity: res.success ? 'success' : 'error',
             });
             if (res.success) {
-                setExpenses((prev) =>
-                    prev.map((e) =>
-                        e._id === row.entityId ? { ...e, includeInSynthetic: included } : e,
+                setIncomes((prev) =>
+                    prev.map((i) =>
+                        i._id === row.entityId ? { ...i, includeInSynthetic: included } : i,
                     ),
                 );
             }
@@ -2985,12 +3093,8 @@ export default function Page() {
                                                                                     ),
                                                                                 )
                                                                                 .replace(
-                                                                                    '{{bookingUnitRoomId}}',
-                                                                                    group.bookingUnitRoomId != null
-                                                                                        ? String(
-                                                                                              group.bookingUnitRoomId,
-                                                                                          )
-                                                                                        : '—',
+                                                                                    '{{bookingUnitRoomName}}',
+                                                                                    group.bookingUnitRoomName ?? '—',
                                                                                 )}
                                                                             arrow
                                                                         >
@@ -3009,11 +3113,10 @@ export default function Page() {
                                                                 <AccountancyOverviewOperationTableRow
                                                                     key={row.id}
                                                                     row={row}
-                                                                    showDivisibilityCheckbox={
-                                                                        group.key.startsWith('b-') &&
-                                                                        row.type === 'expense' &&
-                                                                        !row.readOnlySynthetic
-                                                                    }
+                                                                    showDivisibilityCheckbox={operationRowShowsDivisibilityCheckbox(
+                                                                        group.key,
+                                                                        row,
+                                                                    )}
                                                                     {...sharedOperationRowProps}
                                                                 />
                                                             ))}

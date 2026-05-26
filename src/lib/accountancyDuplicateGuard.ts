@@ -47,7 +47,7 @@ export async function findDuplicateCategoryObjectRoomMonthRow(
         reportMonth: unknown;
         excludeObjectId?: ObjectId;
     },
-): Promise<{ _id: unknown } | null> {
+): Promise<Record<string, unknown> | null> {
     const trimmed = params.category.trim();
     const targetMonth = normalizeReportMonth(params.reportMonth);
     const targetRoom = normalizeRoomName(params.roomName);
@@ -67,9 +67,77 @@ export async function findDuplicateCategoryObjectRoomMonthRow(
         if (normalizeObjectId(doc.objectId) !== targetObject) continue;
         if (normalizeReportMonth(doc.reportMonth) !== targetMonth) continue;
         if (normalizeRoomName(doc.roomName) !== targetRoom) continue;
-        return doc;
+        return doc as Record<string, unknown>;
     }
     return null;
+}
+
+/** Сумма строки: amount × quantity. */
+export function transactionLineTotal(doc: { amount?: unknown; quantity?: unknown }): number {
+    const amount = typeof doc.amount === 'number' ? doc.amount : Number(doc.amount) || 0;
+    const quantity =
+        typeof doc.quantity === 'number' && Number.isInteger(doc.quantity) && doc.quantity >= 1
+            ? doc.quantity
+            : 1;
+    return amount * quantity;
+}
+
+/** Транзакция с нулевой суммой (amount × quantity === 0). */
+export function isZeroAmountTransaction(doc: { amount?: unknown; quantity?: unknown }): boolean {
+    return transactionLineTotal(doc) === 0;
+}
+
+export type ForbidDuplicateCreateResolution =
+    | { action: 'proceed' }
+    | { action: 'overwrite'; existingId: ObjectId; existingDoc: Record<string, unknown> }
+    | {
+          action: 'confirm';
+          existingId: ObjectId;
+          existingAmount: number;
+          existingLineTotal: number;
+      };
+
+type DuplicateLookupParams = {
+    objectId: number;
+    category: string;
+    roomName: string | null | undefined;
+    reportMonth: unknown;
+    excludeObjectId?: ObjectId;
+};
+
+/**
+ * При создании транзакции в категории с forbidDuplicates:
+ * - нет дубля → proceed (insert);
+ * - дубль с суммой 0 → overwrite;
+ * - дубль с ненулевой суммой и allowDuplicate → proceed (insert второй записи);
+ * - дубль с ненулевой суммой → confirm (нужен выбор пользователя).
+ */
+export async function resolveForbidDuplicateOnCreate(
+    db: Db,
+    collectionName: CollectionName,
+    categoryType: 'expense' | 'income',
+    params: DuplicateLookupParams,
+    allowDuplicate: boolean,
+): Promise<ForbidDuplicateCreateResolution> {
+    const forbids = await categoryForbidsDuplicates(db, params.category, categoryType);
+    if (!forbids) return { action: 'proceed' };
+
+    const dup = await findDuplicateCategoryObjectRoomMonthRow(db, collectionName, params);
+    if (!dup) return { action: 'proceed' };
+
+    const existingId = dup._id as ObjectId;
+    if (isZeroAmountTransaction(dup)) {
+        return { action: 'overwrite', existingId, existingDoc: dup as Record<string, unknown> };
+    }
+    if (allowDuplicate) return { action: 'proceed' };
+
+    const existingAmount = typeof dup.amount === 'number' ? dup.amount : Number(dup.amount) || 0;
+    return {
+        action: 'confirm',
+        existingId,
+        existingAmount,
+        existingLineTotal: transactionLineTotal(dup),
+    };
 }
 
 /** true — уже есть строка, новую создавать нельзя (категория с forbidDuplicates). */
@@ -77,16 +145,8 @@ export async function hasDuplicateForForbidCategory(
     db: Db,
     collectionName: CollectionName,
     categoryType: 'expense' | 'income',
-    params: {
-        objectId: number;
-        category: string;
-        roomName: string | null | undefined;
-        reportMonth: unknown;
-        excludeObjectId?: ObjectId;
-    },
+    params: DuplicateLookupParams,
 ): Promise<boolean> {
-    const forbids = await categoryForbidsDuplicates(db, params.category, categoryType);
-    if (!forbids) return false;
-    const dup = await findDuplicateCategoryObjectRoomMonthRow(db, collectionName, params);
-    return dup != null;
+    const resolution = await resolveForbidDuplicateOnCreate(db, collectionName, categoryType, params, false);
+    return resolution.action === 'confirm';
 }

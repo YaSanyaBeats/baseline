@@ -48,8 +48,12 @@ export default function RoomsMultiSelect(props: {
     multiple?: boolean,
     /** По умолчанию — имя юнита (стабильная привязка). `id` — для отчётов (roomIds как числа). */
     roomValueMode?: 'name' | 'id',
+    /** Без плавающей подписи — для плотных таблиц */
+    hideLabel?: boolean,
+    size?: 'small' | 'medium',
+    sx?: object,
 }) {
-    const { value, onChange, label, multiple = true, roomValueMode = 'name' } = props;
+    const { value, onChange, label, multiple = true, roomValueMode = 'name', hideLabel = false, size = 'small', sx } = props;
     const {objects} = useObjects();
     const { t } = useTranslation();
     const [options, setOptions] = useState<Option[]>();
@@ -90,10 +94,15 @@ export default function RoomsMultiSelect(props: {
         return (<></>);
     }
     
+    const fieldLabel = label || t('dashboard.hasAccessTo');
+    const fieldPlaceholder = `${t('common.objects')} ${t('common.and')} ${t('common.rooms')}`;
+
     return (
         <Autocomplete<Option, boolean>
             multiple={multiple}
             id="checkboxes-tags-demo"
+            size={size}
+            sx={sx}
             options={options}
             disableCloseOnSelect={multiple}
             getOptionLabel={(option: Option) => option.title}
@@ -127,9 +136,21 @@ export default function RoomsMultiSelect(props: {
                     </li>
                 );
             }}
-            renderInput={(params) => (
-                <TextField {...params} label={label || t('dashboard.hasAccessTo')} placeholder={`${t('common.objects')} ${t('common.and')} ${t('common.rooms')}`} />
-            )}
+            renderInput={(params) =>
+                hideLabel ? (
+                    <TextField
+                        {...params}
+                        hiddenLabel
+                        placeholder={fieldLabel}
+                        inputProps={{
+                            ...params.inputProps,
+                            'aria-label': fieldLabel,
+                        }}
+                    />
+                ) : (
+                    <TextField {...params} label={fieldLabel} placeholder={fieldPlaceholder} />
+                )
+            }
         />
     );
 }

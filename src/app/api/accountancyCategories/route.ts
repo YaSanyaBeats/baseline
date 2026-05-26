@@ -7,7 +7,9 @@ import {
     AccountancyCategoryType,
     CategoryDivisibility,
     CategoryCheckInOut,
+    NoBookingSubgroupId,
 } from '@/lib/types';
+import { NO_BOOKING_SUBGROUP_BINDABLE } from '@/lib/noBookingCategorySubgroups';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 
@@ -202,6 +204,40 @@ export async function PUT(request: NextRequest) {
         const reportingPeriod: string | undefined = body.reportingPeriod;
         const forbidDuplicates: boolean | undefined =
             typeof body.forbidDuplicates === 'boolean' ? body.forbidDuplicates : undefined;
+        const source: string | null | undefined = Object.prototype.hasOwnProperty.call(body, 'source')
+            ? body.source == null || body.source === ''
+                ? null
+                : typeof body.source === 'string'
+                  ? body.source
+                  : undefined
+            : undefined;
+        const recipient: string | null | undefined = Object.prototype.hasOwnProperty.call(
+            body,
+            'recipient',
+        )
+            ? body.recipient == null || body.recipient === ''
+                ? null
+                : typeof body.recipient === 'string'
+                  ? body.recipient
+                  : undefined
+            : undefined;
+
+        let noBookingSubgroupId: NoBookingSubgroupId | null | undefined = undefined;
+        if (Object.prototype.hasOwnProperty.call(body, 'noBookingSubgroupId')) {
+            const raw = body.noBookingSubgroupId;
+            if (raw == null || raw === '') {
+                noBookingSubgroupId = null;
+            } else if (
+                (NO_BOOKING_SUBGROUP_BINDABLE as readonly string[]).includes(String(raw))
+            ) {
+                noBookingSubgroupId = raw as NoBookingSubgroupId;
+            } else {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректная привязка к группе' },
+                    { status: 400 },
+                );
+            }
+        }
 
         if (!id) {
             return NextResponse.json(
@@ -256,8 +292,18 @@ export async function PUT(request: NextRequest) {
         if (checkInOut !== undefined) updateData.checkInOut = checkInOut;
         if (reportingPeriod !== undefined) updateData.reportingPeriod = reportingPeriod;
         if (forbidDuplicates !== undefined) updateData.forbidDuplicates = forbidDuplicates;
+        if (noBookingSubgroupId !== undefined) updateData.noBookingSubgroupId = noBookingSubgroupId;
+        const unsetData: Record<string, ''> = {};
+        if (source !== undefined) {
+            if (source === null) unsetData.source = '';
+            else updateData.source = source;
+        }
+        if (recipient !== undefined) {
+            if (recipient === null) unsetData.recipient = '';
+            else updateData.recipient = recipient;
+        }
 
-        if (Object.keys(updateData).length === 0) {
+        if (Object.keys(updateData).length === 0 && Object.keys(unsetData).length === 0) {
             return NextResponse.json({
                 success: true,
                 message: 'Категория без изменений',
@@ -266,7 +312,10 @@ export async function PUT(request: NextRequest) {
 
         await collection.updateOne(
             { _id: existing._id },
-            { $set: updateData },
+            {
+                ...(Object.keys(updateData).length > 0 ? { $set: updateData } : {}),
+                ...(Object.keys(unsetData).length > 0 ? { $unset: unsetData } : {}),
+            },
         );
 
         const userId = (session.user as any)._id;

@@ -5,7 +5,7 @@ import { getDB } from '@/lib/db/getDB';
 import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
-import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import { resolveForbidDuplicateOnCreate } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import { mergeAccountancyListQuery } from '@/lib/accountancyListServerFilter';
@@ -211,20 +211,30 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        if (
-            await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
+        const allowDuplicate = Boolean(body.params?.allowDuplicate ?? body.allowDuplicate);
+
+        const dupResolution = await resolveForbidDuplicateOnCreate(
+            db,
+            'expenses',
+            'expense',
+            {
                 objectId: expenseData.objectId,
                 category: expenseData.category,
                 roomName: expenseData.roomName ?? null,
                 reportMonth: expenseData.reportMonth,
-            })
-        ) {
+            },
+            allowDuplicate,
+        );
+
+        if (dupResolution.action === 'confirm') {
             return NextResponse.json(
                 {
                     success: false,
                     code: 'FORBID_DUPLICATES',
                     message:
                         'Для этой категории включён запрет дублей: уже есть запись с тем же объектом, комнатой, категорией и отчётным месяцем.',
+                    existingAmount: dupResolution.existingAmount,
+                    existingLineTotal: dupResolution.existingLineTotal,
                 },
                 { status: 400 },
             );
@@ -350,6 +360,64 @@ export async function POST(request: NextRequest) {
             parentIncomeId: parentIncomeIdBin,
             includeInSynthetic: expenseData.includeInSynthetic !== false,
         };
+
+        if (dupResolution.action === 'overwrite') {
+            const existingExpense = dupResolution.existingDoc;
+            const updateData = {
+                recordType: 'expense' as const,
+                objectId: expenseData.objectId,
+                roomName: expenseData.roomName ?? null,
+                bookingId: expenseData.bookingId ?? null,
+                counterpartyId: expenseData.counterpartyId ?? null,
+                source: expenseData.source ?? null,
+                recipient: expenseData.recipient ?? null,
+                cashflowId: expenseData.cashflowId ?? null,
+                category: expenseData.category,
+                categoryId: expenseData.categoryId ?? null,
+                amount: expenseData.amount,
+                quantity,
+                date: new Date(expenseData.date),
+                comment: expenseData.comment || '',
+                reportMonth: expenseData.reportMonth || null,
+                status: expenseData.status,
+                attachments: expenseData.attachments ?? [],
+                accountantId,
+                accountantName: accountant.name,
+                autoCreated: null,
+                parentExpenseId: parentExpenseIdBin,
+                parentIncomeId: parentIncomeIdBin,
+                includeInSynthetic: expenseData.includeInSynthetic !== false,
+            };
+
+            await expensesCollection.updateOne(
+                { _id: dupResolution.existingId },
+                { $set: updateData },
+            );
+
+            await logAuditAction({
+                entity: 'expense',
+                entityId: dupResolution.existingId.toString(),
+                action: 'update',
+                userId: accountantId,
+                userName: accountant.name,
+                userRole: userRole,
+                description: `Перезаписан расход (дубль с нулевой суммой): ${expenseData.category}, сумма ${quantity * expenseData.amount}`,
+                oldData: existingExpense,
+                newData: updateData,
+                metadata: {
+                    objectId: expenseData.objectId,
+                    bookingId: expenseData.bookingId,
+                    category: expenseData.category,
+                    amount: expenseData.amount,
+                },
+            });
+
+            return NextResponse.json({
+                success: true,
+                message: 'Расход успешно добавлен',
+                id: dupResolution.existingId.toString(),
+            });
+        }
 
         const result = await expensesCollection.insertOne(expenseToInsert as any);
 

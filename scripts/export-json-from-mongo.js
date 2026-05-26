@@ -11,7 +11,7 @@ const { MongoClient } = require('mongodb');
 const { EJSON } = require('bson');
 
 // --- настройки: отредактируйте под себя ---
-const OUTPUT_DIR = 'C:\\Users\\YaSanyaPCAcc\\Desktop\\last-mongo\\20260427_051203';
+const OUTPUT_DIR = 'C:\\Users\\YaSanyaPCAcc\\Desktop\\fwefwef';
 const MONGO_URI =
   'mongodb://root:di1hHa%2CcR%7Dhvrd*@localhost:27017/?authSource=admin';
 const DB_NAME = 'baseline';

@@ -17,19 +17,29 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableContainer,
     TableHead,
     TableRow,
+    Tooltip,
 } from '@mui/material';
 import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
+import EventNoteIcon from '@mui/icons-material/EventNote';
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { AccountancyCategory, AccountancyAttachment, Booking, Expense, Income, ExpenseStatus, UserObject } from '@/lib/types';
 import { formatTitle } from '@/lib/format';
-import { addExpense, getExpenseById } from '@/lib/expenses';
-import { addIncome, getIncomeById } from '@/lib/incomes';
+import { getExpenseById } from '@/lib/expenses';
+import { getIncomeById } from '@/lib/incomes';
+import {
+    addExpenseHandlingDuplicate,
+    addIncomeHandlingDuplicate,
+    isTransactionAdded,
+    isTransactionFailed,
+} from '@/lib/accountancyDuplicateSubmit';
+import { useDuplicateTransactionDialog } from '@/components/accountancy/useDuplicateTransactionDialog';
 import { getApiErrorMessage } from '@/lib/axiosResponseMessage';
 import { formatPartialTransactionAddWarning } from '@/lib/accountancyPartialAddMessage';
 import { getCounterparties } from '@/lib/counterparties';
@@ -37,8 +47,35 @@ import { getCashflows } from '@/lib/cashflows';
 import { getUsersWithCashflow } from '@/lib/users';
 import FileAttachments from '@/components/accountancy/FileAttachments';
 import SourceRecipientSelect, {
+    buildSourceRecipientAutocompleteOptions,
     type SourceRecipientOptionValue,
 } from '@/components/accountancy/SourceRecipientSelect';
+import {
+    COMPACT_COL_AMOUNT,
+    COMPACT_COL_ATTACH,
+    COMPACT_COL_BOOKING,
+    COMPACT_COL_CAT,
+    COMPACT_COL_COMMENT,
+    COMPACT_COL_DATE,
+    COMPACT_COL_DEL,
+    COMPACT_COL_DIVISIBILITY,
+    COMPACT_COL_PARTY,
+    COMPACT_COL_QTY,
+    COMPACT_COL_STATUS,
+    COMPACT_COL_SUB_TX,
+    COMPACT_COL_SUM,
+    TXN_ADD_TABLE_MIN_WIDTH_PX,
+    compactCellTextFieldSx,
+    compactGroupParentRowSx,
+    compactGroupSubHeaderRowSx,
+    compactGroupSubRowSx,
+    compactInlineSelectSx,
+    compactRoomSelectSx,
+    compactSourceRecipientSx,
+    compactTableSx,
+    formatCompactLineTotal,
+    txnAddTableColCount,
+} from '@/lib/accountancyCompactTableStyles';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -47,8 +84,10 @@ import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
-import { buildCategoryNameByIdMap, resolveCategoryName } from '@/lib/accountancyCategoryResolve';
+import { buildCategoryNameByIdMap, findCategoryByName, resolveCategoryName, resolveCategorySourceRecipientValue, resolveCategoryTransactionDefaults } from '@/lib/accountancyCategoryResolve';
 import { formatRoomSourceRecipient } from '@/lib/roomBinding';
+import { isResolvableRoomContextToken } from '@/lib/sourceRecipientParse';
+import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
 import { useObjects } from '@/providers/ObjectsProvider';
 
 type LineFields = {
@@ -188,6 +227,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
     const { setSnackbar } = useSnackbar();
+    const { askOnDuplicate, DuplicateDialog } = useDuplicateTransactionDialog();
     /** Кэшфлоу текущего пользователя (как на /dashboard/cashflow), без query в URL */
     const [userCashflowId, setUserCashflowId] = useState<string | undefined>();
     /** Месяц отчёта YYYY-MM, общий для всех позиций (расходы и приходы) */
@@ -384,19 +424,58 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         setRoomName(rName);
         const roomValue: SourceRecipientOptionValue | '' =
             objId != null && rName != null ? formatRoomSourceRecipient(objId, rName) : '';
-        setItems((prev) =>
-            prev.map((item) => ({
+        const district = resolveDistrictForObjectId(objects, objId);
+        const srContext = { objectId: objId, roomName: rName, district, objects };
+        const resolveField = (
+            v: SourceRecipientOptionValue | '',
+            field: 'source' | 'recipient',
+        ): SourceRecipientOptionValue | '' => {
+            const resolved = resolveCategorySourceRecipientValue(v, srContext);
+            if (resolved) return resolved as SourceRecipientOptionValue;
+            if (isResolvableRoomContextToken(v)) return v;
+            if (field === 'source' && type === 'expense' && roomValue) return roomValue;
+            if (field === 'recipient' && type === 'income' && roomValue) return roomValue;
+            return v;
+        };
+        const applyItemFromContext = (item: ItemForm): ItemForm => {
+            const cat = findCategoryByName(categories, item.category, type);
+            const defaults = cat ? resolveCategoryTransactionDefaults(cat, srContext) : {};
+            const next: ItemForm = {
                 ...item,
-                source: type === 'expense' ? roomValue : item.source,
-                recipient: type === 'income' ? roomValue : item.recipient,
-                subItems: item.subItems.map((sub) => ({
-                    ...sub,
-                    ...(sub.recordKind === 'expense'
-                        ? { source: roomValue }
-                        : { recipient: roomValue }),
-                })),
-            }))
-        );
+                source: (defaults.source ??
+                    resolveField(item.source, 'source')) as SourceRecipientOptionValue,
+                recipient: (defaults.recipient ??
+                    resolveField(item.recipient, 'recipient')) as SourceRecipientOptionValue,
+                amount: defaults.pricePerUnit != null ? defaults.pricePerUnit : item.amount,
+                subItems: item.subItems.map((sub) => {
+                    const subCat = findCategoryByName(
+                        sub.recordKind === 'income'
+                            ? type === 'expense'
+                                ? subIncomeCategories
+                                : categories
+                            : type === 'expense'
+                              ? categories
+                              : subExpenseCategories,
+                        sub.category,
+                        sub.recordKind,
+                    );
+                    const subDefaults = subCat
+                        ? resolveCategoryTransactionDefaults(subCat, srContext)
+                        : {};
+                    return {
+                        ...sub,
+                        source: (subDefaults.source ??
+                            resolveField(sub.source, 'source')) as SourceRecipientOptionValue,
+                        recipient: (subDefaults.recipient ??
+                            resolveField(sub.recipient, 'recipient')) as SourceRecipientOptionValue,
+                        amount:
+                            subDefaults.pricePerUnit != null ? subDefaults.pricePerUnit : sub.amount,
+                    };
+                }),
+            };
+            return next;
+        };
+        setItems((prev) => prev.map(applyItemFromContext));
         setErrors((prev) => {
             const next = { ...prev };
             if (objId) delete next.objectId;
@@ -422,7 +501,25 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     };
 
     const handleChangeItem = (index: number, field: keyof ItemForm, value: unknown) => {
-        setItems((prev) => prev.map((item, i) => (i === index ? { ...item, [field]: value } : item)));
+        setItems((prev) =>
+            prev.map((item, i) => {
+                if (i !== index) return item;
+                const next = { ...item, [field]: value } as ItemForm;
+                if (field === 'category') {
+                    const cat = findCategoryByName(categories, String(value), type);
+                    const defaults = resolveCategoryTransactionDefaults(cat, {
+                        objectId,
+                        roomName,
+                        district: resolveDistrictForObjectId(objects, objectId),
+                        objects,
+                    });
+                    if (defaults.source) next.source = defaults.source as SourceRecipientOptionValue;
+                    if (defaults.recipient) next.recipient = defaults.recipient as SourceRecipientOptionValue;
+                    if (defaults.pricePerUnit != null) next.amount = defaults.pricePerUnit;
+                }
+                return next;
+            }),
+        );
         setErrors((prev) => {
             const next = { ...prev };
             delete next[`item_${index}_${field}`];
@@ -499,8 +596,26 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 const subItems = item.subItems.map((sub, j) => {
                     if (j !== subIndex) return sub;
                     const next = { ...sub, [field]: value } as SubItemForm;
-                    if (field === 'recordKind') {
-                        return { ...next, category: '' };
+                    if (field === 'recordKind') return { ...next, category: '' };
+                    if (field === 'category') {
+                        const list =
+                            next.recordKind === 'income'
+                                ? type === 'expense'
+                                    ? subIncomeCategories
+                                    : categories
+                                : type === 'expense'
+                                  ? categories
+                                  : subExpenseCategories;
+                        const cat = findCategoryByName(list, String(value), next.recordKind);
+                        const defaults = resolveCategoryTransactionDefaults(cat, {
+                            objectId,
+                            roomName,
+                            district: resolveDistrictForObjectId(objects, objectId),
+                            objects,
+                        });
+                        if (defaults.source) next.source = defaults.source as SourceRecipientOptionValue;
+                        if (defaults.recipient) next.recipient = defaults.recipient as SourceRecipientOptionValue;
+                        if (defaults.pricePerUnit != null) next.amount = defaults.pricePerUnit;
                     }
                     return next;
                 });
@@ -635,6 +750,34 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         return Array.from(new Set(ids));
     }, [items]);
 
+    const sourceRecipientOptions = useMemo(
+        () =>
+            buildSourceRecipientAutocompleteOptions({
+                objects,
+                counterparties,
+                usersWithCashflow,
+                cashflows: [],
+                includeCashflows: false,
+                includeBookingRoomOption: false,
+                t,
+            }),
+        [objects, counterparties, usersWithCashflow, t],
+    );
+
+    const recipientRecipientOptions = useMemo(
+        () =>
+            buildSourceRecipientAutocompleteOptions({
+                objects,
+                counterparties,
+                usersWithCashflow,
+                cashflows,
+                includeCashflows: true,
+                includeBookingRoomOption: false,
+                t,
+            }),
+        [objects, counterparties, usersWithCashflow, cashflows, t],
+    );
+
     const handleOpenBookingModal = (index: number) => setBookingModalTarget({ kind: 'main', index });
     const handleOpenSubBookingModal = (parentIndex: number, subIndex: number) =>
         setBookingModalTarget({ kind: 'sub', parentIndex, subIndex });
@@ -672,7 +815,16 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         setLoading(true);
         let successCount = 0;
         const failures: { category: string; message: string }[] = [];
+        const duplicateOpts = { onDuplicateConflict: askOnDuplicate };
         const cfId = attachCashflowId ? userCashflowId : undefined;
+        const categoryContext = {
+            objectId,
+            roomName,
+            district: resolveDistrictForObjectId(objects, objectId),
+            objects,
+        };
+        const resolveSr = (v: SourceRecipientOptionValue | '' | undefined) =>
+            resolveCategorySourceRecipientValue(v, categoryContext);
         const parentLink =
             parentTransaction?.type === 'expense'
                 ? { parentExpenseId: parentTransaction.id }
@@ -690,8 +842,8 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             objectId,
                             roomName,
                             bookingId: item.bookingId,
-                            source: item.source || undefined,
-                            recipient: item.recipient || undefined,
+                            source: resolveSr(item.source),
+                            recipient: resolveSr(item.recipient),
                             cashflowId: cfId,
                             category: item.category,
                             amount: effectiveCost,
@@ -706,7 +858,8 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             ...parentLink,
                         };
                         if (item.splittable) {
-                            const parentRes = await addExpense(basePayload);
+                            const parentRes = await addExpenseHandlingDuplicate(basePayload, duplicateOpts);
+                            if (parentRes.skipped) continue;
                             if (!parentRes.success || !parentRes.id) {
                                 failures.push({
                                     category: item.category,
@@ -724,8 +877,8 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             cashflowId: cfId,
                                             category: sub.category,
                                             amount: subCost,
@@ -738,9 +891,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             accountantId: '',
                                             parentExpenseId: parentId,
                                         };
-                                        const subRes = await addExpense(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addExpenseHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -757,16 +910,16 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             date: new Date(sub.date),
                                             status: sub.status,
                                             reportMonth: sharedReportMonth || undefined,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             comment: sub.comment || undefined,
                                             attachments: sub.attachments ?? [],
                                             accountantId: '',
                                             parentExpenseId: parentId,
                                         };
-                                        const subRes = await addIncome(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addIncomeHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -781,7 +934,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             }
                             continue;
                         }
-                        res = await addExpense(basePayload);
+                        res = await addExpenseHandlingDuplicate(basePayload, duplicateOpts);
                     } else {
                         const baseIncomePayload: Income = {
                             objectId,
@@ -794,15 +947,16 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             date: new Date(item.date),
                             status: 'draft',
                             reportMonth: sharedReportMonth || undefined,
-                            source: item.source || undefined,
-                            recipient: item.recipient || undefined,
+                            source: resolveSr(item.source),
+                            recipient: resolveSr(item.recipient),
                             comment: item.comment || undefined,
                             attachments: item.attachments ?? [],
                             accountantId: '',
                             ...parentLink,
                         };
                         if (item.splittable) {
-                            const parentRes = await addIncome(baseIncomePayload);
+                            const parentRes = await addIncomeHandlingDuplicate(baseIncomePayload, duplicateOpts);
+                            if (parentRes.skipped) continue;
                             if (!parentRes.success || !parentRes.id) {
                                 failures.push({
                                     category: item.category,
@@ -820,8 +974,8 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             objectId,
                                             roomName,
                                             bookingId: sub.bookingId,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             cashflowId: cfId,
                                             category: sub.category,
                                             amount: subCost,
@@ -834,9 +988,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             accountantId: '',
                                             parentIncomeId: parentId,
                                         };
-                                        const subRes = await addExpense(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addExpenseHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -853,16 +1007,16 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             date: new Date(sub.date),
                                             status: sub.status,
                                             reportMonth: sharedReportMonth || undefined,
-                                            source: sub.source || undefined,
-                                            recipient: sub.recipient || undefined,
+                                            source: resolveSr(sub.source),
+                                            recipient: resolveSr(sub.recipient),
                                             comment: sub.comment || undefined,
                                             attachments: sub.attachments ?? [],
                                             accountantId: '',
                                             parentIncomeId: parentId,
                                         };
-                                        const subRes = await addIncome(subPayload);
-                                        if (subRes.success) successCount++;
-                                        else
+                                        const subRes = await addIncomeHandlingDuplicate(subPayload, duplicateOpts);
+                                        if (isTransactionAdded(subRes)) successCount++;
+                                        else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
                                                 message: subRes.message || t('common.serverError'),
@@ -877,10 +1031,10 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             }
                             continue;
                         }
-                        res = await addIncome(baseIncomePayload);
+                        res = await addIncomeHandlingDuplicate(baseIncomePayload, duplicateOpts);
                     }
-                    if (res.success) successCount++;
-                    else failures.push({ category: item.category, message: res.message || t('common.serverError') });
+                    if (isTransactionAdded(res!)) successCount++;
+                    else if (isTransactionFailed(res!)) failures.push({ category: item.category, message: res!.message || t('common.serverError') });
                 } catch (err) {
                     failures.push({
                         category: item.category,
@@ -919,10 +1073,15 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const titleKey = type === 'expense' ? 'accountancy.addExpense' : 'accountancy.addIncome';
     const dateLabelKey = type === 'expense' ? 'accountancy.expenseDate' : 'accountancy.incomeDate';
 
-    const mainRowColSpan = type === 'expense' ? 14 : 12;
+    const tableColCount = txnAddTableColCount({ type, isSubtransactionMode });
 
-    const renderSubTransactionRow = (sub: SubItemForm, parentIndex: number, subIndex: number) => (
-        <TableRow key={`${parentIndex}-sub-${subIndex}`}>
+    const renderSubTransactionRow = (
+        sub: SubItemForm,
+        parentIndex: number,
+        subIndex: number,
+        isLast: boolean,
+    ) => (
+        <TableRow key={`${parentIndex}-sub-${subIndex}`} sx={compactGroupSubRowSx(isLast)}>
             <TableCell>
                 <IconButton
                     size="small"
@@ -930,89 +1089,84 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     disabled={items[parentIndex]?.subItems.length <= 1}
                     aria-label={t('accountancy.removeItem')}
                 >
-                    <DeleteOutlineIcon fontSize="small" />
+                    <DeleteOutlineIcon sx={{ fontSize: '1rem' }} />
                 </IconButton>
             </TableCell>
-            <TableCell sx={{ minWidth: 120 }}>
-                <FormControl size="small" sx={{ minWidth: 110 }}>
-                    <InputLabel>{t('accountancy.recordKindColumn')}</InputLabel>
-                    <Select
-                        value={sub.recordKind}
-                        label={t('accountancy.recordKindColumn')}
-                        onChange={(e) =>
-                            handleChangeSubItem(
-                                parentIndex,
-                                subIndex,
-                                'recordKind',
-                                e.target.value as 'expense' | 'income'
-                            )
-                        }
-                    >
-                        <MenuItem value="expense">{t('accountancy.expense')}</MenuItem>
-                        <MenuItem value="income">{t('accountancy.income')}</MenuItem>
-                    </Select>
-                </FormControl>
-            </TableCell>
-            <TableCell sx={{ minWidth: 200 }}>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <FormControl size="small" sx={{ minWidth: 140 }}>
-                        <InputLabel>{t('accountancy.bookingQuickSelect')}</InputLabel>
+            <TableCell>
+                <Stack spacing={0.25}>
+                    <FormControl size="small" fullWidth>
                         <Select
-                            value={sub.bookingId ?? ''}
-                            label={t('accountancy.bookingQuickSelect')}
-                            onChange={(e) => {
-                                const v = e.target.value;
-                                const num =
-                                    typeof v === 'number'
-                                        ? v
-                                        : String(v).trim() === ''
-                                          ? undefined
-                                          : Number(v);
-                                handleChangeSubItem(parentIndex, subIndex, 'bookingId', num);
-                            }}
+                            value={sub.recordKind}
+                            sx={compactInlineSelectSx}
+                            onChange={(e) =>
+                                handleChangeSubItem(
+                                    parentIndex,
+                                    subIndex,
+                                    'recordKind',
+                                    e.target.value as 'expense' | 'income',
+                                )
+                            }
                         >
-                            <MenuItem value="">—</MenuItem>
-                            {usedBookingIds.map((id) => (
-                                <MenuItem key={id} value={id}>
-                                    {bookingLabels[id] ?? `#${id}`}
-                                </MenuItem>
-                            ))}
+                            <MenuItem value="expense" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.expense')}
+                            </MenuItem>
+                            <MenuItem value="income" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.income')}
+                            </MenuItem>
                         </Select>
                     </FormControl>
-                    <Button
-                        variant="outlined"
-                        size="small"
-                        onClick={() => handleOpenSubBookingModal(parentIndex, subIndex)}
-                    >
-                        {t('accountancy.selectBooking')}
-                    </Button>
-                    {sub.bookingId != null && (
-                        <IconButton
-                            size="small"
-                            color="secondary"
-                            onClick={() => handleDetachSubBooking(parentIndex, subIndex)}
-                            title={t('accountancy.detachBooking')}
-                            aria-label={t('accountancy.detachBooking')}
-                        >
-                            <CloseIcon fontSize="small" />
-                        </IconButton>
-                    )}
+                    <Stack direction="row" spacing={0.25} alignItems="center">
+                        <Tooltip title={t('accountancy.selectBooking')}>
+                            <span>
+                                <IconButton
+                                    size="small"
+                                    onClick={() => handleOpenSubBookingModal(parentIndex, subIndex)}
+                                    aria-label={t('accountancy.selectBooking')}
+                                >
+                                    <EventNoteIcon sx={{ fontSize: '1rem' }} />
+                                </IconButton>
+                            </span>
+                        </Tooltip>
+                        {sub.bookingId != null ? (
+                            <>
+                                <Typography
+                                    variant="caption"
+                                    noWrap
+                                    sx={{ fontSize: '0.65rem', maxWidth: 40, flex: 1 }}
+                                    title={bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
+                                >
+                                    {bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
+                                </Typography>
+                                <IconButton
+                                    size="small"
+                                    onClick={() => handleDetachSubBooking(parentIndex, subIndex)}
+                                    aria-label={t('accountancy.detachBooking')}
+                                >
+                                    <CloseIcon sx={{ fontSize: '0.85rem' }} />
+                                </IconButton>
+                            </>
+                        ) : null}
+                    </Stack>
                 </Stack>
             </TableCell>
             <TableCell>
                 <FormControl
                     size="small"
-                    sx={{ minWidth: 160 }}
+                    fullWidth
                     error={!!errors[`item_${parentIndex}_sub_${subIndex}_category`]}
                 >
-                    <InputLabel>{t('accountancy.category')}</InputLabel>
                     <Select
                         value={sub.category || ''}
-                        label={t('accountancy.category')}
+                        displayEmpty
+                        sx={compactInlineSelectSx}
                         onChange={(e) =>
                             handleChangeSubItem(parentIndex, subIndex, 'category', e.target.value as string)
                         }
+                        MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
                     >
+                        <MenuItem value="" sx={{ fontSize: '0.6875rem' }}>
+                            —
+                        </MenuItem>
                         {buildCategoriesForSelect(
                             sub.recordKind === 'income'
                                 ? type === 'expense'
@@ -1021,9 +1175,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                 : type === 'expense'
                                   ? categories
                                   : subExpenseCategories,
-                            sub.recordKind
+                            sub.recordKind,
                         ).map((cat) => (
-                            <MenuItem key={cat.id} value={cat.name}>
+                            <MenuItem key={cat.id} value={cat.name} sx={{ fontSize: '0.6875rem' }}>
                                 {cat.depth > 0 ? '\u00A0'.repeat(cat.depth * 2) + '↳ ' : ''}
                                 {cat.name}
                             </MenuItem>
@@ -1038,7 +1192,10 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     label={t('accountancy.source')}
                     counterparties={counterparties}
                     usersWithCashflow={usersWithCashflow}
-                    sx={{ minWidth: 200 }}
+                    prefetchedOptions={sourceRecipientOptions}
+                    hideLabel
+                    popperMinWidth={220}
+                    sx={compactSourceRecipientSx}
                 />
             </TableCell>
             <TableCell>
@@ -1050,97 +1207,171 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     usersWithCashflow={usersWithCashflow}
                     cashflows={cashflows}
                     includeCashflows
-                    sx={{ minWidth: 200 }}
+                    prefetchedOptions={recipientRecipientOptions}
+                    hideLabel
+                    popperMinWidth={220}
+                    sx={compactSourceRecipientSx}
                 />
             </TableCell>
             <TableCell>
                 <TextField
                     size="small"
+                    hiddenLabel
                     type="number"
-                    label={t('accountancy.cost')}
+                    placeholder={t('accountancy.cost')}
                     value={sub.amount ?? ''}
                     onChange={(e) => handleChangeSubItemAmount(parentIndex, subIndex, e)}
                     error={!!errors[`item_${parentIndex}_sub_${subIndex}_amount`]}
-                    inputProps={{ min: 0, step: 0.01 }}
-                    sx={{ width: 120 }}
+                    slotProps={{
+                        htmlInput: { min: 0, step: 0.01, 'aria-label': t('accountancy.cost') },
+                    }}
+                    sx={compactCellTextFieldSx}
                 />
             </TableCell>
             <TableCell>
                 <TextField
                     size="small"
+                    hiddenLabel
                     type="number"
-                    label={t('accountancy.quantity')}
+                    placeholder={t('accountancy.quantity')}
                     value={sub.quantity ?? 1}
                     onChange={(e) => handleChangeSubItemQuantity(parentIndex, subIndex, e)}
                     error={!!errors[`item_${parentIndex}_sub_${subIndex}_quantity`]}
-                    inputProps={{ min: 1, step: 1 }}
-                    sx={{ width: 90 }}
+                    slotProps={{
+                        htmlInput: { min: 1, step: 1, 'aria-label': t('accountancy.quantity') },
+                    }}
+                    sx={compactCellTextFieldSx}
                 />
             </TableCell>
             <TableCell>
-                <Typography variant="body2">
-                    {t('accountancy.amountColumn')}:{' '}
-                    {((sub.quantity ?? 1) * getEffectiveCostSub(sub)).toLocaleString('ru-RU', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                    })}
+                <Typography variant="caption" sx={{ fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
+                    {formatCompactLineTotal(sub.quantity, getEffectiveCostSub(sub))}
                 </Typography>
             </TableCell>
             <TableCell>
                 <TextField
                     size="small"
+                    hiddenLabel
                     type="date"
-                    InputLabelProps={{ shrink: true }}
                     value={sub.date || ''}
-                    onChange={(e) =>
-                        handleChangeSubItem(parentIndex, subIndex, 'date', e.target.value)
-                    }
+                    onChange={(e) => handleChangeSubItem(parentIndex, subIndex, 'date', e.target.value)}
                     error={!!errors[`item_${parentIndex}_sub_${subIndex}_date`]}
-                    sx={{ width: 150 }}
+                    slotProps={{ htmlInput: { 'aria-label': t('accountancy.dateColumn') } }}
+                    sx={compactCellTextFieldSx}
                 />
             </TableCell>
             <TableCell>
                 <TextField
                     size="small"
+                    hiddenLabel
                     placeholder={t('accountancy.comment')}
                     value={sub.comment || ''}
-                    onChange={(e) =>
-                        handleChangeSubItem(parentIndex, subIndex, 'comment', e.target.value)
-                    }
-                    sx={{ minWidth: 120 }}
+                    onChange={(e) => handleChangeSubItem(parentIndex, subIndex, 'comment', e.target.value)}
+                    slotProps={{ htmlInput: { 'aria-label': t('accountancy.comment') } }}
+                    sx={compactCellTextFieldSx}
                 />
             </TableCell>
-            <TableCell>
-                <FormControl
-                    size="small"
-                    sx={{ minWidth: 120 }}
-                    error={!!errors[`item_${parentIndex}_sub_${subIndex}_status`]}
-                >
-                    <InputLabel>{t('accountancy.status')}</InputLabel>
-                    <Select
-                        value={sub.status || 'draft'}
-                        label={t('accountancy.status')}
-                        onChange={(e) =>
-                            handleChangeSubItem(
-                                parentIndex,
-                                subIndex,
-                                'status',
-                                e.target.value as ExpenseStatus
-                            )
-                        }
+            {type === 'expense' && (
+                <TableCell>
+                    <FormControl
+                        size="small"
+                        fullWidth
+                        error={!!errors[`item_${parentIndex}_sub_${subIndex}_status`]}
                     >
-                        <MenuItem value="draft">{t('accountancy.statusDraft')}</MenuItem>
-                        <MenuItem value="confirmed">{t('accountancy.statusConfirmed')}</MenuItem>
-                    </Select>
-                </FormControl>
-            </TableCell>
-            <TableCell>
+                        <Select
+                            value={sub.status || 'draft'}
+                            sx={compactInlineSelectSx}
+                            onChange={(e) =>
+                                handleChangeSubItem(
+                                    parentIndex,
+                                    subIndex,
+                                    'status',
+                                    e.target.value as ExpenseStatus,
+                                )
+                            }
+                        >
+                            <MenuItem value="draft" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.statusDraft')}
+                            </MenuItem>
+                            <MenuItem value="confirmed" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.statusConfirmed')}
+                            </MenuItem>
+                        </Select>
+                    </FormControl>
+                </TableCell>
+            )}
+            {!isSubtransactionMode && type === 'income' && (
+                <TableCell>
+                    <FormControl
+                        size="small"
+                        fullWidth
+                        error={!!errors[`item_${parentIndex}_sub_${subIndex}_status`]}
+                    >
+                        <Select
+                            value={sub.status || 'draft'}
+                            sx={compactInlineSelectSx}
+                            onChange={(e) =>
+                                handleChangeSubItem(
+                                    parentIndex,
+                                    subIndex,
+                                    'status',
+                                    e.target.value as ExpenseStatus,
+                                )
+                            }
+                        >
+                            <MenuItem value="draft" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.statusDraft')}
+                            </MenuItem>
+                            <MenuItem value="confirmed" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.statusConfirmed')}
+                            </MenuItem>
+                        </Select>
+                    </FormControl>
+                </TableCell>
+            )}
+            {isSubtransactionMode && type === 'income' && (
+                <TableCell>
+                    <FormControl
+                        size="small"
+                        fullWidth
+                        error={!!errors[`item_${parentIndex}_sub_${subIndex}_status`]}
+                    >
+                        <Select
+                            value={sub.status || 'draft'}
+                            sx={compactInlineSelectSx}
+                            onChange={(e) =>
+                                handleChangeSubItem(
+                                    parentIndex,
+                                    subIndex,
+                                    'status',
+                                    e.target.value as ExpenseStatus,
+                                )
+                            }
+                        >
+                            <MenuItem value="draft" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.statusDraft')}
+                            </MenuItem>
+                            <MenuItem value="confirmed" sx={{ fontSize: '0.6875rem' }}>
+                                {t('accountancy.statusConfirmed')}
+                            </MenuItem>
+                        </Select>
+                    </FormControl>
+                </TableCell>
+            )}
+            {type === 'expense' && !isSubtransactionMode && (
+                <>
+                    <TableCell />
+                    <TableCell />
+                </>
+            )}
+            <TableCell align="center">
                 <FileAttachments
                     value={sub.attachments ?? []}
                     onChange={(attachments: AccountancyAttachment[]) =>
                         handleChangeSubItem(parentIndex, subIndex, 'attachments', attachments)
                     }
                     disabled={loading}
+                    compact
                 />
             </TableCell>
         </TableRow>
@@ -1160,32 +1391,36 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     return (
         <>
             <form noValidate autoComplete="off">
-                <Typography variant="h4">{t(titleKey)}</Typography>
-
-                <Paper variant="outlined" sx={{ p: 2, mt: 2, mb: 2 }}>
-                    <Typography variant="subtitle2" color="text.secondary" sx={{ mb: 2 }}>
-                        {t('accountancy.commonForAllItems')}
+                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                    <Button variant="text" size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => router.back()} sx={{ minWidth: 0, px: 1 }}>
+                        {t('common.back')}
+                    </Button>
+                    <Typography variant="h6" sx={{ fontSize: '1.05rem', fontWeight: 600 }}>
+                        {t(titleKey)}
                     </Typography>
-                    <Stack
-                        direction={{ xs: 'column', sm: 'row' }}
-                        spacing={2}
-                        alignItems={{ xs: 'stretch', sm: 'flex-start' }}
-                        sx={{ maxWidth: { xs: '500px', sm: '720px' } }}
-                    >
-                        <Box sx={{ flex: 1, minWidth: 0 }}>
+                </Stack>
+
+                <Paper variant="outlined" sx={{ px: 1, py: 0.75, mb: 1 }}>
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
+                        <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5, fontWeight: 600, alignSelf: 'center' }}>
+                            {t('accountancy.commonForAllItems')}:
+                        </Typography>
+                        <Box sx={{ minWidth: 160, maxWidth: 220, flex: 1 }}>
                             <RoomsMultiSelect
                                 value={selectedObjects}
                                 onChange={handleChangeObject}
                                 label={t('accountancy.object')}
                                 multiple={false}
+                                hideLabel
+                                sx={compactRoomSelectSx}
                             />
                             {errors.objectId && (
-                                <Typography variant="caption" color="error" sx={{ mt: 0.5, ml: 1.75 }}>
+                                <Typography variant="caption" color="error" sx={{ fontSize: '0.6rem' }}>
                                     {errors.objectId}
                                 </Typography>
                             )}
                         </Box>
-                        <FormControl size="small" sx={{ minWidth: 200, maxWidth: '100%' }}>
+                        <FormControl size="small" sx={{ minWidth: 140, maxWidth: 160 }}>
                             <InputLabel>{t('accountancy.reportMonth')}</InputLabel>
                             <Select
                                 value={sharedReportMonth}
@@ -1200,52 +1435,57 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                 ))}
                             </Select>
                         </FormControl>
+                        {!isSubtransactionMode && (
+                            <Button variant="outlined" size="small" startIcon={<AddIcon fontSize="small" />} onClick={handleAddItem}>
+                                {t('accountancy.addItem')}
+                            </Button>
+                        )}
                     </Stack>
                     {isSubtransactionMode && (
                         <TextField
+                            size="small"
                             label={t('accountancy.parentTransaction')}
                             value={parentTransaction?.label ?? t('common.loading')}
                             InputProps={{ readOnly: true }}
-                            sx={{ mt: 2, width: '100%', maxWidth: '720px' }}
+                            sx={{ mt: 1, width: '100%', maxWidth: 480 }}
                         />
                     )}
                 </Paper>
 
-                <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                    {t('accountancy.itemsToAdd')}
-                </Typography>
-                <Box sx={{ overflowX: 'auto', mb: 2 }}>
-                    <Table size="small">
+                <TableContainer component={Paper} variant="outlined" sx={{ mb: 1, overflowX: 'auto' }}>
+                    <Table size="small" stickyHeader sx={{ ...compactTableSx, minWidth: TXN_ADD_TABLE_MIN_WIDTH_PX }}>
                         <TableHead>
                             <TableRow>
-                                <TableCell width={40} />
-                                <TableCell>{t('accountancy.bookingColumn')}</TableCell>
-                                <TableCell>{t('accountancy.category')}</TableCell>
-                                <TableCell>{t('accountancy.source')}</TableCell>
-                                <TableCell>{t('accountancy.recipient')}</TableCell>
-                                <TableCell>{t('accountancy.cost')}</TableCell>
-                                <TableCell>{t('accountancy.quantity')}</TableCell>
-                                <TableCell>{t('accountancy.amountColumn')}</TableCell>
-                                <TableCell>{t(dateLabelKey)}</TableCell>
-                                <TableCell>{t('accountancy.comment')}</TableCell>
-                                {type === 'expense' && <TableCell>{t('accountancy.status')}</TableCell>}
+                                <TableCell sx={{ width: COMPACT_COL_DEL, maxWidth: COMPACT_COL_DEL }} />
+                                <TableCell sx={{ width: COMPACT_COL_BOOKING, maxWidth: COMPACT_COL_BOOKING }}>{t('accountancy.bookingColumn')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_CAT, maxWidth: COMPACT_COL_CAT }}>{t('accountancy.category')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_PARTY, maxWidth: COMPACT_COL_PARTY }}>{t('accountancy.source')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_PARTY, maxWidth: COMPACT_COL_PARTY }}>{t('accountancy.recipient')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_AMOUNT, maxWidth: COMPACT_COL_AMOUNT }}>{t('accountancy.cost')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_QTY, maxWidth: COMPACT_COL_QTY }}>{t('accountancy.quantity')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_SUM, maxWidth: COMPACT_COL_SUM }}>{t('accountancy.amountColumn')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_DATE, maxWidth: COMPACT_COL_DATE }}>{t(dateLabelKey)}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_COMMENT, maxWidth: COMPACT_COL_COMMENT }}>{t('accountancy.comment')}</TableCell>
+                                {(type === 'expense' || isSubtransactionMode) && (
+                                    <TableCell sx={{ width: COMPACT_COL_STATUS, maxWidth: COMPACT_COL_STATUS }}>{t('accountancy.status')}</TableCell>
+                                )}
                                 {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
-                                    <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                                    <TableCell align="center" sx={{ width: COMPACT_COL_SUB_TX, maxWidth: COMPACT_COL_SUB_TX }}>
                                         {t('accountancy.subtransactionColumn')}
                                     </TableCell>
                                 )}
                                 {type === 'expense' && !isSubtransactionMode && (
-                                    <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                                    <TableCell align="center" sx={{ width: COMPACT_COL_DIVISIBILITY, maxWidth: COMPACT_COL_DIVISIBILITY }}>
                                         {t('accountancy.divisibility')}
                                     </TableCell>
                                 )}
-                                <TableCell>{t('accountancy.attachments')}</TableCell>
+                                <TableCell sx={{ width: COMPACT_COL_ATTACH, maxWidth: COMPACT_COL_ATTACH }} />
                             </TableRow>
                         </TableHead>
                         <TableBody>
                             {items.map((item, index) => (
                                 <Fragment key={index}>
-                                    <TableRow>
+                                    <TableRow hover sx={item.splittable && !isSubtransactionMode ? compactGroupParentRowSx : undefined}>
                                         <TableCell>
                                             <IconButton
                                                 size="small"
@@ -1253,347 +1493,239 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                                 disabled={items.length <= 1}
                                                 aria-label={t('accountancy.removeItem')}
                                             >
-                                                <DeleteOutlineIcon fontSize="small" />
+                                                <DeleteOutlineIcon sx={{ fontSize: '1rem' }} />
                                             </IconButton>
                                         </TableCell>
-
-                                    {/* Бронирование */}
-                                    <TableCell sx={{ minWidth: 200 }}>
-                                        <Stack
-                                            direction="row"
-                                            spacing={1}
-                                            alignItems="center"
-                                            flexWrap="wrap"
-                                            useFlexGap
-                                        >
-                                            <FormControl size="small" sx={{ minWidth: 140 }}>
-                                                <InputLabel>{t('accountancy.bookingQuickSelect')}</InputLabel>
+                                        <TableCell>
+                                            <Stack direction="row" spacing={0.25} alignItems="center">
+                                                <Tooltip title={t('accountancy.selectBooking')}>
+                                                    <span>
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={() => handleOpenBookingModal(index)}
+                                                            disabled={!objectId}
+                                                            aria-label={t('accountancy.selectBooking')}
+                                                        >
+                                                            <EventNoteIcon sx={{ fontSize: '1rem' }} />
+                                                        </IconButton>
+                                                    </span>
+                                                </Tooltip>
+                                                {item.bookingId != null ? (
+                                                    <>
+                                                        <Typography variant="caption" noWrap sx={{ fontSize: '0.65rem', maxWidth: 56, flex: 1 }} title={bookingLabels[item.bookingId] ?? `#${item.bookingId}`}>
+                                                            {bookingLabels[item.bookingId] ?? `#${item.bookingId}`}
+                                                        </Typography>
+                                                        <IconButton size="small" onClick={() => handleDetachBooking(index)} aria-label={t('accountancy.detachBooking')}>
+                                                            <CloseIcon sx={{ fontSize: '0.85rem' }} />
+                                                        </IconButton>
+                                                    </>
+                                                ) : usedBookingIds.length > 0 ? (
+                                                    <FormControl size="small" sx={{ flex: 1, minWidth: 0 }}>
+                                                        <Select
+                                                            value=""
+                                                            displayEmpty
+                                                            sx={compactInlineSelectSx}
+                                                            onChange={(e) => {
+                                                                const v = e.target.value;
+                                                                const num = typeof v === 'number' ? v : String(v).trim() === '' ? undefined : Number(v);
+                                                                if (num != null) handleChangeItem(index, 'bookingId', num);
+                                                            }}
+                                                        >
+                                                            <MenuItem value="" disabled sx={{ fontSize: '0.6875rem' }}>—</MenuItem>
+                                                            {usedBookingIds.map((id) => (
+                                                                <MenuItem key={id} value={id} sx={{ fontSize: '0.6875rem' }}>{bookingLabels[id] ?? `#${id}`}</MenuItem>
+                                                            ))}
+                                                        </Select>
+                                                    </FormControl>
+                                                ) : null}
+                                            </Stack>
+                                        </TableCell>
+                                        <TableCell>
+                                            <FormControl size="small" fullWidth error={!!errors[`item_${index}_category`]}>
                                                 <Select
-                                                    value={item.bookingId ?? ''}
-                                                    label={t('accountancy.bookingQuickSelect')}
-                                                    onChange={(e) => {
-                                                        const v = e.target.value;
-                                                        const num =
-                                                            typeof v === 'number'
-                                                                ? v
-                                                                : String(v).trim() === ''
-                                                                  ? undefined
-                                                                  : Number(v);
-                                                        handleChangeItem(index, 'bookingId', num);
-                                                    }}
+                                                    value={item.category || ''}
+                                                    displayEmpty
+                                                    sx={compactInlineSelectSx}
+                                                    onChange={(e) => handleChangeItem(index, 'category', e.target.value as string)}
+                                                    MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
                                                 >
-                                                    <MenuItem value="">—</MenuItem>
-                                                    {usedBookingIds.map((id) => (
-                                                        <MenuItem key={id} value={id}>
-                                                            {bookingLabels[id] ?? `#${id}`}
+                                                    <MenuItem value="" sx={{ fontSize: '0.6875rem' }}>—</MenuItem>
+                                                    {buildCategoriesForSelect(categories, type).map((cat) => (
+                                                        <MenuItem key={cat.id} value={cat.name} sx={{ fontSize: '0.6875rem' }}>
+                                                            {cat.depth > 0 ? '\u00A0'.repeat(cat.depth * 2) + '↳ ' : ''}{cat.name}
                                                         </MenuItem>
                                                     ))}
                                                 </Select>
                                             </FormControl>
-                                            <Button
-                                                variant="outlined"
-                                                size="small"
-                                                onClick={() => handleOpenBookingModal(index)}
-                                            >
-                                                {t('accountancy.selectBooking')}
-                                            </Button>
-                                            {item.bookingId != null && (
-                                                <IconButton
-                                                    size="small"
-                                                    color="secondary"
-                                                    onClick={() => handleDetachBooking(index)}
-                                                    title={t('accountancy.detachBooking')}
-                                                    aria-label={t('accountancy.detachBooking')}
-                                                >
-                                                    <CloseIcon fontSize="small" />
-                                                </IconButton>
-                                            )}
-                                        </Stack>
-                                    </TableCell>
-
-                                    {/* Категория */}
-                                    <TableCell>
-                                        <FormControl
-                                            size="small"
-                                            sx={{ minWidth: 160 }}
-                                            error={!!errors[`item_${index}_category`]}
-                                        >
-                                            <InputLabel>{t('accountancy.category')}</InputLabel>
-                                            <Select
-                                                value={item.category || ''}
-                                                label={t('accountancy.category')}
-                                                onChange={(e) =>
-                                                    handleChangeItem(index, 'category', e.target.value as string)
-                                                }
-                                            >
-                                                {buildCategoriesForSelect(categories, type).map((cat) => (
-                                                    <MenuItem key={cat.id} value={cat.name}>
-                                                        {cat.depth > 0
-                                                            ? '\u00A0'.repeat(cat.depth * 2) + '↳ '
-                                                            : ''}
-                                                        {cat.name}
-                                                    </MenuItem>
-                                                ))}
-                                            </Select>
-                                        </FormControl>
-                                    </TableCell>
-
-                                    {/* Источник */}
-                                    <TableCell>
-                                        <SourceRecipientSelect
-                                            value={item.source}
-                                            onChange={(v) => handleChangeItem(index, 'source', v)}
-                                            label={t('accountancy.source')}
-                                            counterparties={counterparties}
-                                            usersWithCashflow={usersWithCashflow}
-                                            sx={{ minWidth: 200 }}
-                                        />
-                                    </TableCell>
-
-                                    {/* Получатель */}
-                                    <TableCell>
-                                        <SourceRecipientSelect
-                                            value={item.recipient}
-                                            onChange={(v) => handleChangeItem(index, 'recipient', v)}
-                                            label={t('accountancy.recipient')}
-                                            counterparties={counterparties}
-                                            usersWithCashflow={usersWithCashflow}
-                                            cashflows={cashflows}
-                                            includeCashflows
-                                            sx={{ minWidth: 200 }}
-                                        />
-                                    </TableCell>
-
-                                    {/* Стоимость */}
-                                    <TableCell>
-                                        <TextField
-                                            size="small"
-                                            type="number"
-                                            label={t('accountancy.cost')}
-                                            value={item.amount ?? ''}
-                                            onChange={(e) => handleChangeItemAmount(index, e)}
-                                            error={!!errors[`item_${index}_amount`]}
-                                            inputProps={{ min: 0, step: 0.01 }}
-                                            sx={{ width: 120 }}
-                                        />
-                                    </TableCell>
-
-                                    {/* Количество */}
-                                    <TableCell>
-                                        <TextField
-                                            size="small"
-                                            type="number"
-                                            label={t('accountancy.quantity')}
-                                            value={item.quantity ?? 1}
-                                            onChange={(e) => handleChangeItemQuantity(index, e)}
-                                            error={!!errors[`item_${index}_quantity`]}
-                                            inputProps={{ min: 1, step: 1 }}
-                                            sx={{ width: 90 }}
-                                        />
-                                    </TableCell>
-
-                                    {/* Сумма */}
-                                    <TableCell>
-                                        <Typography variant="body2">
-                                            {t('accountancy.amountColumn')}:{' '}
-                                            {(
-                                                (item.quantity ?? 1) * getEffectiveCostMain(item)
-                                            ).toLocaleString('ru-RU', {
-                                                minimumFractionDigits: 2,
-                                                maximumFractionDigits: 2,
-                                            })}
-                                        </Typography>
-                                    </TableCell>
-
-                                    {/* Дата */}
-                                    <TableCell>
-                                        <TextField
-                                            size="small"
-                                            type="date"
-                                            InputLabelProps={{ shrink: true }}
-                                            value={item.date || ''}
-                                            onChange={(e) => handleChangeItem(index, 'date', e.target.value)}
-                                            error={!!errors[`item_${index}_date`]}
-                                            sx={{ width: 150 }}
-                                        />
-                                    </TableCell>
-
-                                    {/* Комментарий */}
-                                    <TableCell>
-                                        <TextField
-                                            size="small"
-                                            placeholder={t('accountancy.comment')}
-                                            value={item.comment || ''}
-                                            onChange={(e) =>
-                                                handleChangeItem(index, 'comment', e.target.value)
-                                            }
-                                            sx={{ minWidth: 120 }}
-                                        />
-                                    </TableCell>
-
-                                    {/* Статус — только для расходов */}
-                                    {type === 'expense' && (
+                                        </TableCell>
                                         <TableCell>
-                                            <FormControl
-                                                size="small"
-                                                sx={{ minWidth: 120 }}
-                                                error={!!errors[`item_${index}_status`]}
-                                            >
-                                                <InputLabel>{t('accountancy.status')}</InputLabel>
-                                                <Select
-                                                    value={item.status || 'draft'}
-                                                    label={t('accountancy.status')}
-                                                    onChange={(e) =>
-                                                        handleChangeItem(
-                                                            index,
-                                                            'status',
-                                                            e.target.value as ExpenseStatus
-                                                        )
-                                                    }
-                                                >
-                                                    <MenuItem value="draft">
-                                                        {t('accountancy.statusDraft')}
-                                                    </MenuItem>
-                                                    <MenuItem value="confirmed">
-                                                        {t('accountancy.statusConfirmed')}
-                                                    </MenuItem>
-                                                </Select>
-                                            </FormControl>
-                                        </TableCell>
-                                    )}
-                                    {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
-                                        <TableCell align="center" sx={{ verticalAlign: 'middle' }}>
-                                            <Checkbox
-                                                checked={item.splittable}
-                                                onChange={(e) =>
-                                                    handleChangeSplittable(index, e.target.checked)
-                                                }
-                                                size="small"
-                                                inputProps={{
-                                                    'aria-label': t('accountancy.subtransactionColumn'),
-                                                }}
+                                            <SourceRecipientSelect
+                                                value={item.source}
+                                                onChange={(v) => handleChangeItem(index, 'source', v)}
+                                                label={t('accountancy.source')}
+                                                counterparties={counterparties}
+                                                usersWithCashflow={usersWithCashflow}
+                                                prefetchedOptions={sourceRecipientOptions}
+                                                hideLabel
+                                                popperMinWidth={220}
+                                                sx={compactSourceRecipientSx}
                                             />
                                         </TableCell>
-                                    )}
-                                    {type === 'expense' && !isSubtransactionMode && (
-                                        <TableCell align="center" sx={{ verticalAlign: 'middle' }}>
-                                            <Checkbox
-                                                checked={item.includeInSynthetic}
-                                                onChange={(e) =>
-                                                    handleChangeIncludeInSynthetic(index, e.target.checked)
-                                                }
-                                                size="small"
-                                                inputProps={{
-                                                    'aria-label': t('accountancy.divisibility'),
-                                                }}
+                                        <TableCell>
+                                            <SourceRecipientSelect
+                                                value={item.recipient}
+                                                onChange={(v) => handleChangeItem(index, 'recipient', v)}
+                                                label={t('accountancy.recipient')}
+                                                counterparties={counterparties}
+                                                usersWithCashflow={usersWithCashflow}
+                                                cashflows={cashflows}
+                                                includeCashflows
+                                                prefetchedOptions={recipientRecipientOptions}
+                                                hideLabel
+                                                popperMinWidth={220}
+                                                sx={compactSourceRecipientSx}
                                             />
                                         </TableCell>
-                                    )}
-
-                                    {/* Вложения */}
-                                    <TableCell>
-                                        <FileAttachments
-                                            value={item.attachments ?? []}
-                                            onChange={(attachments: AccountancyAttachment[]) =>
-                                                handleChangeItem(index, 'attachments', attachments)
-                                            }
-                                            disabled={loading}
-                                        />
-                                    </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                hiddenLabel
+                                                type="number"
+                                                placeholder={t('accountancy.cost')}
+                                                value={item.amount ?? ''}
+                                                onChange={(e) => handleChangeItemAmount(index, e)}
+                                                error={!!errors[`item_${index}_amount`]}
+                                                slotProps={{ htmlInput: { min: 0, step: 0.01, 'aria-label': t('accountancy.cost') } }}
+                                                sx={compactCellTextFieldSx}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                hiddenLabel
+                                                type="number"
+                                                placeholder={t('accountancy.quantity')}
+                                                value={item.quantity ?? 1}
+                                                onChange={(e) => handleChangeItemQuantity(index, e)}
+                                                error={!!errors[`item_${index}_quantity`]}
+                                                slotProps={{ htmlInput: { min: 1, step: 1, 'aria-label': t('accountancy.quantity') } }}
+                                                sx={compactCellTextFieldSx}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <Typography variant="caption" sx={{ fontSize: '0.6875rem', whiteSpace: 'nowrap' }}>
+                                                {formatCompactLineTotal(item.quantity, getEffectiveCostMain(item))}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                hiddenLabel
+                                                type="date"
+                                                value={item.date || ''}
+                                                onChange={(e) => handleChangeItem(index, 'date', e.target.value)}
+                                                error={!!errors[`item_${index}_date`]}
+                                                slotProps={{ htmlInput: { 'aria-label': t(dateLabelKey) } }}
+                                                sx={compactCellTextFieldSx}
+                                            />
+                                        </TableCell>
+                                        <TableCell>
+                                            <TextField
+                                                size="small"
+                                                hiddenLabel
+                                                placeholder={t('accountancy.comment')}
+                                                value={item.comment || ''}
+                                                onChange={(e) => handleChangeItem(index, 'comment', e.target.value)}
+                                                slotProps={{ htmlInput: { 'aria-label': t('accountancy.comment') } }}
+                                                sx={compactCellTextFieldSx}
+                                            />
+                                        </TableCell>
+                                        {(type === 'expense' || isSubtransactionMode) && (
+                                            <TableCell>
+                                                {type === 'expense' ? (
+                                                    <FormControl size="small" fullWidth error={!!errors[`item_${index}_status`]}>
+                                                        <Select
+                                                            value={item.status || 'draft'}
+                                                            sx={compactInlineSelectSx}
+                                                            onChange={(e) => handleChangeItem(index, 'status', e.target.value as ExpenseStatus)}
+                                                        >
+                                                            <MenuItem value="draft" sx={{ fontSize: '0.6875rem' }}>{t('accountancy.statusDraft')}</MenuItem>
+                                                            <MenuItem value="confirmed" sx={{ fontSize: '0.6875rem' }}>{t('accountancy.statusConfirmed')}</MenuItem>
+                                                        </Select>
+                                                    </FormControl>
+                                                ) : null}
+                                            </TableCell>
+                                        )}
+                                        {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
+                                            <TableCell align="center">
+                                                <Checkbox
+                                                    checked={item.splittable}
+                                                    onChange={(e) => handleChangeSplittable(index, e.target.checked)}
+                                                    size="small"
+                                                    inputProps={{ 'aria-label': t('accountancy.subtransactionColumn') }}
+                                                />
+                                            </TableCell>
+                                        )}
+                                        {type === 'expense' && !isSubtransactionMode && (
+                                            <TableCell align="center">
+                                                <Checkbox
+                                                    checked={item.includeInSynthetic}
+                                                    onChange={(e) => handleChangeIncludeInSynthetic(index, e.target.checked)}
+                                                    size="small"
+                                                    inputProps={{ 'aria-label': t('accountancy.divisibility') }}
+                                                />
+                                            </TableCell>
+                                        )}
+                                        <TableCell align="center">
+                                            <FileAttachments
+                                                value={item.attachments ?? []}
+                                                onChange={(attachments: AccountancyAttachment[]) => handleChangeItem(index, 'attachments', attachments)}
+                                                disabled={loading}
+                                                compact
+                                            />
+                                        </TableCell>
                                     </TableRow>
                                     {(type === 'expense' || type === 'income') && !isSubtransactionMode && item.splittable && (
-                                        <TableRow>
-                                            <TableCell colSpan={mainRowColSpan} sx={{ py: 2, verticalAlign: 'top' }}>
-                                                <Box
-                                                    sx={{
-                                                        p: 2,
-                                                        borderRadius: 1,
-                                                        bgcolor: (theme) =>
-                                                            theme.palette.mode === 'dark'
-                                                                ? 'rgba(255,255,255,0.05)'
-                                                                : 'rgba(0,0,0,0.03)',
-                                                    }}
-                                                >
-                                                    <Typography variant="subtitle2" sx={{ mb: 1 }}>
-                                                        {t('accountancy.subtransactions')}
-                                                    </Typography>
-                                                    {errors[`item_${index}_sub`] && (
-                                                        <Typography
-                                                            variant="caption"
-                                                            color="error"
-                                                            display="block"
-                                                            sx={{ mb: 1 }}
-                                                        >
-                                                            {errors[`item_${index}_sub`]}
+                                        <>
+                                            <TableRow sx={compactGroupSubHeaderRowSx(item.subItems.length === 0)}>
+                                                <TableCell colSpan={tableColCount} sx={{ py: 0.25 }}>
+                                                    <Stack direction="row" alignItems="center" spacing={1}>
+                                                        <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.65rem', color: 'primary.main', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                                                            {t('accountancy.subtransactions')}
                                                         </Typography>
-                                                    )}
-                                                    <Table size="small">
-                                                        <TableHead>
-                                                            <TableRow>
-                                                                <TableCell width={40} />
-                                                                <TableCell>
-                                                                    {t('accountancy.recordKindColumn')}
-                                                                </TableCell>
-                                                                <TableCell>
-                                                                    {t('accountancy.bookingColumn')}
-                                                                </TableCell>
-                                                                <TableCell>{t('accountancy.category')}</TableCell>
-                                                                <TableCell>{t('accountancy.source')}</TableCell>
-                                                                <TableCell>{t('accountancy.recipient')}</TableCell>
-                                                                <TableCell>{t('accountancy.cost')}</TableCell>
-                                                                <TableCell>{t('accountancy.quantity')}</TableCell>
-                                                                <TableCell>{t('accountancy.amountColumn')}</TableCell>
-                                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                                <TableCell>{t('accountancy.comment')}</TableCell>
-                                                                <TableCell>{t('accountancy.status')}</TableCell>
-                                                                <TableCell>{t('accountancy.attachments')}</TableCell>
-                                                            </TableRow>
-                                                        </TableHead>
-                                                        <TableBody>
-                                                            {item.subItems.map((sub, sIdx) =>
-                                                                renderSubTransactionRow(sub, index, sIdx)
-                                                            )}
-                                                        </TableBody>
-                                                    </Table>
-                                                    <Button
-                                                        variant="outlined"
-                                                        size="small"
-                                                        startIcon={<AddIcon />}
-                                                        onClick={() => handleAddSubItem(index)}
-                                                        sx={{ mt: 1 }}
-                                                    >
-                                                        {t('accountancy.addSubtransaction')}
-                                                    </Button>
-                                                </Box>
-                                            </TableCell>
+                                                        {errors[`item_${index}_sub`] && (
+                                                            <Typography variant="caption" color="error" sx={{ fontSize: '0.6rem' }}>{errors[`item_${index}_sub`]}</Typography>
+                                                        )}
+                                                        <Button variant="text" size="small" startIcon={<AddIcon sx={{ fontSize: '0.9rem !important' }} />} onClick={() => handleAddSubItem(index)} sx={{ minWidth: 0, py: 0, fontSize: '0.65rem' }}>
+                                                            {t('accountancy.addSubtransaction')}
+                                                        </Button>
+                                                    </Stack>
+                                                </TableCell>
+                                            </TableRow>
+                                            {item.subItems.map((sub, sIdx) =>
+                                                renderSubTransactionRow(sub, index, sIdx, sIdx === item.subItems.length - 1),
+                                            )}
+                                        </>
+                                    )}
+                                    {index < items.length - 1 && (
+                                        <TableRow aria-hidden>
+                                            <TableCell colSpan={tableColCount} sx={{ height: 10, p: 0, border: 'none !important', bgcolor: 'background.default' }} />
                                         </TableRow>
                                     )}
                                 </Fragment>
                             ))}
                         </TableBody>
                     </Table>
-                </Box>
+                </TableContainer>
 
-                <Button
-                    variant="outlined"
-                    startIcon={<AddIcon />}
-                    onClick={handleAddItem}
-                    sx={{ mb: 2 }}
-                >
-                    {t('accountancy.addItem')}
-                </Button>
-
-                <Stack direction="row" spacing={2} mt={2}>
-                    <Button
-                        variant="outlined"
-                        startIcon={<ArrowBackIcon />}
-                        onClick={() => router.back()}
-                    >
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                    <Button variant="outlined" size="small" onClick={() => router.back()}>
                         {t('common.cancel')}
                     </Button>
                     <Button
                         variant="contained"
-                        endIcon={<SendIcon />}
+                        size="small"
+                        endIcon={<SendIcon fontSize="small" />}
                         onClick={handleSubmit}
                         disabled={loading || (isSubtransactionMode && !parentTransaction)}
                     >
@@ -1610,6 +1742,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 reportMonth={sharedReportMonth}
                 initialRoomId={bookingModalInitialRoomId}
             />
+            {DuplicateDialog}
         </>
     );
 }
