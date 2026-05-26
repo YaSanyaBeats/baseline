@@ -1,5 +1,5 @@
 import { getDB } from './db/getDB';
-import { AuditLog, AuditLogAction, AuditLogEntity } from './types';
+import { AuditLog, AuditLogAction, AuditLogEntity, AuditLogMetadata } from './types';
 
 /**
  * Записывает изменение в лог аудита
@@ -14,14 +14,7 @@ export async function logAuditAction(params: {
     description: string;
     oldData?: any;
     newData?: any;
-    metadata?: {
-        objectId?: number;
-        bookingId?: number;
-        category?: string;
-        amount?: number;
-        ip?: string;
-        userAgent?: string;
-    };
+    metadata?: AuditLogMetadata;
 }): Promise<void> {
     try {
         const db = await getDB();

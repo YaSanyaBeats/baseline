@@ -547,6 +547,18 @@ export type AuditLogAction = 'create' | 'update' | 'delete';
 
 export type AuditLogEntity = 'expense' | 'income' | 'report' | 'user' | 'category' | 'booking' | 'cashflow' | 'other';
 
+export type AuditLogMetadata = {
+    objectId?: number;
+    bookingId?: number;
+    category?: string;
+    amount?: number;
+    ip?: string;
+    userAgent?: string;
+    retainedFrom?: string;
+    expensesDeleted?: number;
+    incomesDeleted?: number;
+};
+
 export interface AuditLog {
     _id?: string;
     entity: AuditLogEntity;       // Тип сущности (расход, доход, отчёт и т.д.)
@@ -558,14 +570,7 @@ export interface AuditLog {
     description: string;           // Описание действия
     oldData?: any;                 // Старые данные (для update и delete)
     newData?: any;                 // Новые данные (для create и update)
-    metadata?: {                   // Дополнительная информация
-        objectId?: number;
-        bookingId?: number;
-        category?: string;
-        amount?: number;
-        ip?: string;
-        userAgent?: string;
-    };
+    metadata?: AuditLogMetadata;
     timestamp: Date;               // Дата и время действия
     /** Для action=delete: сущность восстановлена из этого лога (кнопка «Восстановить» отключена) */
     restoredAt?: Date | string;

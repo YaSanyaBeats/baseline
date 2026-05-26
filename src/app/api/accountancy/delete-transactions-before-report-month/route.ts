@@ -94,7 +94,7 @@ export async function POST(_request: NextRequest) {
                 : typeof rawId === 'object' && rawId != null && 'toString' in rawId
                   ? String((rawId as { toString(): string }).toString())
                   : '';
-        const rawName = su.name ?? access.session.user.name;
+        const rawName = su.name;
         const userName = typeof rawName === 'string' ? rawName : 'Unknown';
 
         await logAuditAction({
