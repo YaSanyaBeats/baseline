@@ -160,21 +160,39 @@ export const compactRoomSelectSx = {
     minWidth: 0,
     maxWidth: '100%',
     '& .MuiOutlinedInput-root': {
+        position: 'relative',
         minHeight: 'auto',
+        height: 'auto',
+        alignItems: 'flex-start',
+        overflow: 'visible',
         fontSize: '0.6875rem',
         py: 0,
         px: 0.25,
+        pr: '22px',
+        boxSizing: 'border-box',
         '& fieldset': { border: 'none' },
         '&:hover fieldset': { border: 'none' },
         '&.Mui-focused fieldset': { border: '1px solid', borderColor: 'primary.main' },
     },
-    '& .MuiOutlinedInput-input': {
+    '& .MuiOutlinedInput-input, & .MuiAutocomplete-input': {
         py: '2px',
+        px: 0,
         fontSize: '0.6875rem',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
+        cursor: 'pointer',
+        whiteSpace: 'normal',
+        wordBreak: 'break-word',
+        overflow: 'visible',
+        textOverflow: 'clip',
+        resize: 'none',
     },
-    '& .MuiAutocomplete-popupIndicator': { fontSize: '1rem', mr: -0.25 },
+    '& .MuiAutocomplete-endAdornment': {
+        position: 'absolute',
+        right: 0,
+        top: '50%',
+        transform: 'translateY(-50%)',
+        height: 'auto',
+    },
+    '& .MuiAutocomplete-popupIndicator': { fontSize: '1rem', p: 0.25 },
 } as const;
 
 export const compactBookingLabelSx = {

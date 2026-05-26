@@ -141,6 +141,9 @@ export default function RoomsMultiSelect(props: {
                     <TextField
                         {...params}
                         hiddenLabel
+                        multiline
+                        minRows={1}
+                        maxRows={6}
                         placeholder={fieldLabel}
                         inputProps={{
                             ...params.inputProps,
