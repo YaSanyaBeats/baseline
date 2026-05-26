@@ -46,6 +46,7 @@ import {
     COMPACT_COL_SUB_TX as BULK_COL_SUB_TX,
     COMPACT_COL_SUM as BULK_COL_SUM,
     compactCellTextFieldSx as bulkCellTextFieldSx,
+    compactBookingLabelSx as bulkBookingLabelSx,
     compactGroupParentRowSx as bulkGroupParentRowSx,
     compactGroupSubHeaderRowSx as bulkGroupSubHeaderRowSx,
     compactGroupSubRowSx as bulkGroupSubRowSx,
@@ -56,7 +57,6 @@ import {
     formatCompactLineTotal as formatBulkLineTotal,
 } from '@/lib/accountancyCompactTableStyles';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
     AccountancyAttachment,
@@ -1098,11 +1098,15 @@ export default function BulkAddTransactionsPage() {
     return (
         <>
             <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                <Link href="/dashboard/accountancy/transactions">
-                    <Button variant="text" size="small" startIcon={<ArrowBackIcon fontSize="small" />} sx={{ minWidth: 0, px: 1 }}>
-                        {t('common.back')}
-                    </Button>
-                </Link>
+                <Button
+                    variant="text"
+                    size="small"
+                    startIcon={<ArrowBackIcon fontSize="small" />}
+                    sx={{ minWidth: 0, px: 1 }}
+                    onClick={() => router.back()}
+                >
+                    {t('common.back')}
+                </Button>
                 <Typography variant="h6" sx={{ fontSize: '1.05rem', fontWeight: 600 }}>
                     {t('accountancy.bulkAddTransactionsTitle')}
                 </Typography>
@@ -1242,7 +1246,7 @@ export default function BulkAddTransactionsPage() {
                                         )}
                                     </TableCell>
                                     <TableCell>
-                                        <Stack direction="row" spacing={0.25} alignItems="center">
+                                        <Stack direction="row" spacing={0.25} alignItems="flex-start">
                                             <Tooltip title={t('accountancy.selectBooking')}>
                                                 <span>
                                                     <IconButton
@@ -1257,12 +1261,7 @@ export default function BulkAddTransactionsPage() {
                                             </Tooltip>
                                             {row.bookingId != null ? (
                                                 <>
-                                                    <Typography
-                                                        variant="caption"
-                                                        noWrap
-                                                        sx={{ fontSize: '0.65rem', maxWidth: 56, flex: 1 }}
-                                                        title={bookingLabels[row.bookingId] ?? `#${row.bookingId}`}
-                                                    >
+                                                    <Typography variant="caption" sx={bulkBookingLabelSx}>
                                                         {bookingLabels[row.bookingId] ?? `#${row.bookingId}`}
                                                     </Typography>
                                                     <IconButton
@@ -1617,7 +1616,7 @@ export default function BulkAddTransactionsPage() {
                                                     </FormControl>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Stack direction="row" spacing={0.25} alignItems="center">
+                                                    <Stack direction="row" spacing={0.25} alignItems="flex-start">
                                                         <Tooltip title={t('accountancy.selectBooking')}>
                                                             <span>
                                                                 <IconButton
@@ -1633,12 +1632,7 @@ export default function BulkAddTransactionsPage() {
                                                         </Tooltip>
                                                         {sub.bookingId != null ? (
                                                             <>
-                                                                <Typography
-                                                                    variant="caption"
-                                                                    noWrap
-                                                                    sx={{ fontSize: '0.65rem', maxWidth: 56, flex: 1 }}
-                                                                    title={bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
-                                                                >
+                                                                <Typography variant="caption" sx={bulkBookingLabelSx}>
                                                                     {bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
                                                                 </Typography>
                                                                 <IconButton

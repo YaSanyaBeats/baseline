@@ -19,6 +19,10 @@ import {
 } from '@/lib/roomBinding';
 import { parseAutoAccountingDistrictsStored } from '@/lib/autoAccountingDistricts';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import {
+    normalizeTransactionCategoryFields,
+    type NormalizedTransactionCategory,
+} from '@/lib/accountancyCategoryServerResolve';
 
 /** Подставляет «комнату из брони» в значение room:objectId:encodedName для создаваемой транзакции */
 function resolveAutoRuleSourceRecipient(
@@ -185,16 +189,55 @@ export async function runRulesForBookings(
 
     const rawObjects = (await db.collection('objects').find({}).toArray()) as RawBedsObjectForRoom[];
 
-    const categoryCache = new Map<string, number>();
-    const getCategoryPricePerUnit = async (categoryName: string): Promise<number> => {
-        if (categoryCache.has(categoryName)) return categoryCache.get(categoryName)!;
-        const cat = await categoriesCollection.findOne({
-            name: categoryName,
-            type: { $in: ['expense', 'income'] },
-        } as any);
-        const price = (cat as { pricePerUnit?: number } | null)?.pricePerUnit;
+    const categoryPriceCache = new Map<string, number>();
+    const ruleCategoryCache = new Map<string, NormalizedTransactionCategory>();
+
+    const resolveRuleCategory = async (
+        rule: AutoAccountingRule & { _id?: ObjectId },
+    ): Promise<NormalizedTransactionCategory> => {
+        const cacheKey = `${rule.ruleType}|${rule.categoryId ?? ''}|${rule.category}`;
+        const cached = ruleCategoryCache.get(cacheKey);
+        if (cached) return cached;
+
+        const normalized = await normalizeTransactionCategoryFields(db, rule.ruleType, {
+            categoryId: rule.categoryId,
+            category: rule.category,
+        });
+        const data = normalized.ok
+            ? normalized.data
+            : { categoryId: null, category: rule.category };
+        ruleCategoryCache.set(cacheKey, data);
+        return data;
+    };
+
+    const getCategoryPricePerUnit = async (
+        ruleType: 'expense' | 'income',
+        categoryFields: NormalizedTransactionCategory,
+    ): Promise<number> => {
+        const cacheKey = `${ruleType}|${categoryFields.categoryId ?? ''}|${categoryFields.category}`;
+        if (categoryPriceCache.has(cacheKey)) return categoryPriceCache.get(cacheKey)!;
+
+        let cat: { pricePerUnit?: number } | null = null;
+        if (categoryFields.categoryId) {
+            try {
+                cat = (await categoriesCollection.findOne({
+                    _id: new ObjectId(categoryFields.categoryId),
+                    type: ruleType,
+                })) as { pricePerUnit?: number } | null;
+            } catch {
+                /* invalid id — fallback by name */
+            }
+        }
+        if (!cat) {
+            cat = (await categoriesCollection.findOne({
+                name: categoryFields.category,
+                type: ruleType,
+            })) as { pricePerUnit?: number } | null;
+        }
+
+        const price = cat?.pricePerUnit;
         const value = typeof price === 'number' && price >= 0 ? price : 0;
-        categoryCache.set(categoryName, value);
+        categoryPriceCache.set(cacheKey, value);
         return value;
     };
 
@@ -299,6 +342,7 @@ export async function runRulesForBookings(
 
     const resolveAmount = async (
         rule: AutoAccountingRule & { _id?: ObjectId },
+        categoryFields: NormalizedTransactionCategory,
         booking: BookingDoc,
         propertyId: number,
         accountingObjectId: number,
@@ -311,11 +355,11 @@ export async function runRulesForBookings(
             case 'internet_cost':
                 return await getInternetCostForRoom(propertyId, accountingObjectId, roomName);
             case 'category':
-                return await getCategoryPricePerUnit(rule.category);
+                return await getCategoryPricePerUnit(rule.ruleType, categoryFields);
             case 'manual':
             default:
                 if (rule.amount != null && rule.amount >= 0) return rule.amount;
-                return await getCategoryPricePerUnit(rule.category);
+                return await getCategoryPricePerUnit(rule.ruleType, categoryFields);
         }
     };
 
@@ -354,7 +398,15 @@ export async function runRulesForBookings(
             if (!matchRoomMetadata(rule, bookingPropertyId, accountingObjectId, bookingUnitName)) continue;
 
             const quantity = resolveQuantity(rule, booking);
-            const amount = await resolveAmount(rule, booking, bookingPropertyId, accountingObjectId, bookingUnitName);
+            const categoryFields = await resolveRuleCategory(rule);
+            const amount = await resolveAmount(
+                rule,
+                categoryFields,
+                booking,
+                bookingPropertyId,
+                accountingObjectId,
+                bookingUnitName,
+            );
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
             const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;
             const resolvedSource = resolveAutoRuleSourceRecipient(rule.source, accountingObjectId, bookingUnitName);
@@ -373,7 +425,7 @@ export async function runRulesForBookings(
                     if (
                         await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                             objectId: accountingObjectId,
-                            category: rule.category,
+                            category: categoryFields.category,
                             roomName: bookingUnitName ?? null,
                             reportMonth: reportMonthBooking,
                         })
@@ -387,7 +439,8 @@ export async function runRulesForBookings(
                             roomName: bookingUnitName ?? null,
                             bookingId: bid,
                             ...sourceRecipientFields,
-                            category: rule.category,
+                            categoryId: categoryFields.categoryId,
+                            category: categoryFields.category,
                             amount,
                             quantity,
                             date: arrival,
@@ -402,7 +455,7 @@ export async function runRulesForBookings(
                         } as any);
                         expensesCreated++;
                     } catch (e) {
-                        errors.push(`Расход по брони ${bid}, правило ${rule.category}: ${(e as Error).message}`);
+                        errors.push(`Расход по брони ${bid}, правило ${categoryFields.category}: ${(e as Error).message}`);
                     }
                 } else {
                     const months = getMonthsBetween(arrival, departure);
@@ -412,7 +465,7 @@ export async function runRulesForBookings(
                         if (
                             await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                                 objectId: accountingObjectId,
-                                category: rule.category,
+                                category: categoryFields.category,
                                 roomName: bookingUnitName ?? null,
                                 reportMonth,
                             })
@@ -426,7 +479,8 @@ export async function runRulesForBookings(
                                 roomName: bookingUnitName ?? null,
                                 bookingId: bid,
                                 ...sourceRecipientFields,
-                                category: rule.category,
+                                categoryId: categoryFields.categoryId,
+                                category: categoryFields.category,
                                 amount,
                                 quantity,
                                 date,
@@ -441,7 +495,7 @@ export async function runRulesForBookings(
                             } as any);
                             expensesCreated++;
                         } catch (e) {
-                            errors.push(`Расход по брони ${bid}, ${reportMonth}, правило ${rule.category}: ${(e as Error).message}`);
+                            errors.push(`Расход по брони ${bid}, ${reportMonth}, правило ${categoryFields.category}: ${(e as Error).message}`);
                         }
                     }
                 }
@@ -451,7 +505,7 @@ export async function runRulesForBookings(
                     if (
                         await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                             objectId: accountingObjectId,
-                            category: rule.category,
+                            category: categoryFields.category,
                             roomName: bookingUnitName ?? null,
                             reportMonth: reportMonthBookingInc,
                         })
@@ -465,7 +519,8 @@ export async function runRulesForBookings(
                             roomName: bookingUnitName ?? null,
                             bookingId: bid,
                             ...sourceRecipientFields,
-                            category: rule.category,
+                            categoryId: categoryFields.categoryId,
+                            category: categoryFields.category,
                             amount,
                             quantity,
                             date: arrival,
@@ -480,7 +535,7 @@ export async function runRulesForBookings(
                         } as any);
                         incomesCreated++;
                     } catch (e) {
-                        errors.push(`Доход по брони ${bid}, правило ${rule.category}: ${(e as Error).message}`);
+                        errors.push(`Доход по брони ${bid}, правило ${categoryFields.category}: ${(e as Error).message}`);
                     }
                 } else {
                     const months = getMonthsBetween(arrival, departure);
@@ -490,7 +545,7 @@ export async function runRulesForBookings(
                         if (
                             await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                                 objectId: accountingObjectId,
-                                category: rule.category,
+                                category: categoryFields.category,
                                 roomName: bookingUnitName ?? null,
                                 reportMonth,
                             })
@@ -504,7 +559,8 @@ export async function runRulesForBookings(
                                 roomName: bookingUnitName ?? null,
                                 bookingId: bid,
                                 ...sourceRecipientFields,
-                                category: rule.category,
+                                categoryId: categoryFields.categoryId,
+                                category: categoryFields.category,
                                 amount,
                                 quantity,
                                 date,
@@ -519,7 +575,7 @@ export async function runRulesForBookings(
                             } as any);
                             incomesCreated++;
                         } catch (e) {
-                            errors.push(`Доход по брони ${bid}, ${reportMonth}, правило ${rule.category}: ${(e as Error).message}`);
+                            errors.push(`Доход по брони ${bid}, ${reportMonth}, правило ${categoryFields.category}: ${(e as Error).message}`);
                         }
                     }
                 }

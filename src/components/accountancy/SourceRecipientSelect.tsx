@@ -481,6 +481,9 @@ function SourceRecipientSelectInner({
                     <TextField
                         {...params}
                         hiddenLabel
+                        multiline
+                        minRows={1}
+                        maxRows={6}
                         error={error}
                         placeholder={label}
                         inputProps={{

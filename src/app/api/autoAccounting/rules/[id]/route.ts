@@ -35,7 +35,7 @@ function parseQuantitySource(b: Record<string, unknown>): AutoAccountingQuantity
     return undefined;
 }
 
-type PartialRuleUpdate = Partial<Pick<AutoAccountingRule, 'name' | 'ruleType' | 'objectId' | 'roomName' | 'category' | 'quantity' | 'amount' | 'amountSource' | 'quantitySource' | 'period' | 'order' | 'objectMetadataField' | 'objectMetadataValue' | 'roomMetadataField' | 'roomMetadataOperator' | 'roomMetadataValue'>>;
+type PartialRuleUpdate = Partial<Pick<AutoAccountingRule, 'name' | 'ruleType' | 'objectId' | 'roomName' | 'categoryId' | 'category' | 'quantity' | 'amount' | 'amountSource' | 'quantitySource' | 'period' | 'order' | 'objectMetadataField' | 'objectMetadataValue' | 'roomMetadataField' | 'roomMetadataOperator' | 'roomMetadataValue'>>;
 
 function parseRuleBody(body: unknown): PartialRuleUpdate | null {
     if (!body || typeof body !== 'object') return null;
@@ -52,6 +52,11 @@ function parseRuleBody(body: unknown): PartialRuleUpdate | null {
     const roomName = parseRoomName(b);
     if (roomName !== undefined) out.roomName = roomName;
     if (typeof b.category === 'string') out.category = b.category.trim();
+    if (b.categoryId != null && String(b.categoryId).trim() !== '') {
+        out.categoryId = String(b.categoryId).trim();
+    } else if (b.categoryId === null || b.categoryId === '') {
+        out.categoryId = null;
+    }
     if (typeof b.quantity === 'number' && b.quantity >= 1) out.quantity = b.quantity;
     if (typeof b.amount === 'number' && b.amount >= 0) out.amount = b.amount;
     const amountSource = parseAmountSource(b);

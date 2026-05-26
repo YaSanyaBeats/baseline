@@ -66,6 +66,7 @@ import {
     COMPACT_COL_SUM,
     TXN_ADD_TABLE_MIN_WIDTH_PX,
     compactCellTextFieldSx,
+    compactBookingLabelSx,
     compactGroupParentRowSx,
     compactGroupSubHeaderRowSx,
     compactGroupSubRowSx,
@@ -1115,7 +1116,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             </MenuItem>
                         </Select>
                     </FormControl>
-                    <Stack direction="row" spacing={0.25} alignItems="center">
+                    <Stack direction="row" spacing={0.25} alignItems="flex-start">
                         <Tooltip title={t('accountancy.selectBooking')}>
                             <span>
                                 <IconButton
@@ -1129,12 +1130,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         </Tooltip>
                         {sub.bookingId != null ? (
                             <>
-                                <Typography
-                                    variant="caption"
-                                    noWrap
-                                    sx={{ fontSize: '0.65rem', maxWidth: 40, flex: 1 }}
-                                    title={bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
-                                >
+                                <Typography variant="caption" sx={compactBookingLabelSx}>
                                     {bookingLabels[sub.bookingId] ?? `#${sub.bookingId}`}
                                 </Typography>
                                 <IconButton
@@ -1497,7 +1493,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             </IconButton>
                                         </TableCell>
                                         <TableCell>
-                                            <Stack direction="row" spacing={0.25} alignItems="center">
+                                            <Stack direction="row" spacing={0.25} alignItems="flex-start">
                                                 <Tooltip title={t('accountancy.selectBooking')}>
                                                     <span>
                                                         <IconButton
@@ -1512,7 +1508,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                                 </Tooltip>
                                                 {item.bookingId != null ? (
                                                     <>
-                                                        <Typography variant="caption" noWrap sx={{ fontSize: '0.65rem', maxWidth: 56, flex: 1 }} title={bookingLabels[item.bookingId] ?? `#${item.bookingId}`}>
+                                                        <Typography variant="caption" sx={compactBookingLabelSx}>
                                                             {bookingLabels[item.bookingId] ?? `#${item.bookingId}`}
                                                         </Typography>
                                                         <IconButton size="small" onClick={() => handleDetachBooking(index)} aria-label={t('accountancy.detachBooking')}>

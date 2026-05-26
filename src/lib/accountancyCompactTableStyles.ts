@@ -77,7 +77,7 @@ export const compactTableSx = {
     '& .MuiTableCell-root': {
         py: 0.35,
         px: 0.4,
-        verticalAlign: 'middle',
+        verticalAlign: 'top',
         lineHeight: 1.2,
         borderRight: '1px solid',
         borderColor: 'divider',
@@ -107,9 +107,10 @@ export const compactInlineSelectSx = {
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': { border: '1px solid', borderColor: 'primary.main' },
     '& .MuiSelect-icon': { fontSize: '1rem', right: 0 },
     '& .MuiSelect-select': {
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
+        overflow: 'visible',
+        textOverflow: 'clip',
+        whiteSpace: 'normal',
+        wordBreak: 'break-word',
         display: 'block',
         py: '2px',
         pl: 0.25,
@@ -117,6 +118,7 @@ export const compactInlineSelectSx = {
         fontSize: '0.6875rem',
         lineHeight: 1.25,
         minHeight: 22,
+        height: 'auto !important',
         boxSizing: 'border-box',
     },
 } as const;
@@ -127,6 +129,8 @@ export const compactSourceRecipientSx = {
     maxWidth: '100%',
     '& .MuiOutlinedInput-root': {
         minHeight: 'auto',
+        height: 'auto',
+        alignItems: 'flex-start',
         fontSize: '0.6875rem',
         py: 0,
         px: 0.25,
@@ -142,8 +146,10 @@ export const compactSourceRecipientSx = {
         px: 0,
         fontSize: '0.6875rem',
         cursor: 'pointer',
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
+        whiteSpace: 'normal',
+        wordBreak: 'break-word',
+        overflow: 'visible',
+        textOverflow: 'clip',
     },
     '& .MuiAutocomplete-popupIndicator': { display: 'none' },
     '& .MuiAutocomplete-clearIndicator': { display: 'none' },
@@ -169,6 +175,15 @@ export const compactRoomSelectSx = {
         textOverflow: 'ellipsis',
     },
     '& .MuiAutocomplete-popupIndicator': { fontSize: '1rem', mr: -0.25 },
+} as const;
+
+export const compactBookingLabelSx = {
+    fontSize: '0.65rem',
+    flex: 1,
+    minWidth: 0,
+    whiteSpace: 'normal',
+    wordBreak: 'break-word',
+    lineHeight: 1.25,
 } as const;
 
 export const compactCellTextFieldSx = {

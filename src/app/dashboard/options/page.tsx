@@ -10,6 +10,7 @@ import { getAllObjects } from '@/lib/beds24/objects';
 import { useTranslation } from "@/i18n/useTranslation";
 import Link from "next/link";
 import LinkOffIcon from '@mui/icons-material/LinkOff';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 
 export default function Page() {
     const { refreshObjects } = useObjects();
@@ -81,6 +82,15 @@ export default function Page() {
                     variant="outlined"
                 >
                     {t('accountancy.unlinkBookingsMenu')}
+                </Button>
+                <Button
+                    component={Link}
+                    href="/dashboard/accountancy/transactions/delete-before-dec-2025"
+                    startIcon={<DeleteForeverIcon />}
+                    variant="outlined"
+                    color="error"
+                >
+                    {t('accountancy.deleteBeforeDec2025Menu')}
                 </Button>
             </Stack>
             <Box>

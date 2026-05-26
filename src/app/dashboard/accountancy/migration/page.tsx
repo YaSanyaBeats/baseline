@@ -7,6 +7,7 @@ import { useUser } from '@/providers/UserProvider';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useTranslation } from '@/i18n/useTranslation';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 
 import type { MigrateRoomNamesStats } from '@/lib/migrations/migrateRoomIdsToNames';
 
@@ -260,6 +261,18 @@ export default function Page() {
                     {resultRecordType.incomesUpdated}.
                 </Alert>
             )}
+
+            <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
+                {t('accountancy.deleteBeforeDec2025Title')}
+            </Typography>
+            <Alert severity="warning" sx={{ mb: 2 }}>
+                {t('accountancy.deleteBeforeDec2025Description')}
+            </Alert>
+            <Link href="/dashboard/accountancy/transactions/delete-before-dec-2025">
+                <Button variant="contained" color="error" startIcon={<DeleteForeverIcon />}>
+                    {t('accountancy.deleteBeforeDec2025Menu')}
+                </Button>
+            </Link>
         </Box>
     );
 }

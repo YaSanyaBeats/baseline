@@ -76,6 +76,7 @@ type ParsedRule = {
     roomMetadataField?: string;
     roomMetadataOperator?: 'eq' | 'ne' | 'gt' | 'gte' | 'lt' | 'lte' | 'between';
     roomMetadataValue?: string | number;
+    categoryId?: string | null;
     category: string;
     quantity: number;
     quantitySource?: AutoAccountingQuantitySource;
@@ -100,6 +101,8 @@ function parseRuleBody(body: unknown): ParsedRule | null {
     }
     const roomName = parseRoomName(b);
     const category = typeof b.category === 'string' ? b.category.trim() : '';
+    const categoryId =
+        b.categoryId != null && String(b.categoryId).trim() !== '' ? String(b.categoryId).trim() : undefined;
     const quantity = typeof b.quantity === 'number' && b.quantity >= 1 ? b.quantity : 1;
     const amount = typeof b.amount === 'number' && b.amount >= 0 ? b.amount : undefined;
     const amountSource = parseAmountSource(b);
@@ -116,6 +119,7 @@ function parseRuleBody(body: unknown): ParsedRule | null {
 
     if (!ruleType || !category) return null;
     const result: ParsedRule = { ruleType, objectId, category, quantity, amount, period, order };
+    if (categoryId !== undefined) result.categoryId = categoryId;
 
     if ('source' in b) {
         if (b.source === null || b.source === '') {
@@ -183,6 +187,7 @@ export async function POST(request: NextRequest) {
             ruleType: parsed.ruleType,
             objectId: parsed.objectId,
             category: parsed.category,
+            ...(parsed.categoryId !== undefined && { categoryId: parsed.categoryId }),
             quantity: parsed.quantity,
             period: parsed.period,
             order,
