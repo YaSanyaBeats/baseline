@@ -13,6 +13,7 @@ import {
     cashflowIdMongoClause,
     verifyCashflowIdForTransactionList,
 } from '@/lib/accountancyCashflowIdQueryAuth';
+import { assertTransactionDocEditable, assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
 
 export async function GET(request: NextRequest) {
     try {
@@ -213,6 +214,17 @@ export async function POST(request: NextRequest) {
 
         const allowDuplicate = Boolean(body.params?.allowDuplicate ?? body.allowDuplicate);
 
+        const closedCheck = await assertTransactionMutationAllowed(db, {
+            date: expenseData.date,
+            reportMonth: expenseData.reportMonth,
+        });
+        if (!closedCheck.ok) {
+            return NextResponse.json(
+                { success: false, message: closedCheck.message, code: closedCheck.code },
+                { status: 403 },
+            );
+        }
+
         const dupResolution = await resolveForbidDuplicateOnCreate(
             db,
             'expenses',
@@ -363,6 +375,13 @@ export async function POST(request: NextRequest) {
 
         if (dupResolution.action === 'overwrite') {
             const existingExpense = dupResolution.existingDoc;
+            const overwriteClosedCheck = await assertTransactionDocEditable(db, existingExpense as TransactionLedgerFields);
+            if (!overwriteClosedCheck.ok) {
+                return NextResponse.json(
+                    { success: false, message: overwriteClosedCheck.message, code: overwriteClosedCheck.code },
+                    { status: 403 },
+                );
+            }
             const updateData = {
                 recordType: 'expense' as const,
                 objectId: expenseData.objectId,

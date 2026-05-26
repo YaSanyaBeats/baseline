@@ -101,6 +101,14 @@ function recordInReportMonth(date: Date | string, reportMonth: string | undefine
     return rm ? rm === monthKey : dateInMonth(date, monthKey);
 }
 
+/** Проверка: транзакция относится к выбранному месяцу отчёта (reportMonth или дата). */
+export function incomeInReportMonth(
+    income: { date: Date | string; reportMonth?: string | null },
+    monthKey: string
+): boolean {
+    return recordInReportMonth(income.date, income.reportMonth, monthKey);
+}
+
 export interface BookingCommissionInput {
     booking: Booking;
     totalNights: number;

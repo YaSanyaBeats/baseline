@@ -130,6 +130,8 @@ export type AccountancyOverviewOperationTableRowProps = {
         row: AccountancyOverviewOperationRowModel,
         included: boolean,
     ) => void | Promise<void>;
+    /** Отчётный период транзакции зафиксирован — только просмотр */
+    periodLocked?: boolean;
 };
 
 const COMMISSION_TOOLTIP_LINE_CAP = 14;
@@ -232,8 +234,8 @@ function SyntheticCommissionTooltipBody({
 }
 
 function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperationTableRowProps) {
-    const { row, t } = p;
-    const ro = row.readOnlySynthetic === true;
+    const { row, t, periodLocked = false } = p;
+    const ro = row.readOnlySynthetic === true || periodLocked;
     const pending = row.isPendingDraft === true;
     const isSubtransaction = Boolean(row.parentTransaction);
     const parentHref =
@@ -484,6 +486,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                     )
                                 }
                                 disabled={
+                                    p.periodLocked ||
                                     p.commissionPercentUpdatingBookingId === row.bookingId
                                 }
                                 MenuProps={{ PaperProps: { sx: { maxHeight: 240 } } }}

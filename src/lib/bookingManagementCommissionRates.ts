@@ -17,10 +17,12 @@ export async function getBookingManagementCommissionRates(
 export async function saveBookingManagementCommissionRate(
     bookingId: number,
     percent: BookingManagementCommissionRate['percent'],
+    reportMonth?: string,
 ): Promise<CommonResponse> {
     const response = await axios.post(getApiUrl('bookingManagementCommissionRates'), {
         bookingId,
         percent,
+        ...(reportMonth ? { reportMonth } : {}),
     });
     return response.data;
 }

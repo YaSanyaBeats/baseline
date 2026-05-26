@@ -35,6 +35,7 @@ import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
+import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from "@/lib/accountancyCategoryResolve";
 
 function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
@@ -292,7 +293,9 @@ export default function Page() {
             .then((res) => {
                 setSnackbar({
                     open: true,
-                    message: res.message || t('accountancy.incomeUpdated'),
+                    message: res.success
+                        ? res.message || t('accountancy.incomeUpdated')
+                        : getAccountancyMutationErrorMessage(res, t, t('common.serverError')),
                     severity: res.success ? 'success' : 'error',
                 });
             if (res.success) {
@@ -303,7 +306,7 @@ export default function Page() {
                 console.error('Error updating income:', error);
                 setSnackbar({
                     open: true,
-                    message: t('common.serverError'),
+                    message: getAccountancyMutationErrorMessage(error, t, t('common.serverError')),
                     severity: 'error',
                 });
             })

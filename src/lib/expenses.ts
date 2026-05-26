@@ -55,26 +55,38 @@ export async function addExpense(expense: Expense, options?: AddTransactionOptio
         return response.data;
     } catch (error) {
         const parsed = extractCommonResponseFromAxiosError(error);
-        if (parsed?.code === 'FORBID_DUPLICATES') return parsed;
+        if (parsed?.code === 'FORBID_DUPLICATES' || parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
         throw error;
     }
 }
 
 export async function updateExpense(expense: Expense): Promise<CommonResponse> {
-    const response = await axios.post(getApiUrl('expenses/editExpense'), {
-        params: {
-            expense,
-        },
-    });
-    return response.data;
+    try {
+        const response = await axios.post(getApiUrl('expenses/editExpense'), {
+            params: {
+                expense,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const parsed = extractCommonResponseFromAxiosError(error);
+        if (parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        throw error;
+    }
 }
 
 export async function deleteExpense(id: string): Promise<CommonResponse> {
-    const response = await axios.delete(getApiUrl('expenses/deleteExpense'), {
-        params: {
-            id,
-        },
-    });
-    return response.data;
+    try {
+        const response = await axios.delete(getApiUrl('expenses/deleteExpense'), {
+            params: {
+                id,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const parsed = extractCommonResponseFromAxiosError(error);
+        if (parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        throw error;
+    }
 }
 

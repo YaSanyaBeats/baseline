@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
+import { assertTransactionDocEditable } from '@/lib/accountancyClosedMonth';
+import type { TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
 
 export async function DELETE(request: NextRequest) {
     try {
@@ -54,6 +56,14 @@ export async function DELETE(request: NextRequest) {
         if (!isAdminOrAccountant && !isOwnDraft) {
             return NextResponse.json(
                 { success: false, message: 'Недостаточно прав или можно удалять только свои черновики.' },
+                { status: 403 },
+            );
+        }
+
+        const closedCheck = await assertTransactionDocEditable(db, existingExpense as TransactionLedgerFields);
+        if (!closedCheck.ok) {
+            return NextResponse.json(
+                { success: false, message: closedCheck.message, code: closedCheck.code },
                 { status: 403 },
             );
         }

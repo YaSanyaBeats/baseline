@@ -35,6 +35,7 @@ import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from '@/lib/accountancyCategoryResolve';
 
 function stableExpenseRoomLabel(room: { id: number; name?: string }): string {
@@ -341,7 +342,9 @@ export default function ExpenseEditForm({
             .then((res) => {
                 setSnackbar({
                     open: true,
-                    message: res.message || t('accountancy.expenseUpdated'),
+                    message: res.success
+                        ? res.message || t('accountancy.expenseUpdated')
+                        : getAccountancyMutationErrorMessage(res, t, t('common.serverError')),
                     severity: res.success ? 'success' : 'error',
                 });
                 if (res.success) {
@@ -352,7 +355,7 @@ export default function ExpenseEditForm({
                 console.error('Error updating expense:', error);
                 setSnackbar({
                     open: true,
-                    message: t('common.serverError'),
+                    message: getAccountancyMutationErrorMessage(error, t, t('common.serverError')),
                     severity: 'error',
                 });
             })

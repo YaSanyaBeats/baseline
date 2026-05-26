@@ -77,7 +77,7 @@ import {
     isTransactionFailed,
 } from '@/lib/accountancyDuplicateSubmit';
 import { useDuplicateTransactionDialog } from '@/components/accountancy/useDuplicateTransactionDialog';
-import { getApiErrorMessage } from '@/lib/axiosResponseMessage';
+import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { formatPartialTransactionAddWarning } from '@/lib/accountancyPartialAddMessage';
 import { getCounterparties } from '@/lib/counterparties';
 import FileAttachments from '@/components/accountancy/FileAttachments';
@@ -791,7 +791,7 @@ export default function BulkAddTransactionsPage() {
                             if (!parentRes.success || !parentRes.id) {
                                 failures.push({
                                     category: effectiveCat,
-                                    message: parentRes.message || t('common.serverError'),
+                                    message: getAccountancyMutationErrorMessage(parentRes, t, t('common.serverError')),
                                 });
                                 continue;
                             }
@@ -825,7 +825,7 @@ export default function BulkAddTransactionsPage() {
                                         else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
-                                                message: subRes.message || t('common.serverError'),
+                                                message: getAccountancyMutationErrorMessage(subRes, t, t('common.serverError')),
                                             });
                                     } else {
                                         const subPayload: Income = {
@@ -850,13 +850,13 @@ export default function BulkAddTransactionsPage() {
                                         else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
-                                                message: subRes.message || t('common.serverError'),
+                                                message: getAccountancyMutationErrorMessage(subRes, t, t('common.serverError')),
                                             });
                                     }
                                 } catch (err) {
                                     failures.push({
                                         category: sub.category,
-                                        message: getApiErrorMessage(err, t('common.serverError')),
+                                        message: getAccountancyMutationErrorMessage(err, t, t('common.serverError')),
                                     });
                                 }
                             }
@@ -868,12 +868,12 @@ export default function BulkAddTransactionsPage() {
                         else if (isTransactionFailed(res))
                             failures.push({
                                 category: effectiveCat,
-                                message: res.message || t('common.serverError'),
+                                message: getAccountancyMutationErrorMessage(res, t, t('common.serverError')),
                             });
                     } catch (err) {
                         failures.push({
                             category: effectiveCat,
-                            message: getApiErrorMessage(err, t('common.serverError')),
+                            message: getAccountancyMutationErrorMessage(err, t, t('common.serverError')),
                         });
                     }
                 } else {
@@ -908,7 +908,7 @@ export default function BulkAddTransactionsPage() {
                             if (!parentRes.success || !parentRes.id) {
                                 failures.push({
                                     category: effectiveCat,
-                                    message: parentRes.message || t('common.serverError'),
+                                    message: getAccountancyMutationErrorMessage(parentRes, t, t('common.serverError')),
                                 });
                                 continue;
                             }
@@ -942,7 +942,7 @@ export default function BulkAddTransactionsPage() {
                                         else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
-                                                message: subRes.message || t('common.serverError'),
+                                                message: getAccountancyMutationErrorMessage(subRes, t, t('common.serverError')),
                                             });
                                     } else {
                                         const subPayload: Income = {
@@ -967,13 +967,13 @@ export default function BulkAddTransactionsPage() {
                                         else if (isTransactionFailed(subRes))
                                             failures.push({
                                                 category: sub.category,
-                                                message: subRes.message || t('common.serverError'),
+                                                message: getAccountancyMutationErrorMessage(subRes, t, t('common.serverError')),
                                             });
                                     }
                                 } catch (err) {
                                     failures.push({
                                         category: sub.category,
-                                        message: getApiErrorMessage(err, t('common.serverError')),
+                                        message: getAccountancyMutationErrorMessage(err, t, t('common.serverError')),
                                     });
                                 }
                             }
@@ -985,12 +985,12 @@ export default function BulkAddTransactionsPage() {
                         else if (isTransactionFailed(res))
                             failures.push({
                                 category: effectiveCat,
-                                message: res.message || t('common.serverError'),
+                                message: getAccountancyMutationErrorMessage(res, t, t('common.serverError')),
                             });
                     } catch (err) {
                         failures.push({
                             category: effectiveCat,
-                            message: getApiErrorMessage(err, t('common.serverError')),
+                            message: getAccountancyMutationErrorMessage(err, t, t('common.serverError')),
                         });
                     }
                 }
@@ -1017,7 +1017,7 @@ export default function BulkAddTransactionsPage() {
             console.error('bulk-add submit:', e);
             setSnackbar({
                 open: true,
-                message: t('common.serverError'),
+                message: getAccountancyMutationErrorMessage(e, t, t('common.serverError')),
                 severity: 'error',
             });
         } finally {

@@ -7,6 +7,7 @@ import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
+import { assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
 
 export async function POST(request: NextRequest) {
     try {
@@ -100,6 +101,18 @@ export async function POST(request: NextRequest) {
             : (existingIncome.status && allowedStatuses.includes(existingIncome.status as IncomeStatus)
                 ? existingIncome.status
                 : 'draft');
+
+        const closedCheck = await assertTransactionMutationAllowed(db, {
+            date: incomeData.date,
+            reportMonth: incomeData.reportMonth,
+            existingDoc: existingIncome as TransactionLedgerFields,
+        });
+        if (!closedCheck.ok) {
+            return NextResponse.json(
+                { success: false, message: closedCheck.message, code: closedCheck.code },
+                { status: 403 },
+            );
+        }
 
         if (
             await hasDuplicateForForbidCategory(db, 'incomes', 'income', {

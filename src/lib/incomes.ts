@@ -55,26 +55,38 @@ export async function addIncome(income: Income, options?: AddTransactionOptions)
         return response.data;
     } catch (error) {
         const parsed = extractCommonResponseFromAxiosError(error);
-        if (parsed?.code === 'FORBID_DUPLICATES') return parsed;
+        if (parsed?.code === 'FORBID_DUPLICATES' || parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
         throw error;
     }
 }
 
 export async function updateIncome(income: Income): Promise<CommonResponse> {
-    const response = await axios.post(getApiUrl('incomes/editIncome'), {
-        params: {
-            income,
-        },
-    });
-    return response.data;
+    try {
+        const response = await axios.post(getApiUrl('incomes/editIncome'), {
+            params: {
+                income,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const parsed = extractCommonResponseFromAxiosError(error);
+        if (parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        throw error;
+    }
 }
 
 export async function deleteIncome(id: string): Promise<CommonResponse> {
-    const response = await axios.delete(getApiUrl('incomes/deleteIncome'), {
-        params: {
-            id,
-        },
-    });
-    return response.data;
+    try {
+        const response = await axios.delete(getApiUrl('incomes/deleteIncome'), {
+            params: {
+                id,
+            },
+        });
+        return response.data;
+    } catch (error) {
+        const parsed = extractCommonResponseFromAxiosError(error);
+        if (parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        throw error;
+    }
 }
 

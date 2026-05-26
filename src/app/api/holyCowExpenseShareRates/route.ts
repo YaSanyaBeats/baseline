@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import type { HolyCowExpenseShareRate } from '@/lib/types';
+import { isReportMonthClosed, REPORT_MONTH_CLOSED_MESSAGE } from '@/lib/accountancyClosedMonth';
 
 type RateDb = Omit<HolyCowExpenseShareRate, '_id'> & { _id?: ObjectId };
 
@@ -98,6 +99,12 @@ export async function POST(request: NextRequest) {
         }
 
         const db = await getDB();
+        if (await isReportMonthClosed(db, key.reportMonth)) {
+            return NextResponse.json(
+                { success: false, message: REPORT_MONTH_CLOSED_MESSAGE, code: 'REPORT_MONTH_CLOSED' },
+                { status: 403 },
+            );
+        }
         const collection = db.collection<RateDb>('holyCowExpenseShareRates');
         await collection.createIndex({ objectId: 1, roomName: 1, reportMonth: 1 }, { unique: true });
 

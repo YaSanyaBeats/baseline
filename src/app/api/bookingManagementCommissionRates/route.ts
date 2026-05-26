@@ -5,6 +5,7 @@ import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 import type { BookingManagementCommissionRate } from '@/lib/types';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import { isReportMonthClosed, isValidReportMonthKey, REPORT_MONTH_CLOSED_MESSAGE } from '@/lib/accountancyClosedMonth';
 
 type RateDb = Omit<BookingManagementCommissionRate, '_id'> & { _id?: ObjectId };
 
@@ -90,6 +91,7 @@ export async function POST(request: NextRequest) {
         const body = await request.json();
         const bookingId = Number(body?.bookingId ?? body?.params?.bookingId);
         const percent = parsePercent(body?.percent ?? body?.params?.percent);
+        const reportMonthRaw = String(body?.reportMonth ?? body?.params?.reportMonth ?? '').trim();
         if (!Number.isInteger(bookingId) || bookingId <= 0 || percent == null) {
             return NextResponse.json(
                 { success: false, message: 'Некорректные ID брони или процент комиссии' },
@@ -98,6 +100,13 @@ export async function POST(request: NextRequest) {
         }
 
         const db = await getDB();
+        if (isValidReportMonthKey(reportMonthRaw) && (await isReportMonthClosed(db, reportMonthRaw))) {
+            return NextResponse.json(
+                { success: false, message: REPORT_MONTH_CLOSED_MESSAGE, code: 'REPORT_MONTH_CLOSED' },
+                { status: 403 },
+            );
+        }
+
         const collection = db.collection<RateDb>('bookingManagementCommissionRates');
         await collection.createIndex({ bookingId: 1 }, { unique: true });
 

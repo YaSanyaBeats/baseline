@@ -38,19 +38,19 @@ import { getExpenses } from '@/lib/expenses';
 import { getIncomes } from '@/lib/incomes';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoryNameByIdMap, resolveCategoryName } from '@/lib/accountancyCategoryResolve';
-import { getBookingsByIds, searchBookings } from '@/lib/bookings';
+import { getUsers } from '@/lib/users';
+import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
+import { calculateCommissionForObject, type ObjectCommissionResult } from '@/lib/commissionForObject';
 import {
-    CommissionSchemeId,
-    prepareCommissionData,
-    calculateBookingCommission,
     isOtaCommission,
     isCoAgentCommission,
     getNightsInMonth,
     type CommissionStep,
     type CommissionStepLineItem,
 } from '@/lib/commissionCalculation';
-import { Expense, Income, Booking, AccountancyCategory } from '@/lib/types';
-import { buildCommissionOwnerViewPayload, COMMISSION_OWNER_VIEW_KEY } from '@/lib/commissionOwnerView';
+import { Expense, Income, Booking, AccountancyCategory, User } from '@/lib/types';
+import { buildCommissionOwnerViewPayload, collectOwnerViewExtraBookingIds, COMMISSION_OWNER_VIEW_KEY } from '@/lib/commissionOwnerView';
+import { getBookingsByIds } from '@/lib/bookings';
 
 const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
 
@@ -60,26 +60,8 @@ function stableUnitLabel(room: { id: number; name?: string }): string {
         : `Unit ${room.id}`;
 }
 
-function normalizeCommissionRoomFromStorage(
-    raw: unknown,
-    rooms: { id: number; name?: string }[]
-): string | 'all' {
-    if (raw === 'all' || raw === null || raw === undefined || raw === '') return 'all';
-    if (typeof raw === 'number' && Number.isFinite(raw)) {
-        const row = rooms.find((r) => r.id === raw);
-        return row ? stableUnitLabel(row) : 'all';
-    }
-    const s = String(raw);
-    if (/^\d+$/.test(s)) {
-        const row = rooms.find((r) => r.id === Number(s));
-        return row ? stableUnitLabel(row) : 'all';
-    }
-    return s;
-}
-
 function loadCommissionFiltersPayload(): {
-    selectedObjectId: number | '';
-    roomRaw: unknown;
+    selectedOwnerId: string;
     selectedMonth: string;
 } | null {
     if (typeof window === 'undefined') return null;
@@ -87,15 +69,8 @@ function loadCommissionFiltersPayload(): {
         const raw = localStorage.getItem(COMMISSION_FILTERS_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
-        const oid = parsed.selectedObjectId;
-        let selectedObjectId: number | '' = '';
-        if (oid !== null && oid !== undefined && oid !== '') {
-            const n = Number(oid);
-            selectedObjectId = Number.isFinite(n) ? n : '';
-        }
         return {
-            selectedObjectId,
-            roomRaw: parsed.selectedRoomId,
+            selectedOwnerId: String(parsed.selectedOwnerId ?? ''),
             selectedMonth: String(parsed.selectedMonth ?? ''),
         };
     } catch {
@@ -104,8 +79,7 @@ function loadCommissionFiltersPayload(): {
 }
 
 function saveCommissionFilters(state: {
-    selectedObjectId: number | '';
-    selectedRoomId: string | 'all';
+    selectedOwnerId: string;
     selectedMonth: string;
 }) {
     if (typeof window === 'undefined') return;
@@ -116,8 +90,6 @@ function saveCommissionFilters(state: {
     }
 }
 
-const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
-
 function formatAmount(value: number): string {
     return value.toLocaleString('ru-RU', {
         minimumFractionDigits: 2,
@@ -127,30 +99,6 @@ function formatAmount(value: number): string {
 
 function lineTotal(quantity: number | undefined, amount: number | undefined): number {
     return (quantity ?? 1) * (amount ?? 0);
-}
-
-function monthOverlapIsoRange(monthKey: string): { overlapFrom: string; overlapTo: string } {
-    const [y, m] = monthKey.split('-').map(Number);
-    if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
-        return { overlapFrom: `${monthKey}-01`, overlapTo: `${monthKey}-28` };
-    }
-    const last = new Date(y, m, 0).getDate();
-    return {
-        overlapFrom: `${y}-${String(m).padStart(2, '0')}-01`,
-        overlapTo: `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`,
-    };
-}
-
-function bookingMatchesSelection(
-    b: Booking,
-    bookingPropertyId: number,
-    roomFilter: string | 'all',
-    roomsForObject: { id: number; name?: string }[]
-): boolean {
-    if (b.propertyId !== bookingPropertyId) return false;
-    if (roomFilter === 'all') return true;
-    const row = roomsForObject.find((r) => stableUnitLabel(r) === roomFilter);
-    return row != null && b.unitId === row.id;
 }
 
 function guestCountLabel(b: Booking): string {
@@ -169,6 +117,7 @@ export default function Page() {
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
+    const [owners, setOwners] = useState<User[]>([]);
     const categoryNameById = useMemo(() => buildCategoryNameByIdMap(categories), [categories]);
     const transactionCategoryName = (record: Expense | Income) =>
         resolveCategoryName(record, categoryNameById);
@@ -178,19 +127,14 @@ export default function Page() {
     const commissionFiltersLoadedRef = useRef(false);
 
     const [filtersHydrated, setFiltersHydrated] = useState(false);
-    const [selectedObjectId, setSelectedObjectId] = useState<number | ''>('');
-    const [selectedRoomId, setSelectedRoomId] = useState<string | 'all'>('all');
+    const [selectedOwnerId, setSelectedOwnerId] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
 
     const [result, setResult] = useState<{
         reportTitle: string;
         monthKey: string;
-        bookingsReport: Array<{
-            booking: Booking;
-            calculation: ReturnType<typeof calculateBookingCommission>;
-            incomes: Income[];
-            expenses: Expense[];
-        }>;
+        objectReports: ObjectCommissionResult[];
+        bookingsReport: ObjectCommissionResult['bookingsReport'];
         unlinkedIncomes: Income[];
         unlinkedExpenses: Expense[];
         totalCommission: number;
@@ -209,35 +153,30 @@ export default function Page() {
     useEffect(() => {
         if (commissionFiltersLoadedRef.current) return;
         const s = loadCommissionFiltersPayload();
-        if (!s) {
-            commissionFiltersLoadedRef.current = true;
-            setFiltersHydrated(true);
-            return;
+        if (s) {
+            setSelectedOwnerId(s.selectedOwnerId);
+            setSelectedMonth(s.selectedMonth);
         }
-        if (objects.length === 0) return;
-
-        setSelectedObjectId(s.selectedObjectId);
-        setSelectedMonth(s.selectedMonth);
-        const obj = s.selectedObjectId ? objects.find((o) => o.id === s.selectedObjectId) : undefined;
-        const rooms = obj?.roomTypes ?? [];
-        setSelectedRoomId(normalizeCommissionRoomFromStorage(s.roomRaw, rooms));
         commissionFiltersLoadedRef.current = true;
         setFiltersHydrated(true);
-    }, [objects]);
+    }, []);
 
     useEffect(() => {
         if (!filtersHydrated) return;
         saveCommissionFilters({
-            selectedObjectId,
-            selectedRoomId,
+            selectedOwnerId,
             selectedMonth,
         });
-    }, [filtersHydrated, selectedObjectId, selectedRoomId, selectedMonth]);
+    }, [filtersHydrated, selectedOwnerId, selectedMonth]);
 
-    const selectedObject = selectedObjectId
-        ? objects.find((o) => o.id === selectedObjectId)
+    const selectedOwner = selectedOwnerId
+        ? owners.find((o) => o._id === selectedOwnerId)
         : null;
-    const roomsForObject = selectedObject?.roomTypes ?? [];
+
+    const ownerObjects = useMemo(() => {
+        if (!selectedOwner) return [];
+        return filterObjectsForOwner(objects, selectedOwner.objects ?? []);
+    }, [selectedOwner, objects]);
 
     useEffect(() => {
         if (!hasAccess) return;
@@ -245,14 +184,16 @@ export default function Page() {
         const load = async () => {
             setLoading(true);
             try {
-                const [exp, inc, cats] = await Promise.all([
+                const [exp, inc, cats, usersList] = await Promise.all([
                     getExpenses(),
                     getIncomes(),
                     getAccountancyCategories(),
+                    getUsers(),
                 ]);
                 setExpenses(exp);
                 setIncomes(inc);
                 setCategories(cats);
+                setOwners(usersList.filter((u) => u.role === 'owner'));
             } catch (err) {
                 console.error('Error loading data:', err);
             } finally {
@@ -264,144 +205,38 @@ export default function Page() {
     }, [hasAccess]);
 
     const handleCalculate = async () => {
-        if (!selectedObjectId || !selectedMonth) return;
+        if (!selectedOwnerId || !selectedMonth || ownerObjects.length === 0) return;
 
         setCalculating(true);
         setResult(null);
 
         try {
-            const roomFilter: string | 'all' = selectedRoomId;
-            const bookingPropertyId =
-                selectedObject?.propertyId ??
-                (typeof selectedObjectId === 'number' ? selectedObjectId : 0);
-
-            const [y, m] = selectedMonth.split('-').map(Number);
-            const dateInMonth = (d: Date | string) => {
-                const date = new Date(d);
-                return date.getFullYear() === y && date.getMonth() === m - 1;
-            };
-            const matchRoom = (roomName: string | null | undefined) =>
-                roomFilter === 'all' || (roomName != null && roomName !== '' && roomName === roomFilter);
-
-            const { overlapFrom, overlapTo } = monthOverlapIsoRange(selectedMonth);
-            const roomRow =
-                roomFilter === 'all' ? undefined : roomsForObject.find((r) => stableUnitLabel(r) === roomFilter);
-
-            const overlapBookings = await searchBookings({
-                objectId: bookingPropertyId,
-                ...(roomRow != null ? { roomId: roomRow.id } : {}),
-                overlapFrom,
-                overlapTo,
-            });
-
-            const overlapFiltered = overlapBookings.filter((b) =>
-                bookingMatchesSelection(b, bookingPropertyId, roomFilter, roomsForObject)
+            const objectReports = await Promise.all(
+                ownerObjects.map((obj) =>
+                    calculateCommissionForObject(obj, selectedMonth, incomes, expenses, categories)
+                )
             );
 
-            const txnBookingIds = new Set<number>();
-            for (const i of incomes) {
-                if (i.objectId !== selectedObjectId || !dateInMonth(i.date) || !matchRoom(i.roomName ?? null))
-                    continue;
-                if (i.bookingId != null) txnBookingIds.add(i.bookingId);
-            }
-            for (const e of expenses) {
-                if (e.objectId !== selectedObjectId || !dateInMonth(e.date) || !matchRoom(e.roomName ?? null))
-                    continue;
-                if (e.bookingId != null) txnBookingIds.add(e.bookingId);
-            }
+            const bookingsReport = objectReports.flatMap((r) => r.bookingsReport);
+            const unlinkedIncomes = objectReports.flatMap((r) => r.unlinkedIncomes);
+            const unlinkedExpenses = objectReports.flatMap((r) => r.unlinkedExpenses);
 
-            const missingFromOverlap = [...txnBookingIds].filter(
-                (id) => !overlapFiltered.some((b) => b.id === id)
-            );
-            const extras = missingFromOverlap.length ? await getBookingsByIds(missingFromOverlap) : [];
-            const extrasFiltered = extras.filter((b) =>
-                bookingMatchesSelection(b, bookingPropertyId, roomFilter, roomsForObject)
-            );
+            const reportTitle = selectedOwner?.name || selectedOwner?.login || '';
 
-            const byId = new Map<number, Booking>();
-            for (const b of overlapFiltered) byId.set(b.id, b);
-            for (const b of extrasFiltered) byId.set(b.id, b);
-
-            const mergedBookings = Array.from(byId.values()).sort(
-                (a, c) => new Date(a.arrival).getTime() - new Date(c.arrival).getTime()
-            );
-
-            const inputs = prepareCommissionData(
-                mergedBookings,
-                incomes,
-                expenses,
-                categories,
-                selectedObjectId,
-                roomFilter,
-                selectedMonth,
-                bookingPropertyId,
-                roomsForObject
-            );
-
-            const getSchemeForBooking = (booking: Booking): CommissionSchemeId => {
-                const room = roomsForObject.find((r) => r.id === booking.unitId);
-                const scheme = room?.commissionSchemeId;
-                return (scheme && scheme >= 1 && scheme <= 4 ? scheme : DEFAULT_SCHEME_ID) as CommissionSchemeId;
-            };
-
-            const results = inputs.map((input) =>
-                calculateBookingCommission(input, getSchemeForBooking(input.booking))
-            );
-
-            const unlinkedIncomes = incomes.filter(
-                (i) =>
-                    i.objectId === selectedObjectId &&
-                    i.bookingId == null &&
-                    dateInMonth(i.date) &&
-                    matchRoom(i.roomName ?? null)
-            );
-            const unlinkedExpenses = expenses.filter(
-                (e) =>
-                    e.objectId === selectedObjectId &&
-                    e.bookingId == null &&
-                    dateInMonth(e.date) &&
-                    matchRoom(e.roomName ?? null)
-            );
-
-            const bookingsReport = mergedBookings.map((booking, idx) => {
-                const calculation = results[idx]!;
-                const incomesRows = incomes.filter(
-                    (i) =>
-                        i.objectId === selectedObjectId &&
-                        i.bookingId === booking.id &&
-                        dateInMonth(i.date) &&
-                        matchRoom(i.roomName ?? null)
-                );
-                const expensesRows = expenses.filter(
-                    (e) =>
-                        e.objectId === selectedObjectId &&
-                        e.bookingId === booking.id &&
-                        dateInMonth(e.date) &&
-                        matchRoom(e.roomName ?? null)
-                );
-                return { booking, calculation, incomes: incomesRows, expenses: expensesRows };
-            });
-
-            const reportTitle =
-                roomFilter === 'all' ? selectedObject?.name ?? '' : `${selectedObject?.name ?? ''} — ${roomFilter}`;
-
-            const commissionFromBookings = results.reduce((s, r) => s + r.commission, 0);
-            const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + lineTotal(e.quantity, e.amount), 0);
-            const totalCommission = commissionFromBookings;
+            const totalCommission = objectReports.reduce((s, r) => s + r.totalCommission, 0);
+            const unlinkedExpensesAmount = objectReports.reduce((s, r) => s + r.unlinkedExpensesAmount, 0);
             const totalWithUnlinkedExpenses = totalCommission + unlinkedExpensesAmount;
-
-            const totalUnlinkedIncome = unlinkedIncomes.reduce((s, i) => s + lineTotal(i.quantity, i.amount), 0);
+            const totalUnlinkedIncome = objectReports.reduce((s, r) => s + r.totalUnlinkedIncome, 0);
             const totalUnlinkedExpense = unlinkedExpensesAmount;
-
-            const totalLinkedIncome = results.reduce((s, r) => s + r.income, 0);
-            const totalLinkedExpense = results.reduce((s, r) => s + r.totalExpenses, 0);
-
+            const totalLinkedIncome = objectReports.reduce((s, r) => s + r.totalLinkedIncome, 0);
+            const totalLinkedExpense = objectReports.reduce((s, r) => s + r.totalLinkedExpense, 0);
             const totalIncome = totalLinkedIncome + totalUnlinkedIncome;
             const totalExpenses = totalLinkedExpense + totalUnlinkedExpense;
 
             setResult({
                 reportTitle,
                 monthKey: selectedMonth,
+                objectReports,
                 bookingsReport,
                 unlinkedIncomes,
                 unlinkedExpenses,
@@ -575,48 +410,22 @@ export default function Page() {
                     {t('accountancy.commission.params')}
                 </Typography>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
-                    <FormControl sx={{ minWidth: 200 }} size="small">
-                        <InputLabel>{t('common.object')}</InputLabel>
+                    <FormControl sx={{ minWidth: 240 }} size="small">
+                        <InputLabel>{t('users.owner')}</InputLabel>
                         <Select
-                            label={t('common.object')}
-                            value={selectedObjectId === '' ? '' : String(selectedObjectId)}
+                            label={t('users.owner')}
+                            value={selectedOwnerId}
                             onChange={(e) => {
-                                const v = e.target.value;
-                                setSelectedObjectId(v ? Number(v) : '');
-                                setSelectedRoomId('all');
+                                setSelectedOwnerId(e.target.value as string);
                                 setResult(null);
                             }}
                         >
                             <MenuItem value="">
-                                <em>{t('accountancy.commission.selectObject')}</em>
+                                <em>{t('accountancy.commission.selectOwner')}</em>
                             </MenuItem>
-                            {objects.map((obj) => (
-                                <MenuItem key={`${obj.propertyName || 'obj'}-${obj.id}`} value={String(obj.id)}>
-                                    {obj.name}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
-
-                    <FormControl
-                        sx={{ minWidth: 200 }}
-                        size="small"
-                        disabled={!selectedObject}
-                    >
-                        <InputLabel>{t('common.room')}</InputLabel>
-                        <Select
-                            label={t('common.room')}
-                            value={selectedRoomId === 'all' ? 'all' : selectedRoomId}
-                            onChange={(e) => {
-                                const v = e.target.value;
-                                setSelectedRoomId(v === 'all' ? 'all' : String(v));
-                                setResult(null);
-                            }}
-                        >
-                            <MenuItem value="all">{t('accountancy.all')}</MenuItem>
-                            {roomsForObject.map((room) => (
-                                <MenuItem key={room.id} value={stableUnitLabel(room)}>
-                                    {room.name || `Room ${room.id}`}
+                            {owners.map((owner) => (
+                                <MenuItem key={owner._id} value={owner._id ?? ''}>
+                                    {owner.name || owner.login}
                                 </MenuItem>
                             ))}
                         </Select>
@@ -654,14 +463,21 @@ export default function Page() {
                         }
                         onClick={handleCalculate}
                         disabled={
-                            !selectedObjectId ||
+                            !selectedOwnerId ||
                             !selectedMonth ||
-                            calculating
+                            ownerObjects.length === 0 ||
+                            calculating ||
+                            loading
                         }
                     >
                         {t('accountancy.commission.calculate')}
                     </Button>
                 </Stack>
+                {selectedOwnerId && ownerObjects.length === 0 && !loading && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        {t('accountancy.commission.noOwnerObjects')}
+                    </Alert>
+                )}
             </Paper>
 
             {result && (
@@ -680,8 +496,27 @@ export default function Page() {
                             <Button
                                 variant="outlined"
                                 startIcon={<VisibilityOutlinedIcon />}
-                                onClick={() => {
-                                    const payload = buildCommissionOwnerViewPayload(result, locale);
+                                onClick={async () => {
+                                    const missingBookingIds = collectOwnerViewExtraBookingIds(
+                                        result.objectReports,
+                                        result.monthKey,
+                                        categoryNameById,
+                                        categories,
+                                        incomes,
+                                        expenses
+                                    );
+                                    const extraBookings = missingBookingIds.length
+                                        ? await getBookingsByIds(missingBookingIds)
+                                        : [];
+                                    const payload = buildCommissionOwnerViewPayload(
+                                        result,
+                                        locale,
+                                        categoryNameById,
+                                        categories,
+                                        incomes,
+                                        expenses,
+                                        extraBookings
+                                    );
                                     try {
                                         sessionStorage.setItem(
                                             COMMISSION_OWNER_VIEW_KEY,
@@ -704,14 +539,33 @@ export default function Page() {
 
                     <Typography variant="h6">{t('accountancy.commission.reportByBookings')}</Typography>
 
-                    {result.bookingsReport.length === 0 &&
-                    result.unlinkedIncomes.length === 0 &&
-                    result.unlinkedExpenses.length === 0 ? (
+                    {result.objectReports.every(
+                        (o) =>
+                            o.bookingsReport.length === 0 &&
+                            o.unlinkedIncomes.length === 0 &&
+                            o.unlinkedExpenses.length === 0
+                    ) ? (
                         <Alert severity="info">{t('accountancy.commission.noBookings')}</Alert>
                     ) : null}
 
-                    {result.bookingsReport.length > 0
-                        ? result.bookingsReport.map(({ booking, calculation, incomes: incRows, expenses: expRows }) => {
+                    {result.objectReports.map((objectReport) => {
+                        if (
+                            objectReport.bookingsReport.length === 0 &&
+                            objectReport.unlinkedIncomes.length === 0 &&
+                            objectReport.unlinkedExpenses.length === 0
+                        ) {
+                            return null;
+                        }
+
+                        const roomsForObject = objectReport.roomsForObject;
+
+                        return (
+                            <Box key={objectReport.objectId}>
+                                <Typography variant="h6" sx={{ mt: 2, mb: 1 }}>
+                                    {objectReport.objectName}
+                                </Typography>
+
+                                {objectReport.bookingsReport.map(({ booking, calculation, incomes: incRows, expenses: expRows }) => {
                             const nightsInMonth = getNightsInMonth(
                                 booking.arrival,
                                 booking.departure,
@@ -730,7 +584,7 @@ export default function Page() {
                                 booking.refererEditable || booking.referer || booking.channel || '—';
 
                             return (
-                                <Paper key={booking.id} variant="outlined" sx={{ p: 2, overflow: 'hidden' }}>
+                                <Paper key={`${objectReport.objectId}-${booking.id}`} variant="outlined" sx={{ p: 2, overflow: 'hidden', mb: 2 }}>
                                     <Stack
                                         direction={{ xs: 'column', md: 'row' }}
                                         spacing={1}
@@ -936,8 +790,10 @@ export default function Page() {
                                     </Stack>
                                 </Paper>
                             );
-                        })
-                        : null}
+                                })}
+                            </Box>
+                        );
+                    })}
 
                     {(result.unlinkedIncomes.length > 0 || result.unlinkedExpenses.length > 0) && (
                         <Paper variant="outlined" sx={{ p: 2 }}>

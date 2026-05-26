@@ -23,6 +23,7 @@ import {
     normalizeTransactionCategoryFields,
     type NormalizedTransactionCategory,
 } from '@/lib/accountancyCategoryServerResolve';
+import { getClosedReportMonthsSet } from '@/lib/accountancyClosedMonth';
 
 /** Подставляет «комнату из брони» в значение room:objectId:encodedName для создаваемой транзакции */
 function resolveAutoRuleSourceRecipient(
@@ -153,6 +154,7 @@ export async function runRulesForBookings(
     }
 
     const rules = await rulesCollection.find({}).sort({ order: 1 }).toArray();
+    const closedReportMonths = await getClosedReportMonthsSet(db);
 
     const [propertyToFirstRoomTypeId, roomTypeIdToPropertyId] = await Promise.all([
         buildPropertyIdToFirstRoomTypeIdMap(db),
@@ -422,6 +424,9 @@ export async function runRulesForBookings(
             if (rule.ruleType === 'expense') {
                 if (rule.period === 'per_booking') {
                     const reportMonthBooking = `${departure.getFullYear()}-${String(departure.getMonth() + 1).padStart(2, '0')}`;
+                    if (closedReportMonths.has(reportMonthBooking)) {
+                        continue;
+                    }
                     if (
                         await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                             objectId: accountingObjectId,
@@ -462,6 +467,9 @@ export async function runRulesForBookings(
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
+                        if (closedReportMonths.has(reportMonth)) {
+                            continue;
+                        }
                         if (
                             await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                                 objectId: accountingObjectId,
@@ -502,6 +510,9 @@ export async function runRulesForBookings(
             } else {
                 if (rule.period === 'per_booking') {
                     const reportMonthBookingInc = `${departure.getFullYear()}-${String(departure.getMonth() + 1).padStart(2, '0')}`;
+                    if (closedReportMonths.has(reportMonthBookingInc)) {
+                        continue;
+                    }
                     if (
                         await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                             objectId: accountingObjectId,
@@ -542,6 +553,9 @@ export async function runRulesForBookings(
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
+                        if (closedReportMonths.has(reportMonth)) {
+                            continue;
+                        }
                         if (
                             await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                                 objectId: accountingObjectId,
