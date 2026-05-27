@@ -10,12 +10,13 @@ import {
     incomeInReportMonth,
     isCoAgentCommission,
     isOtaCommission,
+    MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY,
     type CommissionSchemeId,
 } from '@/lib/commissionCalculation';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
-import type { AccountancyCategory, Booking, Expense } from '@/lib/types';
+import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
 
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
 
@@ -45,6 +46,16 @@ export type CommissionOwnerViewExpenseLine = {
     isManagementCommission: boolean;
     /** «Общие расходы» / «Расходы владельца»: «Расход» = 100% суммы, «Расходы агентства» = «—». */
     isCommonOrOwnerLine: boolean;
+    /** Транзакция «Приход»: в колонке «Расход» — плюс, в «Итого» — с положительным знаком. */
+    isIncome?: boolean;
+    /** Чекбокс «Делимость»: при false доля агентства не вычитается (полная сумма в «Расход»). */
+    includeInCommissionShare?: boolean;
+    /** Признак, что в колонке «Расход» применялось вычитание комиссии. */
+    hasCommissionDeduction?: boolean;
+    /** Сумма подтранзакций для колонки «Расходы гостя». */
+    guestSubtransactionsTotal?: number | null;
+    /** Подтранзакции не выводятся в колонке «Расходы гостя». */
+    isSubtransaction?: boolean;
 };
 
 export type CommissionOwnerViewExpenseGroup = {
@@ -65,8 +76,8 @@ type BookingMeta = {
     roomsForObject: ObjectCommissionResult['roomsForObject'];
 };
 
-function expenseLineTotal(e: Expense): number {
-    return (e.quantity ?? 1) * (e.amount ?? 0);
+function transactionLineTotal(record: { quantity?: number; amount?: number }): number {
+    return (record.quantity ?? 1) * (record.amount ?? 0);
 }
 
 function isExcludedExpenseCategory(categoryName: string): boolean {
@@ -102,16 +113,16 @@ function roomLabelForBooking(
 }
 
 function resolveBookingMeta(
-    expense: Expense,
+    record: { bookingId?: number | null; objectId: number },
     objectReports: ObjectCommissionResult[],
     bookingMeta: Map<number, BookingMeta>,
     extraBookings: Booking[]
 ): BookingMeta | null {
-    if (expense.bookingId == null) return null;
-    const existing = bookingMeta.get(expense.bookingId);
+    if (record.bookingId == null) return null;
+    const existing = bookingMeta.get(record.bookingId);
     if (existing) return existing;
-    const objectReport = objectReports.find((r) => r.objectId === expense.objectId);
-    const booking = extraBookings.find((b) => b.id === expense.bookingId);
+    const objectReport = objectReports.find((r) => r.objectId === record.objectId);
+    const booking = extraBookings.find((b) => b.id === record.bookingId);
     if (!objectReport || !booking) return null;
     return {
         booking,
@@ -126,12 +137,76 @@ function bookingGroupLabel(booking: Booking): string {
     return joinBookingGroupSegments(buildBookingGroupLineModel(booking).segments);
 }
 
-function expenseDescription(e: Expense, categoryName: string): string {
-    return e.comment ? `${categoryName} (${e.comment})` : categoryName;
+function transactionDescription(
+    record: { comment?: string },
+    categoryName: string
+): string {
+    return record.comment ? `${categoryName} (${record.comment})` : categoryName;
 }
 
 function expenseLineKey(e: Expense, line: number): string {
     return e._id ?? `exp-${e.bookingId ?? 'u'}-${String(e.date)}-${e.category}-${line}`;
+}
+
+function incomeLineKey(i: Income, line: number): string {
+    return i._id ?? `inc-${i.bookingId ?? 'u'}-${String(i.date)}-${i.category}-${line}`;
+}
+
+function isRentBalanceIncomeCategory(categoryName: string): boolean {
+    return categoryName.trim() === MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY;
+}
+
+function normalizeMongoId(value: unknown): string {
+    if (value == null) return '';
+    return String(value).trim();
+}
+
+function hasParentTransaction(record: {
+    parentExpenseId?: string | null;
+    parentIncomeId?: string | null;
+}): boolean {
+    return normalizeMongoId(record.parentExpenseId) !== '' || normalizeMongoId(record.parentIncomeId) !== '';
+}
+
+function commissionPercentForNoBookingTransaction(record: { commissionPercent?: number }): number {
+    const p = Number(record.commissionPercent);
+    if (p === 15 || p === 20 || p === 25 || p === 30) return p;
+    return 30;
+}
+
+/** «Расходы владельца»: без чекбокса «Делимость» — комиссия не вычитается. */
+function shouldApplyNoBookingCommissionShare(
+    subgroup: 'common' | 'guest' | 'owner',
+    includeInSynthetic: boolean | undefined
+): boolean {
+    if (subgroup === 'owner') return false;
+    return includeInSynthetic !== false;
+}
+
+/** Сумма − доля «Расходы гостя» (подтранзакции); комиссия считается от этой базы. */
+function ownerViewNetLineTotal(row: CommissionOwnerViewExpenseLine): number {
+    const guest = row.guestSubtransactionsTotal ?? 0;
+    return row.lineTotal - guest;
+}
+
+function sumChildTransactions(
+    record: { childExpenseIds?: string[]; childIncomeIds?: string[] },
+    expenseById: Map<string, Expense>,
+    incomeById: Map<string, Income>
+): number | null {
+    const expenseIds = (record.childExpenseIds ?? []).map(normalizeMongoId).filter(Boolean);
+    const incomeIds = (record.childIncomeIds ?? []).map(normalizeMongoId).filter(Boolean);
+    if (expenseIds.length === 0 && incomeIds.length === 0) return null;
+
+    const totalFromExpenses = expenseIds.reduce((sum, id) => {
+        const child = expenseById.get(id);
+        return child ? sum + transactionLineTotal(child) : sum;
+    }, 0);
+    const totalFromIncomes = incomeIds.reduce((sum, id) => {
+        const child = incomeById.get(id);
+        return child ? sum + transactionLineTotal(child) : sum;
+    }, 0);
+    return totalFromExpenses + totalFromIncomes;
 }
 
 export function buildOwnerViewExpenseGroupsForRoom(
@@ -141,6 +216,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
     categoryNameById: Map<string, string>,
     categories: AccountancyCategory[],
     allExpenses: Expense[],
+    allIncomes: Income[],
     objectReports: ObjectCommissionResult[],
     bookingMeta: Map<number, BookingMeta>,
     extraBookings: Booking[]
@@ -158,19 +234,33 @@ export function buildOwnerViewExpenseGroupsForRoom(
     };
 
     const pending: PendingLine[] = [];
+    const expenseById = new Map(
+        allExpenses
+            .filter((e) => normalizeMongoId(e._id) !== '')
+            .map((e) => [normalizeMongoId(e._id), e] as const)
+    );
+    const incomeById = new Map(
+        allIncomes
+            .filter((i) => normalizeMongoId(i._id) !== '')
+            .map((i) => [normalizeMongoId(i._id), i] as const)
+    );
 
     for (const expense of allExpenses) {
         if (expense.objectId !== objectReport.objectId) continue;
-        if (expense.includeInSynthetic === false) continue;
         if (!incomeInReportMonth(expense, monthKey)) continue;
+
+        const includeInCommissionShare = expense.includeInSynthetic !== false;
 
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (isExcludedExpenseCategory(categoryName)) continue;
 
-        const lineTotal = expenseLineTotal(expense);
+        const lineTotal = transactionLineTotal(expense);
         if (lineTotal === 0) continue;
+        if (hasParentTransaction(expense)) continue;
 
         const isAgency = isOtaCommission(categoryName) || isCoAgentCommission(categoryName);
+        const guestSubtransactionsTotal = sumChildTransactions(expense, expenseById, incomeById);
+        const netLineTotal = lineTotal - (guestSubtransactionsTotal ?? 0);
 
         if (expense.bookingId != null) {
             const meta = resolveBookingMeta(expense, objectReports, bookingMeta, extraBookings);
@@ -178,11 +268,9 @@ export function buildOwnerViewExpenseGroupsForRoom(
             const bookingRoom = roomLabelForBooking(meta.booking, meta.roomsForObject);
             if (bookingRoom !== roomName) continue;
 
-            const isManagementCommission = isManagementCommissionExpense(categoryName);
-            let expenseShare: number;
-            if (isManagementCommission) {
-                expenseShare = lineTotal;
-            } else {
+            const hasCommissionDeduction = includeInCommissionShare;
+            let expenseShare = 0;
+            if (hasCommissionDeduction) {
                 const nights =
                     meta.nights > 0
                         ? meta.nights
@@ -192,20 +280,24 @@ export function buildOwnerViewExpenseGroupsForRoom(
                     meta.roomsForObject,
                     nights
                 );
-                expenseShare = lineTotal * (percent / 100);
+                expenseShare = netLineTotal * (percent / 100);
             }
 
             pending.push({
                 key: expenseLineKey(expense, lineTotal),
-                description: expenseDescription(expense, categoryName),
+                description: transactionDescription(expense, categoryName),
                 quantity: expense.quantity ?? 1,
                 unitPrice: expense.amount ?? 0,
                 lineTotal,
                 expenseShare,
                 isAgency,
                 isGuestLine: false,
-                isManagementCommission,
+                isManagementCommission: isManagementCommissionExpense(categoryName),
                 isCommonOrOwnerLine: false,
+                isIncome: false,
+                includeInCommissionShare,
+                hasCommissionDeduction,
+                guestSubtransactionsTotal,
                 bookingId: expense.bookingId,
                 sortDate: String(expense.date),
             });
@@ -221,19 +313,124 @@ export function buildOwnerViewExpenseGroupsForRoom(
         );
         if (subgroup !== 'common' && subgroup !== 'guest' && subgroup !== 'owner') continue;
 
+        const hasCommissionDeduction = shouldApplyNoBookingCommissionShare(
+            subgroup,
+            expense.includeInSynthetic
+        );
+
         pending.push({
             key: expenseLineKey(expense, lineTotal),
-            description: expenseDescription(expense, categoryName),
+            description: transactionDescription(expense, categoryName),
             quantity: expense.quantity ?? 1,
             unitPrice: expense.amount ?? 0,
             lineTotal,
-            expenseShare: lineTotal,
+            expenseShare: hasCommissionDeduction
+                ? netLineTotal * (commissionPercentForNoBookingTransaction(expense) / 100)
+                : 0,
             isAgency,
             isGuestLine: subgroup === 'guest',
             isManagementCommission: isManagementCommissionExpense(categoryName),
             isCommonOrOwnerLine: subgroup === 'common' || subgroup === 'owner',
+            isIncome: false,
+            includeInCommissionShare,
+            hasCommissionDeduction,
+            guestSubtransactionsTotal,
             bookingId: null,
             sortDate: String(expense.date),
+            noBookingSubgroup: subgroup,
+        });
+    }
+
+    for (const income of allIncomes) {
+        if (income.objectId !== objectReport.objectId) continue;
+        if (!incomeInReportMonth(income, monthKey)) continue;
+
+        const includeInCommissionShare = income.includeInSynthetic !== false;
+
+        const categoryName = resolveCategoryName(income, categoryNameById);
+        if (isRentBalanceIncomeCategory(categoryName)) continue;
+
+        const lineTotal = transactionLineTotal(income);
+        if (lineTotal === 0) continue;
+        if (hasParentTransaction(income)) continue;
+
+        const guestSubtransactionsTotal = sumChildTransactions(income, expenseById, incomeById);
+        const netLineTotal = lineTotal - (guestSubtransactionsTotal ?? 0);
+
+        if (income.bookingId != null) {
+            const meta = resolveBookingMeta(income, objectReports, bookingMeta, extraBookings);
+            if (!meta) continue;
+            const bookingRoom = roomLabelForBooking(meta.booking, meta.roomsForObject);
+            if (bookingRoom !== roomName) continue;
+            const hasCommissionDeduction = includeInCommissionShare;
+            let expenseShare = 0;
+            if (hasCommissionDeduction) {
+                const nights =
+                    meta.nights > 0
+                        ? meta.nights
+                        : getNightsCount(meta.booking.arrival, meta.booking.departure);
+                const percent = getManagementPercentForBooking(
+                    meta.booking,
+                    meta.roomsForObject,
+                    nights
+                );
+                expenseShare = netLineTotal * (percent / 100);
+            }
+
+            pending.push({
+                key: incomeLineKey(income, lineTotal),
+                description: transactionDescription(income, categoryName),
+                quantity: income.quantity ?? 1,
+                unitPrice: income.amount ?? 0,
+                lineTotal,
+                expenseShare,
+                isAgency: false,
+                isGuestLine: false,
+                isManagementCommission: false,
+                isCommonOrOwnerLine: false,
+                isIncome: true,
+                includeInCommissionShare,
+                hasCommissionDeduction,
+                guestSubtransactionsTotal,
+                bookingId: income.bookingId,
+                sortDate: String(income.date),
+            });
+            continue;
+        }
+
+        if (!transactionMatchesOwnerRooms(income.roomName, objectReport.roomsForObject)) continue;
+
+        const subgroup = resolveNoBookingSubgroupForTransaction(
+            income.categoryId,
+            categoryName,
+            categories
+        );
+        if (subgroup !== 'common' && subgroup !== 'guest' && subgroup !== 'owner') continue;
+
+        const hasCommissionDeduction = shouldApplyNoBookingCommissionShare(
+            subgroup,
+            income.includeInSynthetic
+        );
+
+        pending.push({
+            key: incomeLineKey(income, lineTotal),
+            description: transactionDescription(income, categoryName),
+            quantity: income.quantity ?? 1,
+            unitPrice: income.amount ?? 0,
+            lineTotal,
+            expenseShare: hasCommissionDeduction
+                ? netLineTotal * (commissionPercentForNoBookingTransaction(income) / 100)
+                : 0,
+            isAgency: false,
+            isGuestLine: subgroup === 'guest',
+            isManagementCommission: false,
+            isCommonOrOwnerLine: subgroup === 'common' || subgroup === 'owner',
+            isIncome: true,
+            includeInCommissionShare,
+            hasCommissionDeduction,
+            guestSubtransactionsTotal,
+            bookingId: null,
+            sortDate: String(income.date),
             noBookingSubgroup: subgroup,
         });
     }
@@ -309,18 +506,19 @@ export function ownerViewExpenseColumnValue(
     row: CommissionOwnerViewExpenseLine,
     column: 'expense' | 'agency' | 'guest'
 ): number | null {
+    const signed = (value: number) => (row.isIncome ? Math.abs(value) : -Math.abs(value));
     if (column === 'expense') {
-        if (row.isGuestLine) return null;
-        if (row.isCommonOrOwnerLine) return row.lineTotal;
-        if (row.isManagementCommission) return -row.expenseShare;
-        return row.lineTotal - row.expenseShare;
+        const guest = row.guestSubtransactionsTotal ?? 0;
+        const base =
+            guest > 0 ? row.lineTotal - guest : row.lineTotal - row.expenseShare;
+        return signed(base);
     }
     if (column === 'agency') {
-        if (row.isManagementCommission || row.isCommonOrOwnerLine) return null;
-        return -row.expenseShare;
+        if (row.hasCommissionDeduction !== true || row.expenseShare === 0) return null;
+        return signed(row.expenseShare);
     }
-    if (row.isGuestLine) return row.expenseShare;
-    return null;
+    if (row.guestSubtransactionsTotal == null || row.guestSubtransactionsTotal === 0) return null;
+    return signed(row.guestSubtransactionsTotal);
 }
 
 export function sumOwnerViewExpenseColumnAbs(
@@ -336,6 +534,28 @@ export function sumOwnerViewExpenseColumnAbs(
             }, 0),
         0
     );
+}
+
+export function sumOwnerViewExpenseColumnSigned(
+    groups: CommissionOwnerViewExpenseGroup[],
+    column: 'expense' | 'agency' | 'guest'
+): number {
+    return groups.reduce(
+        (sum, g) =>
+            sum +
+            g.lines.reduce((s, line) => {
+                const value = ownerViewExpenseColumnValue(line, column);
+                return value == null ? s : s + value;
+            }, 0),
+        0
+    );
+}
+
+/** Итого по колонке «Расход»: приходы +, расходы − (по полной сумме строки). */
+export function sumOwnerViewExpenseTableSignedTotal(
+    groups: CommissionOwnerViewExpenseGroup[]
+): number {
+    return sumOwnerViewExpenseColumnSigned(groups, 'expense');
 }
 
 export function sumOwnerViewExpenseShares(groups: CommissionOwnerViewExpenseGroup[]): number {

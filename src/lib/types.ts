@@ -227,6 +227,7 @@ export interface Report {
 
 export type ExpenseStatus = 'draft' | 'confirmed';
 export type IncomeStatus = 'draft' | 'confirmed';
+export type TransactionCommissionPercent = 15 | 20 | 25 | 30;
 
 /** Вложение к расходу/доходу: изображения, документы, таблицы */
 export interface AccountancyAttachment {
@@ -384,6 +385,8 @@ export interface Expense {
     childIncomeIds?: string[];
     /** Учитывать расход в расчёте синтетических транзакций сводки (по умолчанию — да) */
     includeInSynthetic?: boolean;
+    /** Ручной процент комиссии для транзакций без брони с включённой делимостью. */
+    commissionPercent?: TransactionCommissionPercent;
 }
 
 export interface Income {
@@ -421,6 +424,8 @@ export interface Income {
     childIncomeIds?: string[];
     /** Учитывать доход в расчёте синтетических транзакций сводки (по умолчанию — да) */
     includeInSynthetic?: boolean;
+    /** Ручной процент комиссии для транзакций без брони с включённой делимостью. */
+    commissionPercent?: TransactionCommissionPercent;
 }
 
 /** Ручной процент авторасчёта «Комиссия за управление» для конкретной брони. */

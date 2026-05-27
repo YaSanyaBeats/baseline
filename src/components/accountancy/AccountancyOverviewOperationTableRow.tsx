@@ -55,6 +55,8 @@ export type AccountancyOverviewOperationRowModel = {
     bookingId?: number;
     /** Учитывать в расчёте синтетических транзакций (только расходы в группах броней) */
     includeInSynthetic?: boolean;
+    /** Процент комиссии для транзакций без брони с включённой делимостью. */
+    commissionPercent?: 15 | 20 | 25 | 30;
     /** Сводка accountancy: авто-комиссия по схеме комнаты, без записи в БД */
     readOnlySynthetic?: boolean;
     /** Черновик новой транзакции в сводке (ещё не сохранён в БД) */
@@ -75,7 +77,7 @@ export type AccountancyOverviewOperationRowModel = {
 
 export type AccountancyOverviewOperationTableRowProps = {
     row: AccountancyOverviewOperationRowModel;
-    /** Показать чекбокс «Делимость» (брони — расходы; «Общие/расходы гостя» — расходы и приходы) */
+    /** Показать чекбокс «Делимость» (брони — расходы; «Общие расходы» без брони — расходы и приходы) */
     showDivisibilityCheckbox?: boolean;
     t: (key: string) => string;
     opTableSelectFormSx: object;
@@ -129,6 +131,12 @@ export type AccountancyOverviewOperationTableRowProps = {
     handleIncludeInSyntheticChange: (
         row: AccountancyOverviewOperationRowModel,
         included: boolean,
+    ) => void | Promise<void>;
+    commissionPercentUpdatingId: string | null;
+    shouldShowCommissionPercentSelect: (row: AccountancyOverviewOperationRowModel) => boolean;
+    handleCommissionPercentChange: (
+        row: AccountancyOverviewOperationRowModel,
+        percent: 15 | 20 | 25 | 30,
     ) => void | Promise<void>;
     /** Отчётный период транзакции зафиксирован — только просмотр */
     periodLocked?: boolean;
@@ -700,20 +708,54 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 )}
             </TableCell>
             <TableCell align="center" sx={{ px: 0.25, verticalAlign: 'middle' }}>
-                {p.showDivisibilityCheckbox ? (
-                    <Checkbox
-                        checked={row.includeInSynthetic !== false}
-                        onChange={(e) => void p.handleIncludeInSyntheticChange(row, e.target.checked)}
-                        disabled={
-                            p.includeInSyntheticUpdatingId === row.id ||
-                            p.inlinePatchUpdatingId === row.id
-                        }
-                        size="small"
-                        sx={{ p: 0.25 }}
-                        inputProps={{
-                            'aria-label': t('accountancy.divisibility'),
-                        }}
-                    />
+                {p.showDivisibilityCheckbox || p.shouldShowCommissionPercentSelect(row) ? (
+                    <Stack alignItems="center" spacing={0.35} sx={{ minWidth: 0 }}>
+                        {p.showDivisibilityCheckbox ? (
+                            <Checkbox
+                                checked={row.includeInSynthetic !== false}
+                                onChange={(e) =>
+                                    void p.handleIncludeInSyntheticChange(row, e.target.checked)
+                                }
+                                disabled={
+                                    p.includeInSyntheticUpdatingId === row.id ||
+                                    p.inlinePatchUpdatingId === row.id
+                                }
+                                size="small"
+                                sx={{ p: 0.25 }}
+                                inputProps={{
+                                    'aria-label': t('accountancy.divisibility'),
+                                }}
+                            />
+                        ) : null}
+                        {p.shouldShowCommissionPercentSelect(row) ? (
+                            <FormControl size="small" sx={{ width: 72 }}>
+                                <Select
+                                    sx={p.opTableSelectSx}
+                                    value={row.commissionPercent ?? 30}
+                                    onChange={(e) =>
+                                        void p.handleCommissionPercentChange(
+                                            row,
+                                            Number(e.target.value) as 15 | 20 | 25 | 30,
+                                        )
+                                    }
+                                    disabled={
+                                        p.commissionPercentUpdatingId === row.id ||
+                                        p.inlinePatchUpdatingId === row.id
+                                    }
+                                    MenuProps={{ PaperProps: { sx: { maxHeight: 220 } } }}
+                                    inputProps={{
+                                        'aria-label': t('accountancy.commissionRate'),
+                                    }}
+                                >
+                                    {[30, 25, 20, 15].map((percent) => (
+                                        <MenuItem key={percent} value={percent}>
+                                            {percent}%
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                        ) : null}
+                    </Stack>
                 ) : null}
             </TableCell>
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>

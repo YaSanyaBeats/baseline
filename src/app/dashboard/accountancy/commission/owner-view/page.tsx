@@ -1,7 +1,8 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import {
     Accordion,
     AccordionDetails,
@@ -9,6 +10,7 @@ import {
     Alert,
     Box,
     Button,
+    CircularProgress,
     Paper,
     Stack,
     Table,
@@ -23,15 +25,16 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useUser } from '@/providers/UserProvider';
+import { useObjects } from '@/providers/ObjectsProvider';
+import { loadCommissionOwnerViewPayload } from '@/lib/commissionOwnerViewLoader';
 import {
-    COMMISSION_OWNER_VIEW_KEY,
-    parseCommissionOwnerViewPayload,
     type CommissionOwnerViewExpenseGroup,
     type CommissionOwnerViewRoomSection,
     type CommissionOwnerViewStoredPayload,
 } from '@/lib/commissionOwnerView';
 import {
-    sumOwnerViewExpenseColumnAbs,
+    sumOwnerViewExpenseColumnSigned,
+    sumOwnerViewExpenseTableSignedTotal,
     ownerViewExpenseColumnValue,
     type CommissionOwnerViewExpenseLine,
 } from '@/lib/ownerViewExpenses';
@@ -50,6 +53,57 @@ function formatExpenseCell(
 ): string {
     const value = ownerViewExpenseColumnValue(row, column);
     return value == null ? '—' : formatAmount(value, locale);
+}
+
+/** Знак и цвет колонки «Расход»: приход + (зелёный), расход − (красный). */
+function getExpenseColumnSignedValue(row: CommissionOwnerViewExpenseLine): number | null {
+    return ownerViewExpenseColumnValue(row, 'expense');
+}
+
+function formatSignedAmount(value: number, locale: string): string {
+    const sign = value >= 0 ? '+' : '−';
+    return `${sign}${formatAmount(Math.abs(value), locale)}`;
+}
+
+function signedAmountColor(value: number): 'success.main' | 'error.main' {
+    return value >= 0 ? 'success.main' : 'error.main';
+}
+
+function SignedAmountValue({ value, locale }: { value: number | null; locale: string }) {
+    if (value == null) {
+        return (
+            <Typography component="span" color="text.secondary">
+                —
+            </Typography>
+        );
+    }
+    return (
+        <Typography component="span" sx={{ color: signedAmountColor(value), fontWeight: 500 }}>
+            {formatSignedAmount(value, locale)}
+        </Typography>
+    );
+}
+
+function ExpenseColumnValue({
+    row,
+    locale,
+}: {
+    row: CommissionOwnerViewExpenseLine;
+    locale: string;
+}) {
+    const signed = getExpenseColumnSignedValue(row);
+    if (signed == null) {
+        return (
+            <Typography component="span" color="text.secondary">
+                —
+            </Typography>
+        );
+    }
+    return (
+        <Typography component="span" sx={{ color: signedAmountColor(signed), fontWeight: 500 }}>
+            {formatSignedAmount(signed, locale)}
+        </Typography>
+    );
 }
 
 function formatDateShort(iso: string, locale: string): string {
@@ -164,9 +218,9 @@ function RoomExpensesTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const expenseColumnTotal = sumOwnerViewExpenseColumnAbs(section.expenseGroups, 'expense');
-    const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnAbs(section.expenseGroups, 'agency');
-    const guestColumnTotal = sumOwnerViewExpenseColumnAbs(section.expenseGroups, 'guest');
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(section.expenseGroups);
+    const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(section.expenseGroups, 'agency');
+    const guestColumnTotal = sumOwnerViewExpenseColumnSigned(section.expenseGroups, 'guest');
     const hasRows = section.expenseGroups.some((g) => g.lines.length > 0);
 
     const groupLabel = (group: CommissionOwnerViewExpenseGroup) =>
@@ -231,13 +285,19 @@ function RoomExpensesTable({
                                             <TableCell align="right">{formatAmount(row.unitPrice, locale)}</TableCell>
                                             <TableCell align="right">{formatAmount(row.lineTotal, locale)}</TableCell>
                                             <TableCell align="right">
-                                                {formatExpenseCell(row, 'expense', locale)}
+                                                <ExpenseColumnValue row={row} locale={locale} />
                                             </TableCell>
                                             <TableCell align="right">
-                                                {formatExpenseCell(row, 'agency', locale)}
+                                                <SignedAmountValue
+                                                    value={ownerViewExpenseColumnValue(row, 'agency')}
+                                                    locale={locale}
+                                                />
                                             </TableCell>
                                             <TableCell align="right">
-                                                {formatExpenseCell(row, 'guest', locale)}
+                                                <SignedAmountValue
+                                                    value={ownerViewExpenseColumnValue(row, 'guest')}
+                                                    locale={locale}
+                                                />
                                             </TableCell>
                                         </TableRow>
                                     ))}
@@ -249,14 +309,30 @@ function RoomExpensesTable({
                                 <TableCell colSpan={4} align="right" sx={{ fontWeight: 700 }}>
                                     {t('accountancy.commission.ownerTotalExpenses')}
                                 </TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 700 }}>
-                                    {formatAmount(expenseColumnTotal, locale)}
+                                <TableCell
+                                    align="right"
+                                    sx={{
+                                        fontWeight: 700,
+                                        color: signedAmountColor(expenseColumnTotal),
+                                    }}
+                                >
+                                    {formatSignedAmount(expenseColumnTotal, locale)}
                                 </TableCell>
                                 <TableCell align="right" sx={{ fontWeight: 700 }}>
-                                    {formatAmount(agencyExpenseColumnTotal, locale)}
+                                    <Typography
+                                        component="span"
+                                        sx={{ color: signedAmountColor(agencyExpenseColumnTotal), fontWeight: 700 }}
+                                    >
+                                        {formatSignedAmount(agencyExpenseColumnTotal, locale)}
+                                    </Typography>
                                 </TableCell>
                                 <TableCell align="right" sx={{ fontWeight: 700 }}>
-                                    {formatAmount(guestColumnTotal, locale)}
+                                    <Typography
+                                        component="span"
+                                        sx={{ color: signedAmountColor(guestColumnTotal), fontWeight: 700 }}
+                                    >
+                                        {formatSignedAmount(guestColumnTotal, locale)}
+                                    </Typography>
                                 </TableCell>
                             </TableRow>
                         )}
@@ -278,8 +354,8 @@ function RoomEarningsTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const expenseColumnTotal = sumOwnerViewExpenseColumnAbs(section.expenseGroups, 'expense');
-    const earningsNet = section.totals.totalIncome - expenseColumnTotal;
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(section.expenseGroups);
+    const earningsNet = section.totals.totalIncome + expenseColumnTotal;
 
     return (
         <Paper variant="outlined" sx={{ overflow: 'hidden', maxWidth: 480 }}>
@@ -298,7 +374,9 @@ function RoomEarningsTable({
                         <TableCell sx={{ fontWeight: 600 }}>
                             {t('accountancy.commission.ownerEarningsRowExpenses')}
                         </TableCell>
-                        <TableCell align="right">{formatAmount(-expenseColumnTotal, locale)}</TableCell>
+                        <TableCell align="right">
+                            {formatAmount(-expenseColumnTotal, locale)}
+                        </TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
                         <TableCell sx={{ fontWeight: 700 }}>
@@ -314,21 +392,79 @@ function RoomEarningsTable({
     );
 }
 
-export default function OwnerViewPage() {
+function OwnerViewBackLink({ label }: { label: string }) {
+    return (
+        <Box sx={{ mb: 2 }}>
+            <Link href="/dashboard/accountancy/commission">
+                <Button variant="text" startIcon={<ArrowBackIcon />}>
+                    {label}
+                </Button>
+            </Link>
+        </Box>
+    );
+}
+
+function OwnerViewPageContent() {
+    const searchParams = useSearchParams();
     const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
+    const { objects } = useObjects();
+
+    const ownerId = searchParams.get('ownerId') ?? '';
+    const monthKey = searchParams.get('month') ?? '';
+
     const [payload, setPayload] = useState<CommissionOwnerViewStoredPayload | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [loadFailed, setLoadFailed] = useState(false);
+
+    const locale = language === 'en' ? 'en-US' : 'ru-RU';
+    const hasAccess = isAdmin || isAccountant;
+    const hasParams = Boolean(ownerId && monthKey);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        const raw = sessionStorage.getItem(COMMISSION_OWNER_VIEW_KEY);
-        setPayload(parseCommissionOwnerViewPayload(raw));
-    }, []);
+        if (!hasAccess || !hasParams) {
+            setPayload(null);
+            setLoadFailed(false);
+            setLoading(false);
+            return;
+        }
 
-    const hasAccess = isAdmin || isAccountant;
-    const locale = useMemo(
-        () => (payload?.language === 'en-US' ? 'en-US' : language === 'en' ? 'en-US' : 'ru-RU'),
-        [payload?.language, language]
+        let cancelled = false;
+
+        const run = async () => {
+            setLoading(true);
+            setLoadFailed(false);
+            setPayload(null);
+            try {
+                const next = await loadCommissionOwnerViewPayload({
+                    ownerId,
+                    monthKey,
+                    locale,
+                    objects,
+                });
+                if (cancelled) return;
+                if (!next) {
+                    setLoadFailed(true);
+                    return;
+                }
+                setPayload(next);
+            } catch (err) {
+                console.error('Owner view load error:', err);
+                if (!cancelled) setLoadFailed(true);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        };
+
+        void run();
+        return () => {
+            cancelled = true;
+        };
+    }, [hasAccess, hasParams, ownerId, monthKey, locale, objects]);
+
+    const displayLocale = useMemo(
+        () => (payload?.language === 'en-US' ? 'en-US' : locale),
+        [payload?.language, locale]
     );
 
     const headCellSx: HeadCellSx = (bg, color) => ({
@@ -349,30 +485,41 @@ export default function OwnerViewPage() {
         );
     }
 
-    if (!payload) {
+    if (!hasParams) {
         return (
             <Box>
-                <Box sx={{ mb: 2 }}>
-                    <Link href="/dashboard/accountancy/commission">
-                        <Button variant="text" startIcon={<ArrowBackIcon />}>
-                            {t('common.back')}
-                        </Button>
-                    </Link>
-                </Box>
+                <OwnerViewBackLink label={t('common.back')} />
                 <Alert severity="info">{t('accountancy.commission.ownerViewNoData')}</Alert>
+            </Box>
+        );
+    }
+
+    if (loading) {
+        return (
+            <Box>
+                <OwnerViewBackLink label={t('accountancy.commission.ownerViewBackToCommission')} />
+                <Stack direction="row" spacing={2} alignItems="center" sx={{ py: 4 }}>
+                    <CircularProgress size={28} />
+                    <Typography color="text.secondary">
+                        {t('accountancy.commission.ownerViewLoading')}
+                    </Typography>
+                </Stack>
+            </Box>
+        );
+    }
+
+    if (loadFailed || !payload) {
+        return (
+            <Box>
+                <OwnerViewBackLink label={t('accountancy.commission.ownerViewBackToCommission')} />
+                <Alert severity="warning">{t('accountancy.commission.ownerViewLoadError')}</Alert>
             </Box>
         );
     }
 
     return (
         <Box>
-            <Box sx={{ mb: 2 }}>
-                <Link href="/dashboard/accountancy/commission">
-                    <Button variant="text" startIcon={<ArrowBackIcon />}>
-                        {t('accountancy.commission.ownerViewBackToCommission')}
-                    </Button>
-                </Link>
-            </Box>
+            <OwnerViewBackLink label={t('accountancy.commission.ownerViewBackToCommission')} />
 
             <Typography variant="h4" sx={{ mb: 1 }}>
                 {t('accountancy.commission.ownerViewTitle')}
@@ -420,12 +567,16 @@ export default function OwnerViewPage() {
                                             <TableCell>
                                                 {formatDateShort(
                                                     row.date.includes('T') ? row.date : `${row.date}T12:00:00`,
-                                                    locale
+                                                    displayLocale
                                                 )}
                                             </TableCell>
                                             <TableCell>{row.description}</TableCell>
-                                            <TableCell align="right">{formatAmount(row.amount, locale)}</TableCell>
-                                            <TableCell align="right">{formatAmount(row.balance, locale)}</TableCell>
+                                            <TableCell align="right">
+                                                {formatAmount(row.amount, displayLocale)}
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                {formatAmount(row.balance, displayLocale)}
+                                            </TableCell>
                                         </TableRow>
                                     ))
                                 )}
@@ -452,19 +603,19 @@ export default function OwnerViewPage() {
                                 <Stack spacing={3}>
                                     <RoomIncomesTable
                                         section={section}
-                                        locale={locale}
+                                        locale={displayLocale}
                                         t={t}
                                         headCellSx={headCellSx}
                                     />
                                     <RoomExpensesTable
                                         section={section}
-                                        locale={locale}
+                                        locale={displayLocale}
                                         t={t}
                                         headCellSx={headCellSx}
                                     />
                                     <RoomEarningsTable
                                         section={section}
-                                        locale={locale}
+                                        locale={displayLocale}
                                         t={t}
                                         headCellSx={headCellSx}
                                     />
@@ -475,5 +626,19 @@ export default function OwnerViewPage() {
                 )}
             </Stack>
         </Box>
+    );
+}
+
+export default function OwnerViewPage() {
+    return (
+        <Suspense
+            fallback={
+                <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}>
+                    <CircularProgress />
+                </Box>
+            }
+        >
+            <OwnerViewPageContent />
+        </Suspense>
     );
 }

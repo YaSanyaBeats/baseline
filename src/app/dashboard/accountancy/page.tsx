@@ -158,8 +158,8 @@ const OP_TABLE_CATEGORY_COL_WIDTH_PX = 260;
 const OP_TABLE_QTY_COL_WIDTH_PX = 58;
 /** Колонка «Комментарий» — только px: при table-layout:fixed + width:100% проценты ломали раскладку */
 const OP_TABLE_COMMENT_COL_WIDTH_PX = 240;
-/** Колонка «Делимость» (чекбокс) */
-const OP_TABLE_DIVISIBILITY_COL_WIDTH_PX = 56;
+/** Колонка «Делимость» (чекбокс + % комиссии для no-booking) */
+const OP_TABLE_DIVISIBILITY_COL_WIDTH_PX = 80;
 /** Минимальная ширина таблицы (сумма колонок), чтобы колонки не схлопывались до нуля */
 const OP_TABLE_MIN_WIDTH_PX =
     44 +
@@ -415,13 +415,19 @@ type OperationListGroup = {
     bookingGroupLine?: BookingGroupLineModel;
 };
 
-/** Группы «Без брони», в которых показывается чекбокс «Делимость» у расходов и приходов. */
-const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common', 'nobook-guest']);
+/** Группа «Общие расходы» без брони — чекбокс «Делимость» у расходов и приходов. «Расходы гостя» — без делимости. */
+const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common']);
 
 function operationRowShowsDivisibilityCheckbox(groupKey: string, row: OperationRow): boolean {
     if (row.readOnlySynthetic) return false;
     if (groupKey.startsWith('b-')) return row.type === 'expense';
     return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey);
+}
+
+function operationRowShowsCommissionPercentSelect(groupKey: string, row: OperationRow): boolean {
+    if (row.readOnlySynthetic) return false;
+    if (row.bookingId != null) return false;
+    return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey) && row.includeInSynthetic !== false;
 }
 
 /** Локальный черновик новой транзакции в таблице сводки (до сохранения в БД). */
@@ -527,6 +533,7 @@ export default function Page() {
     const [commissionRatesByBookingId, setCommissionRatesByBookingId] = useState<Record<number, BookingManagementCommissionRate>>({});
     const [commissionPercentUpdatingBookingId, setCommissionPercentUpdatingBookingId] = useState<number | null>(null);
     const [includeInSyntheticUpdatingId, setIncludeInSyntheticUpdatingId] = useState<string | null>(null);
+    const [commissionPercentUpdatingId, setCommissionPercentUpdatingId] = useState<string | null>(null);
     const [commentDraftByRowId, setCommentDraftByRowId] = useState<Record<string, string>>({});
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -1191,6 +1198,7 @@ export default function Page() {
                     recipient: e.recipient,
                     autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
                     includeInSynthetic: e.includeInSynthetic,
+                    commissionPercent: e.commissionPercent ?? 30,
                     ...(parentTransaction ? { parentTransaction } : {}),
                     ...(bid != null ? { bookingId: bid } : {}),
                 });
@@ -1228,6 +1236,7 @@ export default function Page() {
                     recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
                     includeInSynthetic: i.includeInSynthetic,
+                    commissionPercent: i.commissionPercent ?? 30,
                     ...(parentTransaction ? { parentTransaction } : {}),
                     ...(bidInc != null ? { bookingId: bidInc } : {}),
                 });
@@ -1820,6 +1829,7 @@ export default function Page() {
                     recipient: resolveCategorySourceRecipientValue(draft.recipient, roomContext),
                     attachments: [],
                     accountantId: '',
+                    commissionPercent: 30,
                 };
                 const res = await addExpense(payload);
                 setSnackbar({
@@ -1847,6 +1857,7 @@ export default function Page() {
                     recipient: resolveCategorySourceRecipientValue(draft.recipient, roomContext),
                     attachments: [],
                     accountantId: '',
+                    commissionPercent: 30,
                 };
                 const res = await addIncome(payload);
                 setSnackbar({
@@ -2581,6 +2592,7 @@ export default function Page() {
                 const payload: Expense = {
                     ...expense,
                     includeInSynthetic: included,
+                    commissionPercent: expense.commissionPercent ?? 30,
                     date: expense.date
                         ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
                         : new Date(),
@@ -2605,6 +2617,7 @@ export default function Page() {
             const payload: Income = {
                 ...income,
                 includeInSynthetic: included,
+                commissionPercent: income.commissionPercent ?? 30,
                 date: income.date
                     ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
                     : new Date(),
@@ -2631,6 +2644,72 @@ export default function Page() {
             });
         } finally {
             setIncludeInSyntheticUpdatingId(null);
+        }
+    };
+
+    const handleCommissionPercentChange = async (
+        row: OperationRow,
+        percent: 15 | 20 | 25 | 30,
+    ) => {
+        if (row.readOnlySynthetic || !row.entityId) return;
+        setCommissionPercentUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    commissionPercent: percent,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) =>
+                            e._id === row.entityId ? { ...e, commissionPercent: percent } : e,
+                        ),
+                    );
+                }
+                return;
+            }
+            const income = incomes.find((i) => i._id === row.entityId);
+            if (!income) return;
+            const payload: Income = {
+                ...income,
+                commissionPercent: percent,
+                date: income.date
+                    ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                    : new Date(),
+            };
+            const res = await updateIncome(payload);
+            setSnackbar({
+                open: true,
+                message: res.message || t('accountancy.incomeUpdated'),
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                setIncomes((prev) =>
+                    prev.map((i) =>
+                        i._id === row.entityId ? { ...i, commissionPercent: percent } : i,
+                    ),
+                );
+            }
+        } catch (error) {
+            console.error('Error updating commission percent:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setCommissionPercentUpdatingId(null);
         }
     };
 
@@ -2688,6 +2767,8 @@ export default function Page() {
         onPendingDraftCancel: handlePendingDraftCancel,
         includeInSyntheticUpdatingId,
         handleIncludeInSyntheticChange,
+        commissionPercentUpdatingId,
+        handleCommissionPercentChange,
     };
 
     if (!hasAccess) {
@@ -3266,6 +3347,9 @@ export default function Page() {
                                                                         group.key,
                                                                         row,
                                                                     )}
+                                                                    shouldShowCommissionPercentSelect={(r) =>
+                                                                        operationRowShowsCommissionPercentSelect(group.key, r)
+                                                                    }
                                                                     {...sharedOperationRowProps}
                                                                 />
                                                             ))}
@@ -3277,6 +3361,7 @@ export default function Page() {
                                                         key={row.id}
                                                         row={row}
                                                         periodLocked={isSelectedMonthClosed}
+                                                        shouldShowCommissionPercentSelect={() => false}
                                                         {...sharedOperationRowProps}
                                                     />
                                                 ))}

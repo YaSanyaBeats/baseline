@@ -14,8 +14,6 @@ import {
 } from '@/lib/ownerViewSettlements';
 import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
 
-export const COMMISSION_OWNER_VIEW_KEY = 'accountancy-commission-owner-view-v1';
-
 export type { CommissionOwnerViewExpenseGroup, CommissionOwnerViewExpenseLine } from '@/lib/ownerViewExpenses';
 export type { CommissionOwnerViewSettlementRow } from '@/lib/ownerViewSettlements';
 
@@ -291,6 +289,7 @@ function buildRoomSectionsFromObjectReports(
             categoryNameById,
             categories,
             allExpenses,
+            allIncomes,
             objectReports,
             bookingMeta,
             extraBookings
@@ -340,6 +339,11 @@ function normalizeRoomSection(raw: Record<string, unknown>): CommissionOwnerView
                             isGuestLine: false,
                             isManagementCommission: false,
                             isCommonOrOwnerLine: false,
+                            isIncome: false,
+                            includeInCommissionShare: true,
+                            hasCommissionDeduction: false,
+                            guestSubtransactionsTotal: null,
+                            isSubtransaction: false,
                         })),
                     },
                 ]
@@ -428,7 +432,6 @@ export function collectOwnerViewExtraBookingIds(
     for (const expense of allExpenses) {
         if (expense.bookingId == null) continue;
         if (!ownerObjectIds.has(expense.objectId)) continue;
-        if (expense.includeInSynthetic === false) continue;
         if (!incomeInReportMonth(expense, monthKey)) continue;
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (
@@ -441,6 +444,16 @@ export function collectOwnerViewExtraBookingIds(
         const line = (expense.quantity ?? 1) * (expense.amount ?? 0);
         if (line === 0) continue;
         if (!existing.has(expense.bookingId)) needed.add(expense.bookingId);
+    }
+
+    for (const income of allIncomes) {
+        if (income.bookingId == null) continue;
+        if (!ownerObjectIds.has(income.objectId)) continue;
+        if (!incomeInReportMonth(income, monthKey)) continue;
+        if (isRentBalanceIncome(income, categoryNameById)) continue;
+        const line = (income.quantity ?? 1) * (income.amount ?? 0);
+        if (line === 0) continue;
+        if (!existing.has(income.bookingId)) needed.add(income.bookingId);
     }
 
     return [...needed];

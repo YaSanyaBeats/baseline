@@ -11,7 +11,7 @@ const { MongoClient } = require('mongodb');
 const { EJSON } = require('bson');
 
 // --- настройки: отредактируйте под себя ---
-const DATA_DIR = 'C:\\Users\\YaSanyaPCAcc\\Desktop\\baseline-backups-26-05\\20260526_042803';
+const DATA_DIR = 'C:\\Users\\YaSanyaPCAcc\\Desktop\\baseline-backups-26-05\\new\\20260527_031758';
 const MONGO_URI =
   'mongodb://root:di1hHa%2CcR%7Dhvrd*@localhost:27017/';
 const DB_NAME = 'baseline';

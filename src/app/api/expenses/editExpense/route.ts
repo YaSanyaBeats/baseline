@@ -9,6 +9,12 @@ import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
 
+function normalizeCommissionPercent(value: unknown): 15 | 20 | 25 | 30 {
+    const num = Number(value);
+    if (num === 15 || num === 20 || num === 25 || num === 30) return num;
+    return 30;
+}
+
 export async function POST(request: NextRequest) {
     try {
         const session = await getServerSession(authOptions);
@@ -158,6 +164,7 @@ export async function POST(request: NextRequest) {
             attachments: expenseData.attachments ?? [],
             autoCreated: null,
             includeInSynthetic: expenseData.includeInSynthetic !== false,
+            commissionPercent: normalizeCommissionPercent(expenseData.commissionPercent),
         };
 
         await expensesCollection.updateOne(
