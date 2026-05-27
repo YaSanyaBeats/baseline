@@ -432,6 +432,12 @@ function operationRowShowsCommissionPercentSelect(groupKey: string, row: Operati
     return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey) && row.includeInSynthetic !== false;
 }
 
+function operationRowCommissionPercent(row: OperationRow): 15 | 20 | 25 | 30 {
+    const p = row.commissionPercent ?? 30;
+    if (p === 15 || p === 20 || p === 25 || p === 30) return p;
+    return 30;
+}
+
 /** Локальный черновик новой транзакции в таблице сводки (до сохранения в БД). */
 type PendingOperationDraft = {
     clientId: string;
@@ -1498,27 +1504,14 @@ export default function Page() {
                     row.category !== 'Комиссия за управление' &&
                     row.category !== BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
             );
-            const commonAndGuestRows = noneRows.filter((row) => {
+            const commonExpenseRows = noneRows.filter((row) => {
                 const sid = resolveNoBookingSubgroupForTransaction(
                     row.categoryId,
                     row.category,
                     allCategories,
                 );
-                return (
-                    (sid === 'common' || sid === 'guest') &&
-                    row.includeInSynthetic !== false
-                );
+                return sid === 'common' && row.includeInSynthetic !== false;
             });
-            const toLineItems = (rows: OperationRow[]) =>
-                rows.map((row) => ({
-                    kind: row.type,
-                    id: row.entityId || row.id,
-                    date: row.date instanceof Date ? row.date.toISOString() : String(row.date),
-                    category: row.category,
-                    amount: Math.abs(row.amount),
-                    comment: row.comment,
-                }));
-
             let bookingExpenseShare = 0;
             const bookingShareLineItems = bookingExpenseRows.map((row) => {
                 const bid = row.bookingId!;
@@ -1535,8 +1528,21 @@ export default function Page() {
                 };
             });
 
-            const commonAndGuestBase = commonAndGuestRows.reduce((sum, row) => sum + row.amount, 0);
-            const rawAmount = bookingExpenseShare + commonAndGuestBase;
+            let commonExpenseShare = 0;
+            const commonExpenseShareLineItems = commonExpenseRows.map((row) => {
+                const percent = operationRowCommissionPercent(row);
+                const share = row.amount * (percent / 100);
+                commonExpenseShare += share;
+                return {
+                    kind: row.type,
+                    id: row.entityId || row.id,
+                    date: row.date instanceof Date ? row.date.toISOString() : String(row.date),
+                    category: `${row.category} · ${percent}%`,
+                    amount: Math.abs(share),
+                    comment: row.comment,
+                };
+            });
+            const rawAmount = bookingExpenseShare + commonExpenseShare;
             const amount = Math.abs(rawAmount);
             const [cy, cm] = commissionCalculationMonthKey.split('-').map(Number);
             const lastDay = new Date(cy, cm, 0);
@@ -1553,20 +1559,20 @@ export default function Page() {
                         lineItems: bookingShareLineItems,
                     },
                     {
-                        description: 'Общие расходы и расходы гостя',
-                        value: commonAndGuestBase,
-                        formula: 'Σ всех транзакций из групп «Общие расходы» и «Расходы гостя» с учётом знака',
-                        lineItems: toLineItems(commonAndGuestRows),
+                        description: 'Общие расходы (× % комиссии)',
+                        value: commonExpenseShare,
+                        formula: 'Σ (транзакция «Общие расходы» × % из Select)',
+                        lineItems: commonExpenseShareLineItems,
                     },
                     {
                         description: HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
                         value: amount,
-                        formula: `|${bookingExpenseShare.toFixed(2)} + ${commonAndGuestBase.toFixed(2)}| = ${amount.toFixed(2)}`,
+                        formula: `|${bookingExpenseShare.toFixed(2)} + ${commonExpenseShare.toFixed(2)}| = ${amount.toFixed(2)}`,
                     },
                 ],
                 commission: amount,
                 income: 0,
-                totalExpenses: bookingExpenseShare + commonAndGuestBase,
+                totalExpenses: bookingExpenseShare + commonExpenseShare,
                 otaCoAgentExpenses: 0,
                 divisibleExpenses: 0,
                 indivisibleExpenses: 0,
