@@ -225,6 +225,17 @@
     "unlockReportPeriodConfirmMessage": "Transactions for {{period}} can be added and edited again. Continue?",
     "reportPeriodLockedSuccess": "Report period locked",
     "reportPeriodUnlockedSuccess": "Report period unlocked for editing",
+    "lockPeriod": {
+      "title": "Report period locking",
+      "description": "Lock or unlock a report month for selected rooms. Locked periods cannot be edited.",
+      "selectRooms": "Rooms",
+      "openPeriod": "Unlock",
+      "lockPeriod": "Lock",
+      "selectMonthError": "Select a month",
+      "selectRoomsError": "Select at least one room",
+      "matrixTitle": "Lock status by room",
+      "lockedCell": "Locked"
+    },
     "months": {
       "1": "January",
       "2": "February",

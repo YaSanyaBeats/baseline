@@ -32,7 +32,6 @@ import {
     Warning as WarningIcon,
     ExpandMore as ExpandMoreIcon,
     Lock as LockIcon,
-    LockOpen as LockOpenIcon,
 } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
 import { useSnackbar } from "@/providers/SnackbarContext";
@@ -48,10 +47,13 @@ import {
 } from "@/lib/types";
 import { getExpenseSum, getIncomeSum, resolveAccountancyParentTransactionRef } from "@/lib/accountancyUtils";
 import {
-    closeReportMonth,
-    getClosedReportMonths,
-    reopenReportMonth,
+    getClosedPeriods,
 } from "@/lib/accountancyClosedMonthsClient";
+import {
+    buildClosedPeriodsCache,
+    isLedgerPeriodClosed,
+    type ClosedPeriodsData,
+} from "@/lib/accountancyClosedMonth";
 import { addExpense, getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
 import { addIncome, getIncomes, updateIncome, deleteIncome } from "@/lib/incomes";
 import { getBookingsByIds, searchBookings } from "@/lib/bookings";
@@ -544,9 +546,10 @@ export default function Page() {
     );
     const [pendingDrafts, setPendingDrafts] = useState<PendingOperationDraft[]>([]);
     const [pendingDraftSavingId, setPendingDraftSavingId] = useState<string | null>(null);
-    const [closedReportMonths, setClosedReportMonths] = useState<Set<string>>(new Set());
-    const [periodLockDialog, setPeriodLockDialog] = useState<'close' | 'reopen' | null>(null);
-    const [periodLockLoading, setPeriodLockLoading] = useState(false);
+    const [closedPeriodsData, setClosedPeriodsData] = useState<ClosedPeriodsData>({
+        globalMonths: [],
+        roomPeriods: [],
+    });
     useEffect(() => {
         if (overviewFiltersLoadedRef.current) return;
         const s = loadOverviewFilters();
@@ -613,12 +616,12 @@ export default function Page() {
                     getUsersWithCashflow(),
                     getAccountancyCategories('expense'),
                     getAccountancyCategories('income'),
-                    getClosedReportMonths(),
+                    getClosedPeriods(),
                 ]);
                 if (cancelled) return;
                 setCategoriesExpense(catExp);
                 setCategoriesIncome(catInc);
-                setClosedReportMonths(new Set(closedMonths));
+                setClosedPeriodsData(closedMonths);
                 setCounterparties(cps.map((c) => ({ _id: normalizeMongoIdString(c._id), name: c.name })));
                 setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
@@ -1640,69 +1643,52 @@ export default function Page() {
         return reportMonthOptions[0]?.value ?? '';
     }, [commissionCalculationMonthKey, selectedMonth, reportMonthOptions]);
 
+    const closedPeriodsCache = useMemo(
+        () => buildClosedPeriodsCache(closedPeriodsData),
+        [closedPeriodsData],
+    );
+
     const isSelectedMonthClosed = useMemo(() => {
         const m = (selectedMonth ?? '').trim();
-        return m !== '' && closedReportMonths.has(m);
-    }, [selectedMonth, closedReportMonths]);
-
-    const selectedMonthLabel = useMemo(() => {
-        if (!selectedMonth) return '';
-        const [y, m] = selectedMonth.split('-').map(Number);
-        if (!y || !m) return selectedMonth;
-        return `${t(`accountancy.months.${m}`)} ${y}`;
-    }, [selectedMonth, t]);
+        if (m === '' || !selectedObject) return false;
+        if (selectedRoomId !== 'all') {
+            return isLedgerPeriodClosed(closedPeriodsCache, m, selectedObject.id, selectedRoomId);
+        }
+        return roomsForSelectedObject.some((room) =>
+            isLedgerPeriodClosed(
+                closedPeriodsCache,
+                m,
+                selectedObject.id,
+                stableAccountancyRoomLabel(room),
+            ),
+        );
+    }, [selectedMonth, closedPeriodsCache, selectedObject, selectedRoomId, roomsForSelectedObject]);
 
     const isOperationRowPeriodLocked = useCallback(
         (row: OperationRow) => {
             const lm = ledgerMonthFromRecord(row.date, row.reportMonth);
-            return lm != null && closedReportMonths.has(lm);
-        },
-        [closedReportMonths],
-    );
+            if (lm == null) return false;
 
-    const handlePeriodLockConfirm = async () => {
-        if (!selectedMonth || !periodLockDialog) return;
-        setPeriodLockLoading(true);
-        try {
-            const res =
-                periodLockDialog === 'close'
-                    ? await closeReportMonth(selectedMonth)
-                    : await reopenReportMonth(selectedMonth);
-            setSnackbar({
-                open: true,
-                message:
-                    res.message ||
-                    (periodLockDialog === 'close'
-                        ? t('accountancy.reportPeriodLockedSuccess')
-                        : t('accountancy.reportPeriodUnlockedSuccess')),
-                severity: res.success ? 'success' : 'error',
-            });
-            if (res.success) {
-                setClosedReportMonths((prev) => {
-                    const next = new Set(prev);
-                    if (periodLockDialog === 'close') {
-                        next.add(selectedMonth);
-                    } else {
-                        next.delete(selectedMonth);
-                    }
-                    return next;
-                });
-                if (periodLockDialog === 'close') {
-                    setPendingDrafts([]);
-                }
-                setPeriodLockDialog(null);
+            let objectId: number | undefined;
+            let roomName: string | null | undefined;
+            if (row.isPendingDraft) {
+                if (!selectedObject) return false;
+                objectId = selectedObject.id;
+                roomName = selectedRoomId !== 'all' ? selectedRoomId : null;
+            } else if (row.type === 'expense') {
+                const record = expenses.find((e) => normalizeMongoIdString(e._id) === row.entityId);
+                objectId = record?.objectId;
+                roomName = record?.roomName;
+            } else {
+                const record = incomes.find((i) => normalizeMongoIdString(i._id) === row.entityId);
+                objectId = record?.objectId;
+                roomName = record?.roomName;
             }
-        } catch (error) {
-            console.error('period lock toggle:', error);
-            setSnackbar({
-                open: true,
-                message: resolveApiErrorMessage(error, t('common.serverError')),
-                severity: 'error',
-            });
-        } finally {
-            setPeriodLockLoading(false);
-        }
-    };
+
+            return isLedgerPeriodClosed(closedPeriodsCache, lm, objectId, roomName);
+        },
+        [closedPeriodsCache, expenses, incomes, selectedObject, selectedRoomId],
+    );
 
     const quickAddCategoryContext = useMemo(
         () =>
@@ -2824,6 +2810,12 @@ export default function Page() {
                             {t('accountancy.commission.title')}
                         </Button>
                     </Link>
+
+                    <Link href="/dashboard/accountancy/lock-period">
+                        <Button size="small" variant="outlined" startIcon={<LockIcon sx={{ fontSize: '0.875rem !important' }} />}>
+                            {t('accountancy.lockReportPeriod')}
+                        </Button>
+                    </Link>
                 </Stack>
 
                 <Stack
@@ -3030,7 +3022,7 @@ export default function Page() {
                                 </Select>
                             </FormControl>
                         )}
-                        {selectedMonth ? (
+                        {selectedMonth && isSelectedMonthClosed ? (
                             <Box
                                 sx={{
                                     ml: { md: 'auto' },
@@ -3041,43 +3033,13 @@ export default function Page() {
                                     flexShrink: 0,
                                 }}
                             >
-                                {isSelectedMonthClosed ? (
-                                    <Chip
-                                        size="small"
-                                        color="warning"
-                                        icon={<LockIcon sx={{ fontSize: '0.875rem !important' }} />}
-                                        label={t('accountancy.reportPeriodLockedBadge')}
-                                        sx={{ height: 24, fontSize: '0.7rem', '& .MuiChip-label': { px: 0.75 } }}
-                                    />
-                                ) : null}
-                                <Button
+                                <Chip
                                     size="small"
-                                    variant={isSelectedMonthClosed ? 'outlined' : 'contained'}
-                                    color={isSelectedMonthClosed ? 'warning' : 'primary'}
-                                    startIcon={
-                                        isSelectedMonthClosed ? (
-                                            <LockOpenIcon sx={{ fontSize: '0.875rem !important' }} />
-                                        ) : (
-                                            <LockIcon sx={{ fontSize: '0.875rem !important' }} />
-                                        )
-                                    }
-                                    onClick={() =>
-                                        setPeriodLockDialog(isSelectedMonthClosed ? 'reopen' : 'close')
-                                    }
-                                    disabled={periodLockLoading}
-                                    sx={{
-                                        fontSize: '0.7rem',
-                                        py: 0.25,
-                                        px: 1,
-                                        minHeight: 26,
-                                        lineHeight: 1.2,
-                                        '& .MuiButton-startIcon': { mr: 0.5, ml: -0.25 },
-                                    }}
-                                >
-                                    {isSelectedMonthClosed
-                                        ? t('accountancy.unlockReportPeriod')
-                                        : t('accountancy.lockReportPeriod')}
-                                </Button>
+                                    color="warning"
+                                    icon={<LockIcon sx={{ fontSize: '0.875rem !important' }} />}
+                                    label={t('accountancy.reportPeriodLockedBadge')}
+                                    sx={{ height: 24, fontSize: '0.7rem', '& .MuiChip-label': { px: 0.75 } }}
+                                />
                             </Box>
                         ) : null}
                     </Stack>
@@ -3437,40 +3399,6 @@ export default function Page() {
                     <Button onClick={handleOperationDeleteCancel}>{t('common.cancel')}</Button>
                     <Button onClick={handleOperationDeleteConfirm} color="error" variant="contained">
                         {t('common.delete')}
-                    </Button>
-                </DialogActions>
-            </Dialog>
-
-            <Dialog
-                open={periodLockDialog != null}
-                onClose={() => !periodLockLoading && setPeriodLockDialog(null)}
-            >
-                <DialogTitle>
-                    {periodLockDialog === 'close'
-                        ? t('accountancy.lockReportPeriodConfirmTitle')
-                        : t('accountancy.unlockReportPeriodConfirmTitle')}
-                </DialogTitle>
-                <DialogContent>
-                    <DialogContentText>
-                        {(periodLockDialog === 'close'
-                            ? t('accountancy.lockReportPeriodConfirmMessage')
-                            : t('accountancy.unlockReportPeriodConfirmMessage')
-                        ).replace('{{period}}', selectedMonthLabel || selectedMonth)}
-                    </DialogContentText>
-                </DialogContent>
-                <DialogActions>
-                    <Button onClick={() => setPeriodLockDialog(null)} disabled={periodLockLoading}>
-                        {t('common.cancel')}
-                    </Button>
-                    <Button
-                        onClick={() => void handlePeriodLockConfirm()}
-                        color={periodLockDialog === 'close' ? 'warning' : 'primary'}
-                        variant="contained"
-                        disabled={periodLockLoading}
-                    >
-                        {periodLockDialog === 'close'
-                            ? t('accountancy.lockReportPeriod')
-                            : t('accountancy.unlockReportPeriod')}
                     </Button>
                 </DialogActions>
             </Dialog>

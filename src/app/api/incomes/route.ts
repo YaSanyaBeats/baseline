@@ -221,6 +221,8 @@ export async function POST(request: NextRequest) {
         const closedCheck = await assertTransactionMutationAllowed(db, {
             date: incomeData.date,
             reportMonth: incomeData.reportMonth,
+            objectId: incomeData.objectId,
+            roomName: incomeData.roomName,
         });
         if (!closedCheck.ok) {
             return NextResponse.json(
