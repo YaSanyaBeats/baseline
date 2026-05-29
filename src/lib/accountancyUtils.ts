@@ -549,3 +549,42 @@ export function getBalanceByRule(
     };
 }
 
+/** Нормализует ввод стоимости: пробелы, запятая как десятичный разделитель. */
+export function sanitizeDecimalTyping(raw: string): string {
+    let s = raw.replace(/\s/g, '').replace(/,/g, '.');
+    s = s.replace(/[^\d.]/g, '');
+    const dotIdx = s.indexOf('.');
+    if (dotIdx !== -1) {
+        s = s.slice(0, dotIdx + 1) + s.slice(dotIdx + 1).replace(/\./g, '');
+    }
+    return s;
+}
+
+/** Парсинг стоимости из поля ввода (пробелы, запятая или точка как разделитель дробной части). */
+export function parseDecimalInput(raw: string): number | null {
+    const t = sanitizeDecimalTyping(raw);
+    if (t === '' || t === '.') return null;
+    const n = Number(t);
+    if (!Number.isFinite(n) || n < 0) return null;
+    return n;
+}
+
+export function getAmountFieldDisplayValue(
+    amount: number | undefined,
+    amountInput: string | undefined,
+): string {
+    if (amountInput !== undefined) return amountInput;
+    return amount != null ? String(amount) : '';
+}
+
+/** При редактировании: нельзя обнулить ранее ненулевую единичную стоимость; нулевая может остаться нулевой. */
+export function isForbiddenZeroUnitAmountOnEdit(
+    previousUnitAmount: number | null | undefined,
+    newUnitAmount: number | null | undefined,
+): boolean {
+    const prev = Number(previousUnitAmount ?? 0);
+    const next = Number(newUnitAmount ?? 0);
+    if (next > 0) return false;
+    return prev > 0;
+}
+

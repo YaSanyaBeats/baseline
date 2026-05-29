@@ -90,10 +90,17 @@ import { formatRoomSourceRecipient } from '@/lib/roomBinding';
 import { isResolvableRoomContextToken } from '@/lib/sourceRecipientParse';
 import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
 import { useObjects } from '@/providers/ObjectsProvider';
+import {
+    getAmountFieldDisplayValue,
+    parseDecimalInput,
+    sanitizeDecimalTyping,
+} from '@/lib/accountancyUtils';
 
 type LineFields = {
     category: string;
     amount: number | undefined;
+    /** Промежуточный текст в поле стоимости (например «.» или «1,»). */
+    amountInput?: string;
     quantity: number;
     date: string;
     reportMonth: string;
@@ -516,7 +523,10 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     });
                     if (defaults.source) next.source = defaults.source as SourceRecipientOptionValue;
                     if (defaults.recipient) next.recipient = defaults.recipient as SourceRecipientOptionValue;
-                    if (defaults.pricePerUnit != null) next.amount = defaults.pricePerUnit;
+                    if (defaults.pricePerUnit != null) {
+                        next.amount = defaults.pricePerUnit;
+                        next.amountInput = undefined;
+                    }
                 }
                 return next;
             }),
@@ -532,8 +542,20 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         index: number,
         event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
     ) => {
-        const num = Number(event.target.value);
-        handleChangeItem(index, 'amount', isNaN(num) ? undefined : num);
+        const amountInput = sanitizeDecimalTyping(event.target.value);
+        const parsed = parseDecimalInput(amountInput);
+        setItems((prev) =>
+            prev.map((item, i) =>
+                i === index
+                    ? { ...item, amountInput, amount: parsed ?? undefined }
+                    : item,
+            ),
+        );
+        setErrors((prev) => {
+            const next = { ...prev };
+            delete next[`item_${index}_amount`];
+            return next;
+        });
     };
 
     const handleChangeItemQuantity = (
@@ -546,12 +568,22 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     };
 
     const getEffectiveCostMain = (item: LineFields): number => {
+        if (item.amountInput !== undefined && item.amountInput.trim() !== '') {
+            const parsed = parseDecimalInput(item.amountInput);
+            if (parsed != null) return parsed;
+            return 0;
+        }
         if (item.amount != null) return item.amount;
         const cat = categories.find((c) => c.name === item.category);
         return cat?.pricePerUnit ?? 0;
     };
 
     const getEffectiveCostSub = (sub: SubItemForm): number => {
+        if (sub.amountInput !== undefined && sub.amountInput.trim() !== '') {
+            const parsed = parseDecimalInput(sub.amountInput);
+            if (parsed != null) return parsed;
+            return 0;
+        }
         if (sub.amount != null) return sub.amount;
         const list =
             sub.recordKind === 'income'
@@ -616,7 +648,10 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         });
                         if (defaults.source) next.source = defaults.source as SourceRecipientOptionValue;
                         if (defaults.recipient) next.recipient = defaults.recipient as SourceRecipientOptionValue;
-                        if (defaults.pricePerUnit != null) next.amount = defaults.pricePerUnit;
+                        if (defaults.pricePerUnit != null) {
+                            next.amount = defaults.pricePerUnit;
+                            next.amountInput = undefined;
+                        }
                     }
                     return next;
                 });
@@ -638,8 +673,24 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         subIndex: number,
         event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
     ) => {
-        const num = Number(event.target.value);
-        handleChangeSubItem(parentIndex, subIndex, 'amount', isNaN(num) ? undefined : num);
+        const amountInput = sanitizeDecimalTyping(event.target.value);
+        const parsed = parseDecimalInput(amountInput);
+        setItems((prev) =>
+            prev.map((item, i) => {
+                if (i !== parentIndex) return item;
+                const subItems = item.subItems.map((sub, j) =>
+                    j === subIndex
+                        ? { ...sub, amountInput, amount: parsed ?? undefined }
+                        : sub,
+                );
+                return { ...item, subItems };
+            }),
+        );
+        setErrors((prev) => {
+            const next = { ...prev };
+            delete next[`item_${parentIndex}_sub_${subIndex}_amount`];
+            return next;
+        });
     };
 
     const handleChangeSubItemQuantity = (
@@ -701,7 +752,13 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 'recordKind' in line
                     ? getEffectiveCostSub(line as SubItemForm)
                     : getEffectiveCostMain(line);
-            if (eff < 0) errs[`${keyPrefix}_amount`] = t('accountancy.cost');
+            const amountRaw = getAmountFieldDisplayValue(line.amount, line.amountInput);
+            if (
+                (amountRaw !== '' && parseDecimalInput(amountRaw) === null) ||
+                eff < 0
+            ) {
+                errs[`${keyPrefix}_amount`] = t('accountancy.invalidTotalAmount');
+            }
             if (line.quantity != null && (line.quantity < 1 || !Number.isInteger(line.quantity)))
                 errs[`${keyPrefix}_quantity`] = t('accountancy.quantity');
             if (requireStatus && !line.status) errs[`${keyPrefix}_status`] = t('accountancy.status');
@@ -1213,13 +1270,12 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 <TextField
                     size="small"
                     hiddenLabel
-                    type="number"
                     placeholder={t('accountancy.cost')}
-                    value={sub.amount ?? ''}
+                    value={getAmountFieldDisplayValue(sub.amount, sub.amountInput)}
                     onChange={(e) => handleChangeSubItemAmount(parentIndex, subIndex, e)}
                     error={!!errors[`item_${parentIndex}_sub_${subIndex}_amount`]}
                     slotProps={{
-                        htmlInput: { min: 0, step: 0.01, 'aria-label': t('accountancy.cost') },
+                        htmlInput: { inputMode: 'decimal', 'aria-label': t('accountancy.cost') },
                     }}
                     sx={compactCellTextFieldSx}
                 />
@@ -1586,12 +1642,13 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                             <TextField
                                                 size="small"
                                                 hiddenLabel
-                                                type="number"
                                                 placeholder={t('accountancy.cost')}
-                                                value={item.amount ?? ''}
+                                                value={getAmountFieldDisplayValue(item.amount, item.amountInput)}
                                                 onChange={(e) => handleChangeItemAmount(index, e)}
                                                 error={!!errors[`item_${index}_amount`]}
-                                                slotProps={{ htmlInput: { min: 0, step: 0.01, 'aria-label': t('accountancy.cost') } }}
+                                                slotProps={{
+                                                    htmlInput: { inputMode: 'decimal', 'aria-label': t('accountancy.cost') },
+                                                }}
                                                 sx={compactCellTextFieldSx}
                                             />
                                         </TableCell>

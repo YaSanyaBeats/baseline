@@ -29,6 +29,7 @@ import { useObjects } from '@/providers/ObjectsProvider';
 import { loadCommissionOwnerViewPayload } from '@/lib/commissionOwnerViewLoader';
 import {
     type CommissionOwnerViewExpenseGroup,
+    type CommissionOwnerViewIncomeGroup,
     type CommissionOwnerViewRoomSection,
     type CommissionOwnerViewStoredPayload,
 } from '@/lib/commissionOwnerView';
@@ -38,21 +39,13 @@ import {
     ownerViewExpenseColumnValue,
     type CommissionOwnerViewExpenseLine,
 } from '@/lib/ownerViewExpenses';
+import { sumOwnerViewIncomeTableTotal } from '@/lib/ownerViewIncomes';
 
 function formatAmount(value: number, locale: string): string {
     return value.toLocaleString(locale, {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });
-}
-
-function formatExpenseCell(
-    row: CommissionOwnerViewExpenseLine,
-    column: 'expense' | 'agency' | 'guest',
-    locale: string
-): string {
-    const value = ownerViewExpenseColumnValue(row, column);
-    return value == null ? '—' : formatAmount(value, locale);
 }
 
 /** Знак и цвет колонки «Расход»: приход + (зелёный), расход − (красный). */
@@ -112,12 +105,15 @@ function formatDateShort(iso: string, locale: string): string {
     return d.toLocaleDateString(locale, { day: '2-digit', month: '2-digit', year: '2-digit' });
 }
 
-function computeIncomeTotal(rows: CommissionOwnerViewRoomSection['incomeRows']): number {
-    return rows.reduce((s, r) => s + r.income, 0);
-}
-
-function isNonZeroAmount(value: number): boolean {
-    return value !== 0;
+function filterExpenseGroupsForDisplay(
+    groups: CommissionOwnerViewExpenseGroup[]
+): CommissionOwnerViewExpenseGroup[] {
+    return groups
+        .map((group) => ({
+            ...group,
+            lines: group.lines.filter((line) => !line.isIncome),
+        }))
+        .filter((group) => group.lines.length > 0);
 }
 
 type HeadCellSx = (bg: string, color?: string) => Record<string, unknown>;
@@ -133,9 +129,12 @@ function RoomIncomesTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const visibleRows = section.incomeRows.filter((r) => isNonZeroAmount(r.income));
-    const incomeTotal = computeIncomeTotal(visibleRows);
-    const hasRows = visibleRows.length > 0;
+    const incomeGroups = section.incomeGroups;
+    const incomeTotal = sumOwnerViewIncomeTableTotal(incomeGroups);
+    const hasRows = incomeGroups.some((g) => g.lines.length > 0);
+
+    const groupLabel = (group: CommissionOwnerViewIncomeGroup) =>
+        group.kind === 'booking' ? group.label : t(group.labelI18nKey ?? '');
 
     return (
         <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
@@ -147,52 +146,54 @@ function RoomIncomesTable({
                     <TableHead>
                         <TableRow>
                             <TableCell sx={headCellSx('success.dark')}>
-                                {t('accountancy.commission.ownerColArrival')}
-                            </TableCell>
-                            <TableCell sx={headCellSx('success.dark')}>
-                                {t('accountancy.commission.ownerColDeparture')}
+                                {t('accountancy.commission.ownerColDescription')}
                             </TableCell>
                             <TableCell sx={headCellSx('success.dark')} align="right">
-                                {t('accountancy.commission.ownerColNights')}
-                            </TableCell>
-                            <TableCell sx={headCellSx('success.dark')}>
-                                {t('accountancy.commission.ownerColGuestName')}
+                                {t('accountancy.quantity')}
                             </TableCell>
                             <TableCell sx={headCellSx('success.dark')} align="right">
-                                {t('accountancy.commission.ownerColGuests')}
-                            </TableCell>
-                            <TableCell sx={headCellSx('success.dark')}>
-                                {t('accountancy.commission.ownerColReferrer')}
+                                {t('accountancy.commission.ownerColPriceThb')}
                             </TableCell>
                             <TableCell sx={headCellSx('success.dark')} align="right">
-                                {t('accountancy.commission.ownerColBookingAmount')}
+                                {t('accountancy.commission.ownerColSumThb')}
                             </TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {!hasRows ? (
                             <TableRow>
-                                <TableCell colSpan={7}>
+                                <TableCell colSpan={4}>
                                     <Typography variant="body2" color="text.secondary">
                                         {t('accountancy.commission.noIncomes')}
                                     </Typography>
                                 </TableCell>
                             </TableRow>
-                        ) : null}
-                        {visibleRows.map((row) => (
-                            <TableRow key={row.key}>
-                                <TableCell>{formatDateShort(row.arrival, locale)}</TableCell>
-                                <TableCell>{formatDateShort(row.departure, locale)}</TableCell>
-                                <TableCell align="right">{row.nights}</TableCell>
-                                <TableCell>{row.guestName}</TableCell>
-                                <TableCell align="right">{row.guestCountLabel}</TableCell>
-                                <TableCell>{row.referrer}</TableCell>
-                                <TableCell align="right">{formatAmount(row.income, locale)}</TableCell>
-                            </TableRow>
-                        ))}
+                        ) : (
+                            incomeGroups.map((group) => (
+                                <Fragment key={group.key}>
+                                    <TableRow sx={{ bgcolor: 'action.selected' }}>
+                                        <TableCell colSpan={4} sx={{ fontWeight: 700 }}>
+                                            {groupLabel(group)}
+                                        </TableCell>
+                                    </TableRow>
+                                    {group.lines.map((row) => (
+                                        <TableRow key={row.key}>
+                                            <TableCell>{row.description}</TableCell>
+                                            <TableCell align="right">{row.quantity}</TableCell>
+                                            <TableCell align="right">
+                                                {formatAmount(row.unitPrice, locale)}
+                                            </TableCell>
+                                            <TableCell align="right">
+                                                {formatAmount(row.lineTotal, locale)}
+                                            </TableCell>
+                                        </TableRow>
+                                    ))}
+                                </Fragment>
+                            ))
+                        )}
                         {hasRows && (
                             <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                <TableCell colSpan={6} align="right" sx={{ fontWeight: 700 }}>
+                                <TableCell colSpan={3} align="right" sx={{ fontWeight: 700 }}>
                                     {t('accountancy.commission.ownerTotalIncomes')}
                                 </TableCell>
                                 <TableCell align="right" sx={{ fontWeight: 700 }}>
@@ -218,10 +219,10 @@ function RoomExpensesTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(section.expenseGroups);
-    const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(section.expenseGroups, 'agency');
-    const guestColumnTotal = sumOwnerViewExpenseColumnSigned(section.expenseGroups, 'guest');
-    const hasRows = section.expenseGroups.some((g) => g.lines.length > 0);
+    const expenseGroups = filterExpenseGroupsForDisplay(section.expenseGroups);
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
+    const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(expenseGroups, 'agency');
+    const hasRows = expenseGroups.length > 0;
 
     const groupLabel = (group: CommissionOwnerViewExpenseGroup) =>
         group.kind === 'booking' ? group.label : t(group.labelI18nKey ?? '');
@@ -253,25 +254,22 @@ function RoomExpensesTable({
                             <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
                                 {t('accountancy.commission.ownerColAgencyExpenses')}
                             </TableCell>
-                            <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
-                                {t('accountancy.commission.ownerColGuestExpenses')}
-                            </TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {!hasRows ? (
                             <TableRow>
-                                <TableCell colSpan={7}>
+                                <TableCell colSpan={6}>
                                     <Typography variant="body2" color="text.secondary">
                                         {t('accountancy.noExpenses')}
                                     </Typography>
                                 </TableCell>
                             </TableRow>
                         ) : (
-                            section.expenseGroups.map((group) => (
+                            expenseGroups.map((group) => (
                                 <Fragment key={group.key}>
                                     <TableRow sx={{ bgcolor: 'action.selected' }}>
-                                        <TableCell colSpan={7} sx={{ fontWeight: 700 }}>
+                                        <TableCell colSpan={6} sx={{ fontWeight: 700 }}>
                                             {groupLabel(group)}
                                         </TableCell>
                                     </TableRow>
@@ -290,12 +288,6 @@ function RoomExpensesTable({
                                             <TableCell align="right">
                                                 <SignedAmountValue
                                                     value={ownerViewExpenseColumnValue(row, 'agency')}
-                                                    locale={locale}
-                                                />
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                <SignedAmountValue
-                                                    value={ownerViewExpenseColumnValue(row, 'guest')}
                                                     locale={locale}
                                                 />
                                             </TableCell>
@@ -326,14 +318,6 @@ function RoomExpensesTable({
                                         {formatSignedAmount(agencyExpenseColumnTotal, locale)}
                                     </Typography>
                                 </TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 700 }}>
-                                    <Typography
-                                        component="span"
-                                        sx={{ color: signedAmountColor(guestColumnTotal), fontWeight: 700 }}
-                                    >
-                                        {formatSignedAmount(guestColumnTotal, locale)}
-                                    </Typography>
-                                </TableCell>
                             </TableRow>
                         )}
                     </TableBody>
@@ -354,7 +338,9 @@ function RoomEarningsTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(section.expenseGroups);
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(
+        filterExpenseGroupsForDisplay(section.expenseGroups)
+    );
     const earningsNet = section.totals.totalIncome + expenseColumnTotal;
 
     return (

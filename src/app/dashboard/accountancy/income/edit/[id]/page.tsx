@@ -18,7 +18,7 @@ import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomeById, updateIncome } from "@/lib/incomes";
 import { getCounterparties } from "@/lib/counterparties";
@@ -37,6 +37,7 @@ import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from "@/lib/accountancyCategoryResolve";
+import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
 
 function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -52,6 +53,7 @@ export default function Page() {
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
     const [income, setIncome] = useState<Partial<Income & { dateString: string }>>({});
+    const originalUnitAmountRef = useRef(0);
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -94,6 +96,7 @@ export default function Page() {
                             const rt = o?.roomTypes?.find((r) => r.id === rid);
                             roomName = rt ? stableIncomeRoomLabel(rt) : undefined;
                         }
+                        originalUnitAmountRef.current = found.amount ?? 0;
                         setIncome({
                             _id: found._id,
                             objectId: found.objectId,
@@ -223,7 +226,11 @@ export default function Page() {
         if (!income.dateString) {
             validationErrors.dateString = t('accountancy.incomeDate');
         }
-        if (income.amount == null || income.amount <= 0) {
+        if (
+            income.amount == null
+                ? originalUnitAmountRef.current > 0
+                : isForbiddenZeroUnitAmountOnEdit(originalUnitAmountRef.current, income.amount)
+        ) {
             validationErrors.amount = t('accountancy.amountMustBeGreaterThanZero');
         }
         if (income.quantity != null && (income.quantity < 1 || !Number.isInteger(income.quantity))) {

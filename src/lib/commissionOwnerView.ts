@@ -1,8 +1,14 @@
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY } from '@/lib/accountancyOperationGroupCategoryOrder';
-import { getNightsCount, incomeInReportMonth, MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY } from '@/lib/commissionCalculation';
+import {
+    buildOwnerViewIncomeGroupsForRoom,
+    sumOwnerViewIncomeTableTotal,
+    type CommissionOwnerViewIncomeGroup,
+} from '@/lib/ownerViewIncomes';
+import { incomeInReportMonth } from '@/lib/commissionCalculation';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
-import { isOwnerAccessibleRoomName } from '@/lib/ownerObjectsFilter';
+import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
+import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
 import {
     buildOwnerViewExpenseGroupsForRoom,
     sumOwnerViewExpenseShares,
@@ -17,26 +23,12 @@ import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types'
 export type { CommissionOwnerViewExpenseGroup, CommissionOwnerViewExpenseLine } from '@/lib/ownerViewExpenses';
 export type { CommissionOwnerViewSettlementRow } from '@/lib/ownerViewSettlements';
 
-/** Строка таблицы «Приходы»: одна транзакция «Аренда (баланс/остаток)» + данные брони. */
-export type CommissionOwnerViewIncomeRow = {
-    key: string;
-    bookingId: number;
-    arrival: string;
-    departure: string;
-    guestName: string;
-    guestCountLabel: string;
-    referrer: string;
-    nights: number;
-    income: number;
-};
-
-/** @deprecated — агрегированные строки v1/v2 */
-export type CommissionOwnerViewBookingRow = CommissionOwnerViewIncomeRow;
+export type { CommissionOwnerViewIncomeGroup, CommissionOwnerViewIncomeLine } from '@/lib/ownerViewIncomes';
 
 export type CommissionOwnerViewRoomSection = {
     key: string;
     title: string;
-    incomeRows: CommissionOwnerViewIncomeRow[];
+    incomeGroups: CommissionOwnerViewIncomeGroup[];
     expenseGroups: CommissionOwnerViewExpenseGroup[];
     totals: {
         totalIncome: number;
@@ -99,61 +91,11 @@ type BookingMeta = {
     roomsForObject: ObjectCommissionResult['roomsForObject'];
 };
 
-function guestCountLabel(b: Booking): string {
-    const a = b.numAdult;
-    const c = b.numChild;
-    if (a == null && c == null) return '—';
-    return String((a ?? 0) + (c ?? 0));
-}
-
-function guestDisplayName(b: Booking): string {
-    const name = [b.firstName, b.lastName].filter(Boolean).join(' ').trim();
-    if (name) return name;
-    if (b.title && String(b.title).trim()) return String(b.title).trim();
-    return `#${b.id}`;
-}
-
-function incomeRowKey(i: Income, line: number): string {
-    return i._id ?? `inc-${i.bookingId ?? 'b'}-${String(i.date)}-${line}`;
-}
-
-function incomeLineTotal(i: Income): number {
-    return (i.quantity ?? 1) * (i.amount ?? 0);
-}
-
-function isRentBalanceIncome(i: Income, categoryNameById: Map<string, string>): boolean {
-    return (
-        resolveCategoryName(i, categoryNameById).trim() === MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY
-    );
-}
-
-function stableUnitLabel(room: { id: number; name?: string }): string {
-    return room.name != null && String(room.name).trim() !== ''
-        ? String(room.name).trim()
-        : `Unit ${room.id}`;
-}
-
-function roomLabelForBooking(
-    booking: Booking,
-    rooms: { id: number; name?: string }[]
-): string {
-    const room = rooms.find((r) => r.id === booking.unitId);
-    if (room) return stableUnitLabel(room);
-    if (booking.unitId != null) return `Unit ${booking.unitId}`;
-    return '—';
-}
-
-function sectionTitle(objectName: string, roomName: string, multiObject: boolean): string {
-    if (multiObject && roomName !== '—') return `${objectName} — ${roomName}`;
-    if (multiObject && roomName === '—') return objectName;
-    return roomName;
-}
-
 function computeSectionTotals(
     section: Omit<CommissionOwnerViewRoomSection, 'totals'>,
     commissionTotal: number
 ): CommissionOwnerViewRoomSection['totals'] {
-    const totalIncome = section.incomeRows.reduce((s, r) => s + r.income, 0);
+    const totalIncome = sumOwnerViewIncomeTableTotal(section.incomeGroups);
     const totalExpenses = sumOwnerViewExpenseShares(section.expenseGroups);
     return { totalIncome, totalExpenses, totalCommission: commissionTotal };
 }
@@ -180,7 +122,49 @@ function buildBookingMetaMap(objectReports: ObjectCommissionResult[]): Map<numbe
     return map;
 }
 
-function resolveBookingMeta(
+/** @deprecated v1 */
+type CommissionOwnerViewBookingRow = {
+    key: string;
+    bookingId: number;
+    arrival: string;
+    departure: string;
+    guestName: string;
+    guestCountLabel: string;
+    referrer: string;
+    nights: number;
+    income: number;
+};
+
+/** @deprecated v1 */
+type CommissionOwnerViewIncomeRow = CommissionOwnerViewBookingRow;
+
+function stableUnitLabel(room: { id: number; name?: string }): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id}`;
+}
+
+function roomLabelForBooking(
+    booking: Booking,
+    rooms: { id: number; name?: string }[]
+): string {
+    const room = rooms.find((r) => r.id === booking.unitId);
+    if (room) return stableUnitLabel(room);
+    if (booking.unitId != null) return `Unit ${booking.unitId}`;
+    return '—';
+}
+
+function sectionTitle(objectName: string, roomName: string, multiObject: boolean): string {
+    if (multiObject && roomName !== '—') return `${objectName} — ${roomName}`;
+    if (multiObject && roomName === '—') return objectName;
+    return roomName;
+}
+
+function incomeLineTotal(i: Income): number {
+    return (i.quantity ?? 1) * (i.amount ?? 0);
+}
+
+function resolveBookingMetaForIncome(
     income: Income,
     objectReports: ObjectCommissionResult[],
     bookingMeta: Map<number, BookingMeta>,
@@ -197,7 +181,7 @@ function resolveBookingMeta(
 
     return {
         booking,
-        nights: getNightsCount(booking.arrival, booking.departure),
+        nights: 0,
         objectId: objectReport.objectId,
         objectName: objectReport.objectName,
         roomsForObject: objectReport.roomsForObject,
@@ -225,7 +209,7 @@ function buildRoomSectionsFromObjectReports(
             bucket = {
                 key,
                 title: sectionTitle(objectName, roomName, multiObject),
-                incomeRows: [],
+                incomeGroups: [],
                 expenseGroups: [],
                 commissionTotal: 0,
                 objectId,
@@ -249,39 +233,50 @@ function buildRoomSectionsFromObjectReports(
     }
 
     for (const income of allIncomes) {
-        if (income.bookingId == null) continue;
         if (!ownerObjectIds.has(income.objectId)) continue;
-        if (!isRentBalanceIncome(income, categoryNameById)) continue;
         if (!incomeInReportMonth(income, monthKey)) continue;
+        if (incomeLineTotal(income) === 0) continue;
 
-        const line = incomeLineTotal(income);
-        if (line === 0) continue;
+        const objectReport = objectReports.find((r) => r.objectId === income.objectId);
+        if (!objectReport) continue;
 
-        const meta = resolveBookingMeta(income, objectReports, bookingMeta, extraBookings);
-        if (!meta) continue;
+        const categoryName = resolveCategoryName(income, categoryNameById);
+        const subgroup = resolveNoBookingSubgroupForTransaction(
+            income.categoryId,
+            categoryName,
+            categories
+        );
+        if (subgroup === 'mutual') continue;
 
-        const roomName = roomLabelForBooking(meta.booking, meta.roomsForObject);
-        if (!isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
+        if (income.bookingId != null) {
+            const meta = resolveBookingMetaForIncome(income, objectReports, bookingMeta, extraBookings);
+            if (!meta) continue;
+            const roomName = roomLabelForBooking(meta.booking, meta.roomsForObject);
+            if (!isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
+            getBucket(meta.objectId, meta.objectName, roomName);
+            continue;
+        }
 
-        const bucket = getBucket(meta.objectId, meta.objectName, roomName);
-        const { booking } = meta;
-
-        bucket.incomeRows.push({
-            key: incomeRowKey(income, line),
-            bookingId: booking.id,
-            arrival: booking.arrival,
-            departure: booking.departure,
-            guestName: guestDisplayName(booking),
-            guestCountLabel: guestCountLabel(booking),
-            referrer: booking.refererEditable || booking.referer || booking.channel || '—',
-            nights: meta.nights,
-            income: line,
-        });
+        if (!transactionMatchesOwnerRooms(income.roomName, objectReport.roomsForObject)) continue;
+        const roomName = (income.roomName ?? '').trim() || '—';
+        if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) continue;
+        getBucket(objectReport.objectId, objectReport.objectName, roomName);
     }
 
     for (const bucket of buckets.values()) {
         const objectReport = objectReports.find((r) => r.objectId === bucket.objectId);
         if (!objectReport) continue;
+        bucket.incomeGroups = buildOwnerViewIncomeGroupsForRoom(
+            objectReport,
+            bucket.roomName,
+            monthKey,
+            categoryNameById,
+            categories,
+            allIncomes,
+            objectReports,
+            bookingMeta,
+            extraBookings
+        );
         bucket.expenseGroups = buildOwnerViewExpenseGroupsForRoom(
             objectReport,
             bucket.roomName,
@@ -298,29 +293,31 @@ function buildRoomSectionsFromObjectReports(
 
     return [...buckets.values()]
         .filter(
-            (section) => section.incomeRows.length > 0 || section.expenseGroups.length > 0
+            (section) =>
+                section.incomeGroups.some((g) => g.lines.length > 0) ||
+                section.expenseGroups.some((g) => g.lines.length > 0)
         )
         .map(({ commissionTotal, objectId: _oid, roomName: _rn, ...section }) => ({
             ...section,
-            incomeRows: section.incomeRows.sort(
-                (a, b) => new Date(a.arrival).getTime() - new Date(b.arrival).getTime()
-            ),
             totals: computeSectionTotals(section, commissionTotal),
         }))
         .sort((a, b) => a.title.localeCompare(b.title, 'ru'));
 }
 
 function normalizeRoomSection(raw: Record<string, unknown>): CommissionOwnerViewRoomSection {
-    const incomeRows =
-        (Array.isArray(raw.incomeRows) ? raw.incomeRows : null) ??
-        (Array.isArray(raw.bookings) ? raw.bookings : []);
+    const incomeGroups = Array.isArray(raw.incomeGroups)
+        ? (raw.incomeGroups as CommissionOwnerViewIncomeGroup[])
+        : [];
     const expenseGroups = Array.isArray(raw.expenseGroups)
         ? (raw.expenseGroups as CommissionOwnerViewExpenseGroup[])
         : [];
     const legacyExpenseLines = Array.isArray(raw.expenseLines) ? raw.expenseLines : [];
-    const mergedGroups =
+    const mergedExpenseGroups =
         expenseGroups.length > 0
-            ? expenseGroups
+            ? expenseGroups.map((g) => ({
+                  ...g,
+                  lines: g.lines.filter((line) => !line.isIncome),
+              }))
             : legacyExpenseLines.length > 0
               ? [
                     {
@@ -351,8 +348,8 @@ function normalizeRoomSection(raw: Record<string, unknown>): CommissionOwnerView
     const sectionBase = {
         key: String(raw.key ?? ''),
         title: String(raw.title ?? ''),
-        incomeRows: incomeRows as CommissionOwnerViewIncomeRow[],
-        expenseGroups: mergedGroups,
+        incomeGroups,
+        expenseGroups: mergedExpenseGroups,
     };
     const existingTotals =
         raw.totals && typeof raw.totals === 'object'
@@ -389,6 +386,7 @@ function collectOwnerViewIncomeBookingIds(
     objectReports: ObjectCommissionResult[],
     monthKey: string,
     categoryNameById: Map<string, string>,
+    categories: AccountancyCategory[],
     allIncomes: Income[]
 ): number[] {
     const existing = new Set(
@@ -400,9 +398,17 @@ function collectOwnerViewIncomeBookingIds(
     for (const income of allIncomes) {
         if (income.bookingId == null) continue;
         if (!ownerObjectIds.has(income.objectId)) continue;
-        if (!isRentBalanceIncome(income, categoryNameById)) continue;
         if (!incomeInReportMonth(income, monthKey)) continue;
         if (incomeLineTotal(income) === 0) continue;
+
+        const categoryName = resolveCategoryName(income, categoryNameById);
+        const subgroup = resolveNoBookingSubgroupForTransaction(
+            income.categoryId,
+            categoryName,
+            categories
+        );
+        if (subgroup === 'mutual') continue;
+
         if (!existing.has(income.bookingId)) needed.add(income.bookingId);
     }
 
@@ -421,6 +427,7 @@ export function collectOwnerViewExtraBookingIds(
         objectReports,
         monthKey,
         categoryNameById,
+        categories,
         allIncomes
     );
     const existing = new Set(
@@ -444,16 +451,6 @@ export function collectOwnerViewExtraBookingIds(
         const line = (expense.quantity ?? 1) * (expense.amount ?? 0);
         if (line === 0) continue;
         if (!existing.has(expense.bookingId)) needed.add(expense.bookingId);
-    }
-
-    for (const income of allIncomes) {
-        if (income.bookingId == null) continue;
-        if (!ownerObjectIds.has(income.objectId)) continue;
-        if (!incomeInReportMonth(income, monthKey)) continue;
-        if (isRentBalanceIncome(income, categoryNameById)) continue;
-        const line = (income.quantity ?? 1) * (income.amount ?? 0);
-        if (line === 0) continue;
-        if (!existing.has(income.bookingId)) needed.add(income.bookingId);
     }
 
     return [...needed];

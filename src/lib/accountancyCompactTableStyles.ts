@@ -62,8 +62,12 @@ export const TXN_ADD_TABLE_MIN_WIDTH_PX =
     COMPACT_COL_DIVISIBILITY +
     COMPACT_COL_ATTACH;
 
+export function compactLineTotalNumeric(quantity: number | undefined, unitCost: number): number {
+    return (quantity ?? 1) * unitCost;
+}
+
 export function formatCompactLineTotal(quantity: number | undefined, unitCost: number): string {
-    return ((quantity ?? 1) * unitCost).toLocaleString('ru-RU', {
+    return compactLineTotalNumeric(quantity, unitCost).toLocaleString('ru-RU', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
     });

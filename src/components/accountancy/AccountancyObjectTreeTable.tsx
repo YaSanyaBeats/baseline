@@ -1,11 +1,12 @@
 'use client';
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, memo, useMemo, useState } from 'react';
 import { IconButton, Table, TableBody, TableCell, TableRow, Typography } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
-import { alpha, useTheme, type Theme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import type { Object as Obj } from '@/lib/types';
 import type { AccountancyObjectRoomRowHighlight } from '@/lib/accountancyObjectRoomRowHighlight';
+import { accountancyRoomHighlightKey } from '@/lib/accountancyObjectRoomRowHighlight';
 import {
     groupAccountancyObjectsByName,
     isAccountancyObjectGroupSelected,
@@ -13,8 +14,8 @@ import {
 } from '@/lib/accountancyObjectGroups';
 import { useTranslation } from '@/i18n/useTranslation';
 
-/** Подсветка «жёлтый» — не `palette.warning` (в MUI это оранжевый) */
-const ROOM_YELLOW = '#EAB308';
+const ROOM_ROW_RED = '#FFCDD2';
+const ROOM_ROW_WHITE = '#FFFFFF';
 
 export type AccountancyObjectTreeTableProps = {
     objects: Obj[];
@@ -23,38 +24,27 @@ export type AccountancyObjectTreeTableProps = {
     selectedRoomId: string | 'all';
     onSelectObject: (objectId: number) => void;
     onSelectRoom: (objectId: number, roomName: string) => void;
-    /** Подсветка подпункта «комната»; без пропа — только стандартные стили */
-    getRoomRowHighlight?: (objectId: number, roomName: string) => AccountancyObjectRoomRowHighlight;
+    /** Предрасчитанная подсветка: ключ `${objectId}\u0001${roomKey}` */
+    roomHighlightByKey?: ReadonlyMap<string, AccountancyObjectRoomRowHighlight>;
 };
 
 function roomRowBackground(
-    theme: Theme,
     highlight: AccountancyObjectRoomRowHighlight,
-    selected: boolean,
-): string | undefined {
-    if (highlight === 'default') {
-        return undefined;
+    mode: 'light' | 'dark',
+): string {
+    if (highlight === 'red') {
+        return mode === 'light' ? ROOM_ROW_RED : alpha('#FFCDD2', 0.35);
     }
-    const strong = selected;
-    switch (highlight) {
-        case 'red':
-            return alpha(theme.palette.error.main, strong ? 0.3 : 0.18);
-        case 'yellow':
-            return alpha(ROOM_YELLOW, strong ? 0.34 : 0.22);
-        case 'blue':
-            return alpha(theme.palette.info.main, strong ? 0.32 : 0.2);
-        default:
-            return undefined;
-    }
+    return mode === 'light' ? ROOM_ROW_WHITE : alpha(ROOM_ROW_WHITE, 0.04);
 }
 
-export function AccountancyObjectTreeTable({
+function AccountancyObjectTreeTableInner({
     objects,
     selectedObjectId,
     selectedRoomId,
     onSelectObject,
     onSelectRoom,
-    getRoomRowHighlight,
+    roomHighlightByKey,
 }: AccountancyObjectTreeTableProps) {
     const theme = useTheme();
     const { t } = useTranslation();
@@ -163,8 +153,10 @@ export function AccountancyObjectTreeTable({
                                         selectedRoomId === roomLabelKey;
                                     const roomLabel = room.name || `Room ${room.id}`;
                                     const hl =
-                                        getRoomRowHighlight?.(member.id, roomLabelKey) ?? 'default';
-                                    const rowBg = roomRowBackground(theme, hl, isRoomRowSelected);
+                                        roomHighlightByKey?.get(
+                                            accountancyRoomHighlightKey(member.id, roomLabelKey),
+                                        ) ?? 'white';
+                                    const rowBg = roomRowBackground(hl, theme.palette.mode);
                                     return (
                                         <TableRow
                                             key={`room-${group.displayName}-${member.id}-${room.id}-${roomIndex}`}
@@ -173,25 +165,14 @@ export function AccountancyObjectTreeTable({
                                             onClick={() => onSelectRoom(member.id, roomLabelKey)}
                                             sx={{
                                                 cursor: 'pointer',
-                                                ...(!rowBg
-                                                    ? { '&.Mui-selected': { bgcolor: 'action.selected' } }
-                                                    : {
-                                                          bgcolor: rowBg,
-                                                          '&.Mui-selected': { bgcolor: rowBg },
-                                                      }),
+                                                bgcolor: rowBg,
+                                                '&.Mui-selected': {
+                                                    bgcolor: isRoomRowSelected ? 'action.selected' : rowBg,
+                                                },
                                                 '&:hover': {
-                                                    bgcolor: (t) => {
-                                                        if (hl === 'default') {
-                                                            return t.palette.action.hover;
-                                                        }
-                                                        const c =
-                                                            hl === 'red'
-                                                                ? t.palette.error.main
-                                                                : hl === 'yellow'
-                                                                  ? ROOM_YELLOW
-                                                                  : t.palette.info.main;
-                                                        return alpha(c, 0.35);
-                                                    },
+                                                    bgcolor: isRoomRowSelected
+                                                        ? 'action.selected'
+                                                        : rowBg,
                                                 },
                                             }}
                                         >
@@ -224,3 +205,5 @@ export function AccountancyObjectTreeTable({
         </Table>
     );
 }
+
+export const AccountancyObjectTreeTable = memo(AccountancyObjectTreeTableInner);

@@ -5,7 +5,15 @@
 
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
-import type { AutoAccountingRule, AutoAccountingAmountSource, AutoAccountingQuantitySource, CashflowRuleCompareOperator } from '@/lib/types';
+import type {
+    AccountancyCategory,
+    AutoAccountingRule,
+    AutoAccountingAmountSource,
+    AutoAccountingQuantitySource,
+    AutoCreatedMeta,
+    CashflowRuleCompareOperator,
+} from '@/lib/types';
+import { NO_BOOKING_SUBGROUP_BINDABLE } from '@/lib/noBookingCategorySubgroups';
 import {
     buildPropertyIdToFirstRoomTypeIdMap,
     buildRoomTypeIdToPropertyIdMap,
@@ -118,6 +126,34 @@ function getMonthsBetween(start: Date, end: Date): { year: number; month: number
     return result;
 }
 
+/** per_month: при двух и более отчётных месяцах первый пропускается (заезд в первый день месяца). */
+function getReportingMonthsForPerMonthRule(start: Date, end: Date): { year: number; month: number }[] {
+    const all = getMonthsBetween(start, end);
+    if (all.length <= 1) return all;
+    return all.slice(1);
+}
+
+function categoryHasNoBookingGroupBinding(cat: AccountancyCategory | null | undefined): boolean {
+    const subgroupId = cat?.noBookingSubgroupId;
+    if (subgroupId == null) return false;
+    return (NO_BOOKING_SUBGROUP_BINDABLE as readonly string[]).includes(subgroupId);
+}
+
+function buildAutoBookingLinkFields(
+    bookingId: number,
+    ruleIdStr: string | undefined,
+    categoryDoc: AccountancyCategory | null | undefined,
+): { bookingId?: number; autoCreated: AutoCreatedMeta } {
+    const autoCreated: AutoCreatedMeta = {
+        ...(ruleIdStr ? { ruleId: ruleIdStr } : {}),
+        bookingId,
+    };
+    if (categoryHasNoBookingGroupBinding(categoryDoc)) {
+        return { autoCreated };
+    }
+    return { bookingId, autoCreated };
+}
+
 export async function runRulesForBookings(
     bookingIds: number[],
     accountantId: string | null
@@ -193,6 +229,35 @@ export async function runRulesForBookings(
 
     const categoryPriceCache = new Map<string, number>();
     const ruleCategoryCache = new Map<string, NormalizedTransactionCategory>();
+    const ruleCategoryDocCache = new Map<string, AccountancyCategory | null>();
+
+    const resolveRuleCategoryDoc = async (
+        rule: AutoAccountingRule & { _id?: ObjectId },
+    ): Promise<AccountancyCategory | null> => {
+        const cacheKey = `${rule.ruleType}|${rule.categoryId ?? ''}|${rule.category}`;
+        const cached = ruleCategoryDocCache.get(cacheKey);
+        if (cached !== undefined) return cached;
+
+        let cat: AccountancyCategory | null = null;
+        if (rule.categoryId) {
+            try {
+                cat = (await categoriesCollection.findOne({
+                    _id: new ObjectId(rule.categoryId),
+                    type: rule.ruleType,
+                })) as AccountancyCategory | null;
+            } catch {
+                /* invalid id — fallback by name */
+            }
+        }
+        if (!cat) {
+            cat = (await categoriesCollection.findOne({
+                name: rule.category,
+                type: rule.ruleType,
+            })) as AccountancyCategory | null;
+        }
+        ruleCategoryDocCache.set(cacheKey, cat);
+        return cat;
+    };
 
     const resolveRuleCategory = async (
         rule: AutoAccountingRule & { _id?: ObjectId },
@@ -401,6 +466,7 @@ export async function runRulesForBookings(
 
             const quantity = resolveQuantity(rule, booking);
             const categoryFields = await resolveRuleCategory(rule);
+            const categoryDoc = await resolveRuleCategoryDoc(rule);
             const amount = await resolveAmount(
                 rule,
                 categoryFields,
@@ -410,7 +476,7 @@ export async function runRulesForBookings(
                 bookingUnitName,
             );
             const ruleIdStr = rule._id ? (rule._id as ObjectId).toString() : undefined;
-            const autoCreatedMeta = ruleIdStr ? { ruleId: ruleIdStr } : undefined;
+            const autoBookingFields = buildAutoBookingLinkFields(bid, ruleIdStr, categoryDoc);
             const resolvedSource = resolveAutoRuleSourceRecipient(rule.source, accountingObjectId, bookingUnitName);
             const resolvedRecipient = resolveAutoRuleSourceRecipient(rule.recipient, accountingObjectId, bookingUnitName);
             const sourceRecipientFields =
@@ -442,7 +508,7 @@ export async function runRulesForBookings(
                             recordType: 'expense',
                             objectId: accountingObjectId,
                             roomName: bookingUnitName ?? null,
-                            bookingId: bid,
+                            ...autoBookingFields,
                             ...sourceRecipientFields,
                             categoryId: categoryFields.categoryId,
                             category: categoryFields.category,
@@ -456,14 +522,13 @@ export async function runRulesForBookings(
                             accountantId: effectiveAccountantId,
                             accountantName,
                             createdAt: new Date(),
-                            autoCreated: autoCreatedMeta ?? null,
                         } as any);
                         expensesCreated++;
                     } catch (e) {
                         errors.push(`Расход по брони ${bid}, правило ${categoryFields.category}: ${(e as Error).message}`);
                     }
                 } else {
-                    const months = getMonthsBetween(arrival, departure);
+                    const months = getReportingMonthsForPerMonthRule(arrival, departure);
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
@@ -485,7 +550,7 @@ export async function runRulesForBookings(
                                 recordType: 'expense',
                                 objectId: accountingObjectId,
                                 roomName: bookingUnitName ?? null,
-                                bookingId: bid,
+                                ...autoBookingFields,
                                 ...sourceRecipientFields,
                                 categoryId: categoryFields.categoryId,
                                 category: categoryFields.category,
@@ -499,7 +564,6 @@ export async function runRulesForBookings(
                                 accountantId: effectiveAccountantId,
                                 accountantName,
                                 createdAt: new Date(),
-                                autoCreated: autoCreatedMeta ?? null,
                             } as any);
                             expensesCreated++;
                         } catch (e) {
@@ -528,7 +592,7 @@ export async function runRulesForBookings(
                             recordType: 'income',
                             objectId: accountingObjectId,
                             roomName: bookingUnitName ?? null,
-                            bookingId: bid,
+                            ...autoBookingFields,
                             ...sourceRecipientFields,
                             categoryId: categoryFields.categoryId,
                             category: categoryFields.category,
@@ -542,14 +606,13 @@ export async function runRulesForBookings(
                             accountantId: effectiveAccountantId,
                             accountantName,
                             createdAt: new Date(),
-                            autoCreated: autoCreatedMeta ?? null,
                         } as any);
                         incomesCreated++;
                     } catch (e) {
                         errors.push(`Доход по брони ${bid}, правило ${categoryFields.category}: ${(e as Error).message}`);
                     }
                 } else {
-                    const months = getMonthsBetween(arrival, departure);
+                    const months = getReportingMonthsForPerMonthRule(arrival, departure);
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
@@ -571,7 +634,7 @@ export async function runRulesForBookings(
                                 recordType: 'income',
                                 objectId: accountingObjectId,
                                 roomName: bookingUnitName ?? null,
-                                bookingId: bid,
+                                ...autoBookingFields,
                                 ...sourceRecipientFields,
                                 categoryId: categoryFields.categoryId,
                                 category: categoryFields.category,
@@ -585,7 +648,6 @@ export async function runRulesForBookings(
                                 accountantId: effectiveAccountantId,
                                 accountantName,
                                 createdAt: new Date(),
-                                autoCreated: autoCreatedMeta ?? null,
                             } as any);
                             incomesCreated++;
                         } catch (e) {

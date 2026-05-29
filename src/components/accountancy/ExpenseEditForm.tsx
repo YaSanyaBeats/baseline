@@ -18,7 +18,7 @@ import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AccountancyCategory, AccountancyAttachment, Expense, ExpenseStatus, UserObject } from '@/lib/types';
 import { getExpenseById, updateExpense } from '@/lib/expenses';
 import { getCounterparties } from '@/lib/counterparties';
@@ -37,6 +37,7 @@ import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from '@/lib/accountancyCategoryResolve';
+import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
 
 function stableExpenseRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -67,6 +68,7 @@ export default function ExpenseEditForm({
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
     const [expense, setExpense] = useState<Partial<ExpenseForm>>({});
+    const originalUnitAmountRef = useRef(0);
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [bookingModalOpen, setBookingModalOpen] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -127,6 +129,7 @@ export default function ExpenseEditForm({
                     }
                 }
 
+                originalUnitAmountRef.current = found.amount ?? 0;
                 setExpense({
                     _id: found._id,
                     objectId: found.objectId,
@@ -269,7 +272,11 @@ export default function ExpenseEditForm({
         if (!expense.date) {
             validationErrors.date = t('accountancy.expenseDate');
         }
-        if (expense.amount == null || expense.amount <= 0) {
+        if (
+            expense.amount == null
+                ? originalUnitAmountRef.current > 0
+                : isForbiddenZeroUnitAmountOnEdit(originalUnitAmountRef.current, expense.amount)
+        ) {
             validationErrors.amount = t('accountancy.amountMustBeGreaterThanZero');
         }
         if (expense.quantity != null && (expense.quantity < 1 || !Number.isInteger(expense.quantity))) {

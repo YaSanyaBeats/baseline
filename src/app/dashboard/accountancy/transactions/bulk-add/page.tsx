@@ -16,6 +16,7 @@ import {
     TableBody,
     TableCell,
     TableContainer,
+    TableFooter,
     TableHead,
     TableRow,
     TextField,
@@ -54,6 +55,7 @@ import {
     compactRoomSelectSx as bulkRoomSelectSx,
     compactSourceRecipientSx as bulkSourceRecipientSx,
     compactTableSx as bulkTableSx,
+    compactLineTotalNumeric as bulkLineTotalNumeric,
     formatCompactLineTotal as formatBulkLineTotal,
 } from '@/lib/accountancyCompactTableStyles';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
@@ -1084,6 +1086,15 @@ export default function BulkAddTransactionsPage() {
 
     const bulkColCount = bulkAddTableColCount(transactionType);
 
+    const bulkRowsTotal = useMemo(
+        () =>
+            rows.reduce(
+                (total, row) => total + bulkLineTotalNumeric(row.quantity, getEffectiveCost(row)),
+                0,
+            ),
+        [rows, getEffectiveCost],
+    );
+
     if (!hasAccess) {
         return (
             <Box>
@@ -1915,6 +1926,27 @@ export default function BulkAddTransactionsPage() {
                             </Fragment>
                         ))}
                     </TableBody>
+                    <TableFooter>
+                        <TableRow>
+                            <TableCell colSpan={9} align="right" sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.6875rem' }}>
+                                    {t('common.total')}
+                                </Typography>
+                            </TableCell>
+                            <TableCell sx={{ borderTop: '1px solid', borderColor: 'divider' }}>
+                                <Typography
+                                    variant="caption"
+                                    sx={{ fontWeight: 600, fontSize: '0.6875rem', whiteSpace: 'nowrap' }}
+                                >
+                                    {formatBulkLineTotal(1, bulkRowsTotal)}
+                                </Typography>
+                            </TableCell>
+                            <TableCell
+                                colSpan={bulkColCount - 10}
+                                sx={{ borderTop: '1px solid', borderColor: 'divider' }}
+                            />
+                        </TableRow>
+                    </TableFooter>
                 </Table>
             </TableContainer>
 

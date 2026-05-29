@@ -52,6 +52,8 @@ export type AccountancyOverviewOperationRowModel = {
     source?: string;
     recipient?: string;
     autoCreated?: boolean;
+    /** Подпись брони-источника для Tooltip badge «Авто» */
+    autoCreatedBookingLabel?: string;
     bookingId?: number;
     /** Учитывать в расчёте синтетических транзакций (только расходы в группах броней) */
     includeInSynthetic?: boolean;
@@ -73,6 +75,10 @@ export type AccountancyOverviewOperationRowModel = {
         type: 'expense' | 'income';
         label: string;
     };
+    /** Комната для фильтра сводки (стабильная метка) */
+    resolvedRoomKey?: string | null;
+    /** Закрытый отчётный период — предрасчёт на странице сводки */
+    periodLocked?: boolean;
 };
 
 export type AccountancyOverviewOperationTableRowProps = {
@@ -430,7 +436,16 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     </FormControl>
                     )}
                     {!ro && row.autoCreated && (
-                        <Tooltip title={t('accountancy.autoAccounting.autoCreatedBadge')}>
+                        <Tooltip
+                            title={
+                                row.autoCreatedBookingLabel
+                                    ? t('accountancy.autoAccounting.autoCreatedFromBookingTooltip').replace(
+                                          '{{bookingLabel}}',
+                                          row.autoCreatedBookingLabel,
+                                      )
+                                    : t('accountancy.autoAccounting.autoCreatedBadge')
+                            }
+                        >
                             <Chip
                                 size="small"
                                 label={t('accountancy.autoAccounting.autoCreatedBadge')}

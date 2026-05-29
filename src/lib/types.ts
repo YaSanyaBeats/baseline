@@ -343,6 +343,8 @@ export interface CashflowRule {
 /** Признак и источник автосозданной записи (при ручном изменении сбрасывается) */
 export interface AutoCreatedMeta {
     ruleId?: string;               // ID правила из конструктора
+    /** ID брони-источника; хранится всегда при автоучёте; в bookingId — только если категория без привязки к группе */
+    bookingId?: number;
 }
 
 /** Значение поля «От кого»/«Кому»: "room:objectId:encodedRoomName", "room:from_booking", "room:current", "room:current_commission_fund", "room:current_manager_fund", "room:current_internet_provider", "cp:…", "user:…", "cf:…" */

@@ -1,6 +1,6 @@
 'use client'
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     Box,
     Button,
@@ -44,8 +44,14 @@ import {
     Expense,
     Income,
     type BookingManagementCommissionRate,
+    type UserObject,
 } from "@/lib/types";
-import { getExpenseSum, getIncomeSum, resolveAccountancyParentTransactionRef } from "@/lib/accountancyUtils";
+import {
+    getExpenseSum,
+    getIncomeSum,
+    isForbiddenZeroUnitAmountOnEdit,
+    resolveAccountancyParentTransactionRef,
+} from "@/lib/accountancyUtils";
 import {
     getClosedPeriods,
 } from "@/lib/accountancyClosedMonthsClient";
@@ -77,18 +83,23 @@ import {
     type SourceRecipientOptionValue,
 } from "@/components/accountancy/SourceRecipientSelect";
 import { AccountancyOverviewOperationTableRow, type AccountancyOverviewOperationRowModel } from "@/components/accountancy/AccountancyOverviewOperationTableRow";
+import {
+    BookingGroupContextMenu,
+    type BookingGroupContextMenuState,
+} from "@/components/accountancy/BookingGroupContextMenu";
 import { BookingGroupLineText } from "@/components/accountancy/BookingGroupLineText";
 import { AccountancyObjectTreeTable } from "@/components/accountancy/AccountancyObjectTreeTable";
 import { normalizeMongoIdString } from "@/lib/mongoId";
-import { resolveAccountancyObjectRoomRowHighlight } from "@/lib/accountancyObjectRoomRowHighlight";
+import { buildAccountancyRoomHighlightMap } from "@/lib/accountancyObjectRoomRowHighlight";
 import {
     bookingBelongsToAccountancyObjectGroup,
-    groupAccountancyObjectsByName,
     mergeRoomsForAccountancyObjectGroup,
     recordObjectMatchesAccountancySelection,
     stableAccountancyRoomLabel,
     getAccountancyObjectGroupMembers,
 } from "@/lib/accountancyObjectGroups";
+import { compactRoomSelectSx } from "@/lib/accountancyCompactTableStyles";
+import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import {
     buildBookingGroupLineModel,
     joinBookingGroupSegments,
@@ -108,6 +119,7 @@ import {
 } from "@/lib/accountancyOperationGroupCategoryOrder";
 import type { BookingCommissionResult, CommissionSchemeId, ManagementCommissionPercent } from "@/lib/commissionCalculation";
 import {
+    buildBookingTransactionIndex,
     calculateBookingManagementCommission,
     getDefaultManagementCommissionPercent,
     getNightsCount,
@@ -273,6 +285,26 @@ const opTableSourceRecipientSx = {
     '& .MuiAutocomplete-clearIndicator': { display: 'none' },
 } as const;
 
+/** Объект + комната в фильтрах сводки — как на форме добавления расхода, с возможностью сброса. */
+const overviewRoomFilterSelectSx = {
+    ...compactRoomSelectSx,
+    minWidth: 200,
+    maxWidth: 280,
+    '& .MuiOutlinedInput-root': {
+        ...compactRoomSelectSx['& .MuiOutlinedInput-root'],
+        fontSize: '0.8125rem',
+        px: 0.75,
+        pr: '28px',
+        '& fieldset': { border: '1px solid', borderColor: 'divider' },
+        '&:hover fieldset': { borderColor: 'text.primary' },
+        '&.Mui-focused fieldset': { border: '1px solid', borderColor: 'primary.main' },
+    },
+    '& .MuiOutlinedInput-input, & .MuiAutocomplete-input': {
+        ...compactRoomSelectSx['& .MuiOutlinedInput-input, & .MuiAutocomplete-input'],
+        fontSize: '0.8125rem',
+    },
+} as const;
+
 function parseOverviewObjectId(v: unknown): number | 'all' {
     if (v === 'all' || v === null || v === undefined || v === '') return 'all';
     const n = Number(v);
@@ -401,6 +433,24 @@ function buildBookingGroupLine(
         label: joinBookingGroupSegments(bookingGroupLine.segments),
         bookingGroupLine,
     };
+}
+
+function resolveAutoCreatedSourceBookingId(record: Expense | Income): number | null {
+    if (!record.autoCreated) return null;
+    const fromMeta = record.autoCreated.bookingId;
+    if (typeof fromMeta === 'number') return normalizeUnitOrRoomId(fromMeta);
+    return normalizeUnitOrRoomId(record.bookingId);
+}
+
+function resolveAutoCreatedBookingLabel(
+    record: Expense | Income,
+    bookingsForLabels: Booking[],
+): string | undefined {
+    if (!record.autoCreated) return undefined;
+    const bid = resolveAutoCreatedSourceBookingId(record);
+    if (bid == null) return undefined;
+    const label = buildBookingGroupLine(bid, bookingsForLabels).label;
+    return label || undefined;
 }
 
 type OperationRow = AccountancyOverviewOperationRowModel;
@@ -550,6 +600,9 @@ export default function Page() {
     const [collapsedOperationGroups, setCollapsedOperationGroups] = useState<Set<string>>(
         () => new Set(),
     );
+    const [bookingGroupMenu, setBookingGroupMenu] = useState<BookingGroupContextMenuState | null>(
+        null,
+    );
     const [pendingDrafts, setPendingDrafts] = useState<PendingOperationDraft[]>([]);
     const [pendingDraftSavingId, setPendingDraftSavingId] = useState<string | null>(null);
     const [closedPeriodsData, setClosedPeriodsData] = useState<ClosedPeriodsData>({
@@ -682,6 +735,8 @@ export default function Page() {
                         [
                             ...exp.map((e) => e.bookingId).filter((id): id is number => typeof id === 'number'),
                             ...inc.map((i) => i.bookingId).filter((id): id is number => typeof id === 'number'),
+                            ...exp.map((e) => resolveAutoCreatedSourceBookingId(e)).filter((id): id is number => id != null),
+                            ...inc.map((i) => resolveAutoCreatedSourceBookingId(i)).filter((id): id is number => id != null),
                         ],
                     ),
                 );
@@ -745,6 +800,11 @@ export default function Page() {
         return null;
     }, [selectedMonth, reportMonthsInFilter]);
 
+    const closedPeriodsCache = useMemo(
+        () => buildClosedPeriodsCache(closedPeriodsData),
+        [closedPeriodsData],
+    );
+
     const filteredByReportPeriod = useMemo(
         () => ({
             expenses: expenses.filter((e) =>
@@ -760,11 +820,6 @@ export default function Page() {
     const selectedObject = selectedObjectId === 'all'
         ? null
         : objects.find((o) => o.id === selectedObjectId);
-
-    const accountancyObjectGroups = useMemo(
-        () => groupAccountancyObjectsByName(objects),
-        [objects],
-    );
 
     const selectedObjectGroupMembers = useMemo(() => {
         if (!selectedObject) return [];
@@ -815,6 +870,19 @@ export default function Page() {
         };
     }, [hasAccess, selectedMonth, objects, effectiveDateRange.from, effectiveDateRange.to]);
 
+    const bookingsById = useMemo(() => {
+        const map = new Map<number, Booking>();
+        for (const b of bookings) {
+            const id = normalizeUnitOrRoomId(b.id);
+            if (id != null) map.set(id, b);
+        }
+        for (const b of allMonthBookingsInPeriod) {
+            const id = normalizeUnitOrRoomId(b.id);
+            if (id != null) map.set(id, b);
+        }
+        return map;
+    }, [bookings, allMonthBookingsInPeriod]);
+
     const roomsForSelectedObject = useMemo(
         () =>
             selectedObjectGroupMembers.length > 0
@@ -857,7 +925,7 @@ export default function Page() {
         roomsForSelectedObject,
     ]);
 
-    const filteredRoomStats = useMemo(() => {
+    const selectedObjectRoomStatsRows = useMemo(() => {
         if (!selectedObject) return [];
 
         const bookingBelongsToObject = (booking: Booking) =>
@@ -885,7 +953,7 @@ export default function Page() {
 
             const bid = normalizeUnitOrRoomId(bookingId);
             if (bid != null) {
-                const booking = bookings.find((b) => normalizeUnitOrRoomId(b.id) === bid);
+                const booking = bookingsById.get(bid);
                 if (booking && bookingBelongsToObject(booking)) {
                     const uid = normalizeUnitOrRoomId(booking.unitId);
                     if (uid != null) {
@@ -991,9 +1059,7 @@ export default function Page() {
         });
 
         const orphanOpening = openingByRoom.get(ACCOUNTANCY_UNALLOCATED_ROOM_KEY) ?? 0;
-        const showUnallocatedRow =
-            selectedRoomId === 'all' &&
-            (orphanExp > 0 || orphanInc > 0 || orphanOpening !== 0);
+        const showUnallocatedRow = orphanExp > 0 || orphanInc > 0 || orphanOpening !== 0;
 
         const rows: Array<{
             roomKey: string;
@@ -1014,14 +1080,13 @@ export default function Page() {
               ]
             : roomRows;
 
-        return selectedRoomId === 'all' ? rows : rows.filter((row) => row.roomKey === selectedRoomId);
+        return rows;
     }, [
         selectedObject,
         selectedObjectGroupMembers,
         roomsForSelectedObject,
         filteredByReportPeriod,
-        bookings,
-        selectedRoomId,
+        bookingsById,
         t,
         objects,
         expenses,
@@ -1030,34 +1095,28 @@ export default function Page() {
         categoryNameById,
     ]);
 
-    const getAccountancyObjectRoomRowHighlight = useMemo(() => {
-        return (objectId: number, roomName: string) => {
-            const objectRow = objects.find((o) => o.id === objectId);
-            if (!objectRow) return 'default' as const;
-            const monthForObject = allMonthBookingsInPeriod.filter((b) => {
-                const bp = b.propertyId;
-                if (bp === undefined || bp === null) return true;
-                return bp === objectRow.propertyId || bp === objectRow.id;
-            });
-            return resolveAccountancyObjectRoomRowHighlight({
-                objectRow,
-                roomName,
+    const filteredRoomStats = useMemo(() => {
+        if (selectedRoomId === 'all') return selectedObjectRoomStatsRows;
+        return selectedObjectRoomStatsRows.filter((row) => row.roomKey === selectedRoomId);
+    }, [selectedObjectRoomStatsRows, selectedRoomId]);
+
+    const roomHighlightByKey = useMemo(
+        () =>
+            buildAccountancyRoomHighlightMap({
                 allObjects: objects,
                 selectedMonth,
-                bookings,
-                monthBookingsInPeriod: monthForObject,
-                expenses: filteredByReportPeriod.expenses,
-                incomes: filteredByReportPeriod.incomes,
-            });
-        };
-    }, [
-        objects,
-        selectedMonth,
-        bookings,
-        allMonthBookingsInPeriod,
-        filteredByReportPeriod.expenses,
-        filteredByReportPeriod.incomes,
-    ]);
+                bookings: Array.from(bookingsById.values()),
+                expenses,
+                incomes,
+                categoryNameById,
+            }),
+        [objects, selectedMonth, bookingsById, expenses, incomes, categoryNameById],
+    );
+
+    const bookingTransactionIndex = useMemo(
+        () => buildBookingTransactionIndex(incomes, expenses),
+        [incomes, expenses],
+    );
 
     // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
     const reportMonthOptions = useMemo(() => {
@@ -1110,7 +1169,12 @@ export default function Page() {
         [objects, counterparties, usersWithCashflow, cashflows, t],
     );
 
-    const filteredOperations = useMemo((): OperationRow[] => {
+    const bookingsForAutoLabels = useMemo(
+        () => Array.from(bookingsById.values()),
+        [bookingsById],
+    );
+
+    const objectScopedOperationRows = useMemo((): OperationRow[] => {
         if (selectedObjectId === 'all' || !selectedObject) return [];
 
         const bookingBelongsToObject = (booking: Booking) =>
@@ -1131,7 +1195,7 @@ export default function Page() {
 
             const bid = normalizeUnitOrRoomId(bookingId);
             if (bid != null) {
-                const booking = bookings.find((b) => normalizeUnitOrRoomId(b.id) === bid);
+                const booking = bookingsById.get(bid);
                 if (booking && bookingBelongsToObject(booking)) {
                     const uid = normalizeUnitOrRoomId(booking.unitId);
                     if (uid != null) {
@@ -1146,15 +1210,6 @@ export default function Page() {
 
             if (ridExplicit) return ridExplicit;
             return null;
-        };
-
-        const matchRoom = (
-            recordObjectId: number,
-            roomName: string | null | undefined,
-            bookingId?: number,
-        ) => {
-            if (selectedRoomId === 'all') return true;
-            return resolveRecordRoomName(recordObjectId, roomName, bookingId) === selectedRoomId;
         };
 
         const rows: OperationRow[] = [];
@@ -1179,11 +1234,12 @@ export default function Page() {
             .filter(
                 (e) =>
                     recordObjectMatchesAccountancySelection(e.objectId, selectedObject, objects) &&
-                    matchRoom(e.objectId, e.roomName ?? null, e.bookingId) &&
                     recordMatchesReportPeriod(e.date, e.reportMonth, reportMonthsInFilter, isDateInRange),
             )
             .forEach((e) => {
                 const bid = normalizeUnitOrRoomId(e.bookingId);
+                const resolvedRoomKey = resolveRecordRoomName(e.objectId, e.roomName ?? null, e.bookingId);
+                const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
                 const parentTransaction = resolveAccountancyParentTransactionRef(
                     e,
                     transactionById,
@@ -1206,8 +1262,14 @@ export default function Page() {
                     source: e.source,
                     recipient: e.recipient,
                     autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
+                    autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(e, bookingsForAutoLabels),
                     includeInSynthetic: e.includeInSynthetic,
                     commissionPercent: e.commissionPercent ?? 30,
+                    resolvedRoomKey,
+                    periodLocked:
+                        lm != null
+                            ? isLedgerPeriodClosed(closedPeriodsCache, lm, e.objectId, e.roomName)
+                            : false,
                     ...(parentTransaction ? { parentTransaction } : {}),
                     ...(bid != null ? { bookingId: bid } : {}),
                 });
@@ -1217,11 +1279,12 @@ export default function Page() {
             .filter(
                 (i) =>
                     recordObjectMatchesAccountancySelection(i.objectId, selectedObject, objects) &&
-                    matchRoom(i.objectId, i.roomName ?? null, i.bookingId) &&
                     recordMatchesReportPeriod(i.date, i.reportMonth, reportMonthsInFilter, isDateInRange),
             )
             .forEach((i) => {
                 const bidInc = normalizeUnitOrRoomId(i.bookingId);
+                const resolvedRoomKey = resolveRecordRoomName(i.objectId, i.roomName ?? null, i.bookingId);
+                const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
                 const parentTransaction = resolveAccountancyParentTransactionRef(
                     i,
                     transactionById,
@@ -1244,8 +1307,14 @@ export default function Page() {
                     source: i.source,
                     recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
+                    autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(i, bookingsForAutoLabels),
                     includeInSynthetic: i.includeInSynthetic,
                     commissionPercent: i.commissionPercent ?? 30,
+                    resolvedRoomKey,
+                    periodLocked:
+                        lm != null
+                            ? isLedgerPeriodClosed(closedPeriodsCache, lm, i.objectId, i.roomName)
+                            : false,
                     ...(parentTransaction ? { parentTransaction } : {}),
                     ...(bidInc != null ? { bookingId: bidInc } : {}),
                 });
@@ -1257,17 +1326,23 @@ export default function Page() {
         selectedObjectId,
         selectedObject,
         selectedObjectGroupMembers,
-        selectedRoomId,
         expenses,
         incomes,
-        bookings,
+        bookingsById,
+        bookingsForAutoLabels,
         isDateInRange,
         reportMonthsInFilter,
         objects,
         roomsForSelectedObject,
         t,
         categoryNameById,
+        closedPeriodsCache,
     ]);
+
+    const filteredOperations = useMemo(() => {
+        if (selectedRoomId === 'all') return objectScopedOperationRows;
+        return objectScopedOperationRows.filter((row) => row.resolvedRoomKey === selectedRoomId);
+    }, [objectScopedOperationRows, selectedRoomId]);
 
     const bookingsMergedForLabels = useMemo(() => {
         const byId = new Map<number, Booking>();
@@ -1323,17 +1398,17 @@ export default function Page() {
         const map = new Map<number, BookingCommissionResult>();
         if (!selectedObject || !commissionCalculationMonthKey) return map;
         const bookingPropertyId = selectedObject.propertyId ?? selectedObject.id;
-        const roomFilter: string | 'all' = selectedRoomId === 'all' ? 'all' : selectedRoomId;
         const inputs = prepareCommissionData(
             bookingsMergedForLabels,
             incomes,
             expenses,
             categoriesExpense,
             selectedObject.id,
-            roomFilter,
+            'all',
             commissionCalculationMonthKey,
             bookingPropertyId,
             roomsForSelectedObject,
+            bookingTransactionIndex,
         );
         const getSchemeForBooking = (booking: Booking): CommissionSchemeId => {
             const room = roomsForSelectedObject.find((r) => r.id === booking.unitId);
@@ -1355,9 +1430,9 @@ export default function Page() {
         incomes,
         expenses,
         categoriesExpense,
-        selectedRoomId,
         roomsForSelectedObject,
         commissionRatesByBookingId,
+        bookingTransactionIndex,
     ]);
 
     const operationGroups = useMemo((): OperationListGroup[] => {
@@ -1649,11 +1724,6 @@ export default function Page() {
         return reportMonthOptions[0]?.value ?? '';
     }, [commissionCalculationMonthKey, selectedMonth, reportMonthOptions]);
 
-    const closedPeriodsCache = useMemo(
-        () => buildClosedPeriodsCache(closedPeriodsData),
-        [closedPeriodsData],
-    );
-
     const isSelectedMonthClosed = useMemo(() => {
         const m = (selectedMonth ?? '').trim();
         if (m === '' || !selectedObject) return false;
@@ -1671,29 +1741,8 @@ export default function Page() {
     }, [selectedMonth, closedPeriodsCache, selectedObject, selectedRoomId, roomsForSelectedObject]);
 
     const isOperationRowPeriodLocked = useCallback(
-        (row: OperationRow) => {
-            const lm = ledgerMonthFromRecord(row.date, row.reportMonth);
-            if (lm == null) return false;
-
-            let objectId: number | undefined;
-            let roomName: string | null | undefined;
-            if (row.isPendingDraft) {
-                if (!selectedObject) return false;
-                objectId = selectedObject.id;
-                roomName = selectedRoomId !== 'all' ? selectedRoomId : null;
-            } else if (row.type === 'expense') {
-                const record = expenses.find((e) => normalizeMongoIdString(e._id) === row.entityId);
-                objectId = record?.objectId;
-                roomName = record?.roomName;
-            } else {
-                const record = incomes.find((i) => normalizeMongoIdString(i._id) === row.entityId);
-                objectId = record?.objectId;
-                roomName = record?.roomName;
-            }
-
-            return isLedgerPeriodClosed(closedPeriodsCache, lm, objectId, roomName);
-        },
-        [closedPeriodsCache, expenses, incomes, selectedObject, selectedRoomId],
+        (row: OperationRow) => row.periodLocked === true,
+        [],
     );
 
     const quickAddCategoryContext = useMemo(
@@ -2004,6 +2053,164 @@ export default function Page() {
             setReportMonthUpdatingId(null);
         }
     };
+
+    const sourcePeriodLabel = useMemo(() => {
+        const m = (selectedMonth ?? '').trim();
+        if (/^\d{4}-\d{2}$/.test(m)) {
+            return reportMonthOptions.find((o) => o.value === m)?.label ?? m;
+        }
+        if (reportMonthsInFilter != null && reportMonthsInFilter.size > 0) {
+            return [...reportMonthsInFilter]
+                .sort()
+                .map((v) => reportMonthOptions.find((o) => o.value === v)?.label ?? v)
+                .join(', ');
+        }
+        return '—';
+    }, [selectedMonth, reportMonthsInFilter, reportMonthOptions]);
+
+    const resolveOperationRowLedgerContext = useCallback(
+        (row: OperationRow) => {
+            if (row.type === 'expense') {
+                const record = expenses.find((e) => normalizeMongoIdString(e._id) === row.entityId);
+                return { objectId: record?.objectId, roomName: record?.roomName };
+            }
+            const record = incomes.find((i) => normalizeMongoIdString(i._id) === row.entityId);
+            return { objectId: record?.objectId, roomName: record?.roomName };
+        },
+        [expenses, incomes],
+    );
+
+    const isTargetMonthDisabledForBookingMove = useCallback(
+        (targetMonth: string) => {
+            if (!bookingGroupMenu) return true;
+            const movable = bookingGroupMenu.rows.filter(
+                (r) => !r.readOnlySynthetic && !r.isPendingDraft && !!r.entityId,
+            );
+            if (movable.length === 0) return true;
+            return movable.every((row) => {
+                const { objectId, roomName } = resolveOperationRowLedgerContext(row);
+                return isLedgerPeriodClosed(closedPeriodsCache, targetMonth, objectId, roomName);
+            });
+        },
+        [bookingGroupMenu, closedPeriodsCache, resolveOperationRowLedgerContext],
+    );
+
+    const handleMoveBookingTransactions = useCallback(
+        async (rows: OperationRow[], targetMonth: string) => {
+            let ok = 0;
+            let fail = 0;
+            for (const row of rows) {
+                if (isOperationRowPeriodLocked(row)) {
+                    fail++;
+                    continue;
+                }
+                const { objectId, roomName } = resolveOperationRowLedgerContext(row);
+                if (isLedgerPeriodClosed(closedPeriodsCache, targetMonth, objectId, roomName)) {
+                    fail++;
+                    continue;
+                }
+                if (!row.entityId) {
+                    fail++;
+                    continue;
+                }
+                try {
+                    if (row.type === 'expense') {
+                        const expense = expenses.find((e) => e._id === row.entityId);
+                        if (!expense) {
+                            fail++;
+                            continue;
+                        }
+                        const payload: Expense = {
+                            ...expense,
+                            date: expense.date
+                                ? typeof expense.date === 'string'
+                                    ? new Date(expense.date)
+                                    : expense.date
+                                : new Date(),
+                            reportMonth: targetMonth || undefined,
+                        };
+                        const res = await updateExpense(payload);
+                        if (res.success) {
+                            setExpenses((prev) =>
+                                prev.map((e) =>
+                                    e._id === row.entityId
+                                        ? { ...e, reportMonth: targetMonth || undefined }
+                                        : e,
+                                ),
+                            );
+                            ok++;
+                        } else {
+                            fail++;
+                        }
+                    } else {
+                        const income = incomes.find((i) => i._id === row.entityId);
+                        if (!income) {
+                            fail++;
+                            continue;
+                        }
+                        const payload: Income = {
+                            ...income,
+                            date: income.date
+                                ? typeof income.date === 'string'
+                                    ? new Date(income.date)
+                                    : income.date
+                                : new Date(),
+                            reportMonth: targetMonth || undefined,
+                        };
+                        const res = await updateIncome(payload);
+                        if (res.success) {
+                            setIncomes((prev) =>
+                                prev.map((i) =>
+                                    i._id === row.entityId
+                                        ? { ...i, reportMonth: targetMonth || undefined }
+                                        : i,
+                                ),
+                            );
+                            ok++;
+                        } else {
+                            fail++;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error moving booking transactions:', error);
+                    fail++;
+                }
+            }
+            if (ok === 0 && fail === 0) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.moveBookingTransactionsNothing'),
+                    severity: 'info',
+                });
+            } else if (fail === 0) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.moveBookingTransactionsSuccess').replace(
+                        '{{count}}',
+                        String(ok),
+                    ),
+                    severity: 'success',
+                });
+            } else {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.moveBookingTransactionsPartial')
+                        .replace('{{ok}}', String(ok))
+                        .replace('{{fail}}', String(fail)),
+                    severity: ok > 0 ? 'warning' : 'error',
+                });
+            }
+        },
+        [
+            expenses,
+            incomes,
+            closedPeriodsCache,
+            isOperationRowPeriodLocked,
+            resolveOperationRowLedgerContext,
+            setSnackbar,
+            t,
+        ],
+    );
 
     const handleQuantityChange = async (row: OperationRow, newQuantity: number) => {
         if (row.readOnlySynthetic) return;
@@ -2412,7 +2619,13 @@ export default function Page() {
             });
             return;
         }
-        if (parsed <= 0) {
+        const q = row.quantity || 1;
+        const previousUnitAmount =
+            row.type === 'expense'
+                ? expenses.find((e) => e._id === row.entityId)?.amount
+                : incomes.find((i) => i._id === row.entityId)?.amount;
+        const newUnitAmount = parsed / q;
+        if (isForbiddenZeroUnitAmountOnEdit(previousUnitAmount, newUnitAmount)) {
             setSnackbar({
                 open: true,
                 message: t('accountancy.amountMustBeGreaterThanZero'),
@@ -2420,15 +2633,12 @@ export default function Page() {
             });
             return;
         }
-        const q = row.quantity || 1;
         const currentAbs = Math.abs(row.amount);
         if (Math.abs(parsed - currentAbs) < 1e-6) {
             setAmountEditingId(null);
             setAmountDraft('');
             return;
         }
-        const newUnitAmount = parsed / q;
-
         setAmountUpdatingId(row.id);
         try {
             if (row.type === 'expense') {
@@ -2711,57 +2921,134 @@ export default function Page() {
         return opts;
     }, []);
 
-    const sharedOperationRowProps = {
-        t,
-        opTableSelectFormSx,
-        opTableCatSelectFormSx,
-        opTableQtySelectFormSx,
-        opTableSelectSx,
-        opTableInlineSelectSx,
-        opTableSourceRecipientSx,
-        OP_TABLE_COMMENT_COL_WIDTH_PX,
-        handleStatusToggle,
-        statusUpdatingId,
-        inlinePatchUpdatingId,
-        handleReportMonthChange,
-        reportMonthUpdatingId,
-        reportMonthOptions,
-        categoryItemsExpense: categorySelectItemsExpense,
-        categoryItemsIncome: categorySelectItemsIncome,
-        sourceRecipientOptions: sourceRecipientOptionsTable,
-        recipientRecipientOptions: recipientRecipientOptionsTable,
-        handleCategoryChange,
-        quantityUpdatingId,
-        commentDraftByRowId,
-        setCommentDraftByRowId,
-        handleCommentCommit,
-        quantityOptions,
-        handleQuantityChange,
-        amountEditingId,
-        amountDraft,
-        setAmountDraft,
-        setAmountEditingId,
-        amountEditEscapeRef,
-        handleOperationAmountCommit,
-        amountUpdatingId,
-        formatAmount,
-        handleSourceChange,
-        handleRecipientChange,
-        counterparties,
-        usersWithCashflow,
-        cashflows,
-        operationDeletingId,
-        handleOperationDeleteClick,
-        commissionPercentUpdatingBookingId,
-        handleSyntheticCommissionPercentChange,
-        pendingDraftSavingId,
-        onPendingDraftSave: handlePendingDraftSave,
-        onPendingDraftCancel: handlePendingDraftCancel,
-        includeInSyntheticUpdatingId,
-        handleIncludeInSyntheticChange,
-        commissionPercentUpdatingId,
-        handleCommissionPercentChange,
-    };
+    const sharedOperationRowProps = useMemo(
+        () => ({
+            t,
+            opTableSelectFormSx,
+            opTableCatSelectFormSx,
+            opTableQtySelectFormSx,
+            opTableSelectSx,
+            opTableInlineSelectSx,
+            opTableSourceRecipientSx,
+            OP_TABLE_COMMENT_COL_WIDTH_PX,
+            handleStatusToggle,
+            statusUpdatingId,
+            inlinePatchUpdatingId,
+            handleReportMonthChange,
+            reportMonthUpdatingId,
+            reportMonthOptions,
+            categoryItemsExpense: categorySelectItemsExpense,
+            categoryItemsIncome: categorySelectItemsIncome,
+            sourceRecipientOptions: sourceRecipientOptionsTable,
+            recipientRecipientOptions: recipientRecipientOptionsTable,
+            handleCategoryChange,
+            quantityUpdatingId,
+            commentDraftByRowId,
+            setCommentDraftByRowId,
+            handleCommentCommit,
+            quantityOptions,
+            handleQuantityChange,
+            amountEditingId,
+            amountDraft,
+            setAmountDraft,
+            setAmountEditingId,
+            amountEditEscapeRef,
+            handleOperationAmountCommit,
+            amountUpdatingId,
+            formatAmount,
+            handleSourceChange,
+            handleRecipientChange,
+            counterparties,
+            usersWithCashflow,
+            cashflows,
+            operationDeletingId,
+            handleOperationDeleteClick,
+            commissionPercentUpdatingBookingId,
+            handleSyntheticCommissionPercentChange,
+            pendingDraftSavingId,
+            onPendingDraftSave: handlePendingDraftSave,
+            onPendingDraftCancel: handlePendingDraftCancel,
+            includeInSyntheticUpdatingId,
+            handleIncludeInSyntheticChange,
+            commissionPercentUpdatingId,
+            handleCommissionPercentChange,
+        }),
+        [
+            t,
+            handleStatusToggle,
+            statusUpdatingId,
+            inlinePatchUpdatingId,
+            handleReportMonthChange,
+            reportMonthUpdatingId,
+            reportMonthOptions,
+            categorySelectItemsExpense,
+            categorySelectItemsIncome,
+            sourceRecipientOptionsTable,
+            recipientRecipientOptionsTable,
+            handleCategoryChange,
+            quantityUpdatingId,
+            commentDraftByRowId,
+            handleCommentCommit,
+            quantityOptions,
+            handleQuantityChange,
+            amountEditingId,
+            amountDraft,
+            handleOperationAmountCommit,
+            amountUpdatingId,
+            handleSourceChange,
+            handleRecipientChange,
+            counterparties,
+            usersWithCashflow,
+            cashflows,
+            operationDeletingId,
+            handleOperationDeleteClick,
+            commissionPercentUpdatingBookingId,
+            handleSyntheticCommissionPercentChange,
+            pendingDraftSavingId,
+            handlePendingDraftSave,
+            handlePendingDraftCancel,
+            includeInSyntheticUpdatingId,
+            handleIncludeInSyntheticChange,
+            commissionPercentUpdatingId,
+            handleCommissionPercentChange,
+        ],
+    );
+
+    const handleSelectAccountancyObject = useCallback((objectId: number) => {
+        startTransition(() => {
+            const members = getAccountancyObjectGroupMembers(objects, objectId);
+            const primaryId =
+                members.length > 0
+                    ? members.reduce((min, m) => (m.id < min.id ? m : min)).id
+                    : objectId;
+            setSelectedObjectId(primaryId);
+            setSelectedRoomId('all');
+        });
+    }, [objects]);
+
+    const handleSelectAccountancyRoom = useCallback((objectId: number, roomName: string) => {
+        startTransition(() => {
+            setSelectedObjectId(objectId);
+            setSelectedRoomId(roomName);
+        });
+    }, []);
+
+    const selectedRoomFilterValue = useMemo((): UserObject[] => {
+        if (selectedObjectId === 'all' || selectedRoomId === 'all') return [];
+        return [{ id: selectedObjectId, rooms: [selectedRoomId] }];
+    }, [selectedObjectId, selectedRoomId]);
+
+    const handleRoomFilterChange = useCallback((value: UserObject[]) => {
+        startTransition(() => {
+            if (!value.length || !value[0].rooms.length) {
+                setSelectedObjectId('all');
+                setSelectedRoomId('all');
+                return;
+            }
+            setSelectedObjectId(value[0].id);
+            setSelectedRoomId(String(value[0].rooms[0]));
+        });
+    }, []);
 
     if (!hasAccess) {
         return (
@@ -2886,20 +3173,9 @@ export default function Page() {
                         objects={objects}
                         selectedObjectId={selectedObjectId}
                         selectedRoomId={selectedRoomId}
-                        onSelectObject={(objectId) => {
-                            const members = getAccountancyObjectGroupMembers(objects, objectId);
-                            const primaryId =
-                                members.length > 0
-                                    ? members.reduce((min, m) => (m.id < min.id ? m : min)).id
-                                    : objectId;
-                            setSelectedObjectId(primaryId);
-                            setSelectedRoomId('all');
-                        }}
-                        onSelectRoom={(objectId, roomName) => {
-                            setSelectedObjectId(objectId);
-                            setSelectedRoomId(roomName);
-                        }}
-                        getRoomRowHighlight={getAccountancyObjectRoomRowHighlight}
+                        onSelectObject={handleSelectAccountancyObject}
+                        onSelectRoom={handleSelectAccountancyRoom}
+                        roomHighlightByKey={roomHighlightByKey}
                     />
                 </Paper>
 
@@ -2978,56 +3254,16 @@ export default function Page() {
                             size="small"
                             sx={{ maxWidth: 200 }}
                         />
-                        <FormControl sx={{ minWidth: 180 }} size="small">
-                            <InputLabel>{t('common.object')}</InputLabel>
-                            <Select
-                                label={t('common.object')}
-                                value={
-                                    selectedObjectId === 'all'
-                                        ? ''
-                                        : String(
-                                              accountancyObjectGroups.find((g) =>
-                                                  g.members.some((m) => m.id === selectedObjectId),
-                                              )?.primaryObjectId ?? selectedObjectId,
-                                          )
-                                }
-                                onChange={(e) => {
-                                    const value = e.target.value;
-                                    setSelectedObjectId(value ? Number(value) : 'all');
-                                    setSelectedRoomId('all');
-                                }}
-                            >
-                                <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                {accountancyObjectGroups.map((group) => (
-                                    <MenuItem key={group.displayName} value={String(group.primaryObjectId)}>
-                                        {group.displayName}
-                                    </MenuItem>
-                                ))}
-                            </Select>
-                        </FormControl>
-                        {selectedObject && (
-                            <FormControl sx={{ minWidth: 180 }}>
-                                <InputLabel>{t('common.room')}</InputLabel>
-                                <Select
-                                    label={t('common.room')}
-                                    value={selectedRoomId === 'all' ? '' : selectedRoomId}
-                                    onChange={(e) => {
-                                        const value = e.target.value;
-                                        setSelectedRoomId(value ? String(value) : 'all');
-                                    }}
-                                >
-                                    <MenuItem value="">{t('accountancy.all')}</MenuItem>
-                                    {roomsForSelectedObject.map((room) => (
-                                        <MenuItem
-                                            key={room.id}
-                                            value={stableAccountancyRoomLabel(room)}
-                                        >
-                                            {room.name || `Room ${room.id}`}
-                                        </MenuItem>
-                                    ))}
-                                </Select>
-                            </FormControl>
-                        )}
+                        <Box sx={{ minWidth: 200, maxWidth: 280 }}>
+                            <RoomsMultiSelect
+                                value={selectedRoomFilterValue}
+                                onChange={handleRoomFilterChange}
+                                label={t('accountancy.object')}
+                                multiple={false}
+                                hideLabel
+                                sx={overviewRoomFilterSelectSx}
+                            />
+                        </Box>
                         {selectedMonth && isSelectedMonthClosed ? (
                             <Box
                                 sx={{
@@ -3084,7 +3320,10 @@ export default function Page() {
                                                 onClick={
                                                     isUnallocatedRow
                                                         ? undefined
-                                                        : () => setSelectedRoomId(row.roomKey)
+                                                        : () =>
+                                                              startTransition(() =>
+                                                                  setSelectedRoomId(row.roomKey),
+                                                              )
                                                 }
                                                 sx={{
                                                     cursor: isUnallocatedRow ? 'default' : 'pointer',
@@ -3187,6 +3426,21 @@ export default function Page() {
                                                         <TableRow
                                                             hover={!groupIsEmpty}
                                                             onClick={() => toggleOperationGroupCollapsed(group.key)}
+                                                            onContextMenu={
+                                                                group.key.startsWith('b-')
+                                                                    ? (e) => {
+                                                                          e.preventDefault();
+                                                                          e.stopPropagation();
+                                                                          setBookingGroupMenu({
+                                                                              mouseX: e.clientX,
+                                                                              mouseY: e.clientY,
+                                                                              bookingId: Number(group.key.slice(2)),
+                                                                              groupLabel: group.label,
+                                                                              rows: group.rows,
+                                                                          });
+                                                                      }
+                                                                    : undefined
+                                                            }
                                                             sx={{
                                                                 cursor: 'pointer',
                                                                 ...(groupIsEmpty && {
@@ -3387,6 +3641,34 @@ export default function Page() {
                     )}
                 </Paper>
             </Stack>
+
+            <BookingGroupContextMenu
+                menuState={bookingGroupMenu}
+                onCloseMenu={() => setBookingGroupMenu(null)}
+                sourcePeriodLabel={sourcePeriodLabel}
+                reportMonthOptions={reportMonthOptions}
+                isTargetMonthDisabled={isTargetMonthDisabledForBookingMove}
+                isMoveDisabled={
+                    bookingGroupMenu == null
+                        ? true
+                        : isSelectedMonthClosed ||
+                          bookingGroupMenu.rows.filter(
+                              (r) =>
+                                  !r.readOnlySynthetic &&
+                                  !r.isPendingDraft &&
+                                  !!r.entityId,
+                          ).length === 0 ||
+                          bookingGroupMenu.rows
+                              .filter(
+                                  (r) =>
+                                      !r.readOnlySynthetic &&
+                                      !r.isPendingDraft &&
+                                      !!r.entityId,
+                              )
+                              .every((row) => isOperationRowPeriodLocked(row))
+                }
+                onMove={handleMoveBookingTransactions}
+            />
 
             <Dialog open={deleteDialogOpen} onClose={handleOperationDeleteCancel}>
                 <DialogTitle>

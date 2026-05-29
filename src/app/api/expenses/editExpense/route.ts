@@ -8,6 +8,7 @@ import { logAuditAction } from '@/lib/auditLog';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
+import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
 
 function normalizeCommissionPercent(value: unknown): 15 | 20 | 25 | 30 {
     const num = Number(value);
@@ -57,13 +58,6 @@ export async function POST(request: NextRequest) {
         expenseData.category = categoryNorm.data.category;
         expenseData.categoryId = categoryNorm.data.categoryId ?? undefined;
 
-        if (expenseData.amount <= 0) {
-            return NextResponse.json(
-                { success: false, message: 'Стоимость должна быть больше 0' },
-                { status: 400 },
-            );
-        }
-
         const quantity = expenseData.quantity != null && Number.isInteger(expenseData.quantity) && expenseData.quantity >= 1
             ? expenseData.quantity
             : 1;
@@ -91,6 +85,13 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(
                 { success: false, message: 'Расход не найден' },
                 { status: 404 },
+            );
+        }
+
+        if (isForbiddenZeroUnitAmountOnEdit(existingExpense.amount, expenseData.amount)) {
+            return NextResponse.json(
+                { success: false, message: 'Стоимость должна быть больше 0' },
+                { status: 400 },
             );
         }
 

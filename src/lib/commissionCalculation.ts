@@ -501,6 +501,53 @@ function buildCategoryDivisibilityMap(categories: AccountancyCategory[]): Catego
  * @param propertyIdForBookings — id property в Beds24 для фильтра броней; если не задан, используется accountingObjectId (legacy).
  * @param roomsForFilter — строки roomTypes объекта: сопоставляют roomFilter с текущим unitId брони.
  */
+export type BookingTransactionIndex = {
+    incomesByBookingId: Map<number, Income[]>;
+    expensesByBookingId: Map<number, Expense[]>;
+};
+
+export function buildBookingTransactionIndex(
+    incomes: Income[],
+    expenses: Expense[],
+): BookingTransactionIndex {
+    const incomesByBookingId = new Map<number, Income[]>();
+    const expensesByBookingId = new Map<number, Expense[]>();
+
+    const push = <T extends { bookingId?: unknown }>(
+        map: Map<number, T[]>,
+        record: T,
+    ) => {
+        const bid =
+            typeof record.bookingId === 'number'
+                ? record.bookingId
+                : record.bookingId != null && record.bookingId !== ''
+                  ? Number(record.bookingId)
+                  : NaN;
+        if (!Number.isFinite(bid)) return;
+        const list = map.get(bid);
+        if (list) list.push(record);
+        else map.set(bid, [record]);
+    };
+
+    for (const i of incomes) push(incomesByBookingId, i);
+    for (const e of expenses) push(expensesByBookingId, e);
+
+    return { incomesByBookingId, expensesByBookingId };
+}
+
+function filterBookingTransactions<T extends { objectId: number; date: Date | string; reportMonth?: string | null }>(
+    list: T[] | undefined,
+    accountingObjectId: number,
+    monthKey: string,
+): T[] {
+    if (!list?.length) return [];
+    return list.filter(
+        (r) =>
+            r.objectId === accountingObjectId &&
+            recordInReportMonth(r.date, r.reportMonth, monthKey),
+    );
+}
+
 export function prepareCommissionData(
     bookings: Booking[],
     incomes: Income[],
@@ -510,7 +557,8 @@ export function prepareCommissionData(
     roomFilter: string | 'all',
     monthKey: string,
     propertyIdForBookings?: number,
-    roomsForFilter?: { id: number; name?: string }[]
+    roomsForFilter?: { id: number; name?: string }[],
+    transactionIndex?: BookingTransactionIndex,
 ): BookingCommissionInput[] {
     const categoryDivisibilityMap = buildCategoryDivisibilityMap(
         categories.filter((c) => c.type === 'expense')
@@ -530,19 +578,35 @@ export function prepareCommissionData(
         return uid === row.id;
     });
 
+    const bookingIdNum = (booking: Booking) =>
+        typeof booking.id === 'number' ? booking.id : Number(booking.id);
+
     return filteredBookings.map((booking) => {
-        const bookingIncomes = incomes.filter(
-            (i) =>
-                i.bookingId === booking.id &&
-                i.objectId === accountingObjectId &&
-                recordInReportMonth(i.date, i.reportMonth, monthKey)
-        );
-        const bookingExpenses = expenses.filter(
-            (e) =>
-                e.bookingId === booking.id &&
-                e.objectId === accountingObjectId &&
-                recordInReportMonth(e.date, e.reportMonth, monthKey)
-        );
+        const bid = bookingIdNum(booking);
+        const bookingIncomes = transactionIndex
+            ? filterBookingTransactions(
+                  transactionIndex.incomesByBookingId.get(bid),
+                  accountingObjectId,
+                  monthKey,
+              )
+            : incomes.filter(
+                  (i) =>
+                      i.bookingId === booking.id &&
+                      i.objectId === accountingObjectId &&
+                      recordInReportMonth(i.date, i.reportMonth, monthKey),
+              );
+        const bookingExpenses = transactionIndex
+            ? filterBookingTransactions(
+                  transactionIndex.expensesByBookingId.get(bid),
+                  accountingObjectId,
+                  monthKey,
+              )
+            : expenses.filter(
+                  (e) =>
+                      e.bookingId === booking.id &&
+                      e.objectId === accountingObjectId &&
+                      recordInReportMonth(e.date, e.reportMonth, monthKey),
+              );
 
         const getExpenseSum = (e: { amount?: number; quantity?: number }) => (e.quantity ?? 1) * (e.amount ?? 0);
         const getIncomeSum = (i: { amount?: number; quantity?: number }) => (i.quantity ?? 1) * (i.amount ?? 0);
