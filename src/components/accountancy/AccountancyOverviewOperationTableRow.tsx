@@ -30,9 +30,11 @@ import Link from 'next/link';
 import type { BookingCommissionResult, ManagementCommissionPercent } from '@/lib/commissionCalculation';
 import type { CategorySelectItem } from '@/lib/accountancyCategoryUtils';
 import SourceRecipientSelect, {
+    formatSourceRecipientLabel,
     type SourceRecipientAutocompleteOption,
     type SourceRecipientOptionValue,
 } from './SourceRecipientSelect';
+import { useObjects } from '@/providers/ObjectsProvider';
 
 /** Строка операции в сводке /dashboard/accountancy (таблица без брони / с бронью). */
 export type AccountancyOverviewOperationRowModel = {
@@ -150,6 +152,40 @@ export type AccountancyOverviewOperationTableRowProps = {
 
 const COMMISSION_TOOLTIP_LINE_CAP = 14;
 
+const readOnlyCellTypographySx = {
+    fontSize: '0.6875rem',
+    color: 'text.secondary',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+} as const;
+
+function resolveSourceRecipientDisplayLabel(
+    value: string | undefined,
+    prefetchedOptions: SourceRecipientAutocompleteOption[],
+    objects: { id: number; name: string; roomTypes: { id: number; name: string }[] }[],
+    counterparties: { _id: string; name: string }[],
+    usersWithCashflow: { _id: string; name: string }[],
+    cashflows: { _id: string; name: string }[],
+    t: (key: string) => string,
+): string {
+    if (!value?.trim()) return '—';
+    const fromOptions = prefetchedOptions.find((o) => o.value === value)?.label;
+    if (fromOptions && fromOptions !== '—') return fromOptions;
+    return formatSourceRecipientLabel(
+        value as SourceRecipientOptionValue,
+        objects,
+        counterparties,
+        usersWithCashflow,
+        cashflows,
+        t('accountancy.sourceRecipientRoomFromBooking'),
+        t('accountancy.sourceRecipientCurrentRoom'),
+        t('accountancy.sourceRecipientCurrentCommissionFund'),
+        t('accountancy.sourceRecipientCurrentManagerFund'),
+        t('accountancy.sourceRecipientCurrentInternetProvider'),
+    );
+}
+
 function SyntheticCommissionTooltipBody({
     detail,
     formatAmount,
@@ -249,9 +285,33 @@ function SyntheticCommissionTooltipBody({
 
 function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperationTableRowProps) {
     const { row, t, periodLocked = false } = p;
-    const ro = row.readOnlySynthetic === true || periodLocked;
+    const { objects } = useObjects();
+    const isSynthetic = row.readOnlySynthetic === true;
+    const ro = isSynthetic || periodLocked;
     const pending = row.isPendingDraft === true;
     const isSubtransaction = Boolean(row.parentTransaction);
+    const sourceDisplayLabel = periodLocked && !isSynthetic
+        ? resolveSourceRecipientDisplayLabel(
+              row.source,
+              p.sourceRecipientOptions,
+              objects,
+              p.counterparties,
+              p.usersWithCashflow,
+              p.cashflows,
+              t,
+          )
+        : null;
+    const recipientDisplayLabel = periodLocked && !isSynthetic
+        ? resolveSourceRecipientDisplayLabel(
+              row.recipient,
+              p.recipientRecipientOptions,
+              objects,
+              p.counterparties,
+              p.usersWithCashflow,
+              p.cashflows,
+              t,
+          )
+        : null;
     const parentHref =
         row.parentTransaction != null
             ? row.parentTransaction.type === 'expense'
@@ -496,7 +556,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     width: p.OP_TABLE_COMMENT_COL_WIDTH_PX,
                 }}
             >
-                {ro && row.bookingId != null ? (
+                {isSynthetic && row.bookingId != null ? (
                     <Stack direction="row" alignItems="center" spacing={0.75}>
                         <FormControl size="small" sx={{ width: 86 }}>
                             <Select
@@ -527,8 +587,12 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                             </Typography>
                         ) : null}
                     </Stack>
-                ) : ro ? (
-                    <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
+                ) : periodLocked ? (
+                    <Typography variant="body2" sx={readOnlyCellTypographySx} title={row.comment || undefined}>
+                        {row.comment?.trim() ? row.comment : '—'}
+                    </Typography>
+                ) : isSynthetic ? (
+                    <Typography variant="body2" sx={readOnlyCellTypographySx}>
                         —
                     </Typography>
                 ) : (
@@ -774,9 +838,17 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 ) : null}
             </TableCell>
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
-                {ro ? (
-                    <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
+                {isSynthetic ? (
+                    <Typography variant="body2" sx={readOnlyCellTypographySx}>
                         —
+                    </Typography>
+                ) : periodLocked ? (
+                    <Typography
+                        variant="body2"
+                        sx={readOnlyCellTypographySx}
+                        title={sourceDisplayLabel ?? undefined}
+                    >
+                        {sourceDisplayLabel}
                     </Typography>
                 ) : (
                 <SourceRecipientSelect
@@ -799,9 +871,17 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 )}
             </TableCell>
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
-                {ro ? (
-                    <Typography variant="body2" sx={{ fontSize: '0.6875rem', color: 'text.secondary' }}>
+                {isSynthetic ? (
+                    <Typography variant="body2" sx={readOnlyCellTypographySx}>
                         —
+                    </Typography>
+                ) : periodLocked ? (
+                    <Typography
+                        variant="body2"
+                        sx={readOnlyCellTypographySx}
+                        title={recipientDisplayLabel ?? undefined}
+                    >
+                        {recipientDisplayLabel}
                     </Typography>
                 ) : (
                 <SourceRecipientSelect
