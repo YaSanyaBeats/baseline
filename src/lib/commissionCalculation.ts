@@ -265,7 +265,7 @@ export function calculateBookingCommission(
 
     if (schemeId === 1) {
         // Схема 1 (OLD)
-        if (totalNights <= 30) {
+        if (totalNights <= 31) {
             steps.push({
                 description: 'Делимые расходы (категории с divisibility /2 или /3)',
                 value: divisible,
@@ -281,14 +281,14 @@ export function calculateBookingCommission(
             });
             commission = base * 0.3;
             steps.push({
-                description: 'Комиссия 30% (брони до 30 ночей)',
+                description: 'Комиссия 30% (брони до 31 ночи)',
                 value: commission,
                 formula: `${base} × 30% = ${commission.toFixed(2)}`,
             });
         } else if (totalNights <= 182) {
             commission = incomesInMonth * 0.2;
             steps.push({
-                description: 'Комиссия 20% (брони 31–182 ночи, до всех расходов)',
+                description: 'Комиссия 20% (брони 32–182 ночи, до всех расходов)',
                 value: commission,
                 formula: `${incomesInMonth} × 20% = ${commission.toFixed(2)}`,
             });
@@ -403,7 +403,7 @@ export function getDefaultManagementCommissionPercent(
     totalNights: number,
 ): ManagementCommissionPercent {
     if (schemeId === 1) {
-        if (totalNights <= 30) return 30;
+        if (totalNights <= 31) return 30;
         if (totalNights <= 182) return 20;
         return 15;
     }

@@ -3,7 +3,7 @@ import {
     prepareCommissionData,
     calculateBookingCommission,
 } from '@/lib/commissionCalculation';
-import { getBookingsByIds, searchBookings } from '@/lib/bookings';
+import { getBookingsByIds, searchBookings, type BookingSearchParams } from '@/lib/bookings';
 import {
     bookingMatchesOwnerRooms,
     transactionMatchesOwnerRooms,
@@ -27,6 +27,11 @@ function monthOverlapIsoRange(monthKey: string): { overlapFrom: string; overlapT
 function lineTotal(quantity: number | undefined, amount: number | undefined): number {
     return (quantity ?? 1) * (amount ?? 0);
 }
+
+export type BookingFetchers = {
+    searchBookings: (params: BookingSearchParams) => Promise<Booking[]>;
+    getBookingsByIds: (ids: number[]) => Promise<Booking[]>;
+};
 
 export type ObjectCommissionResult = {
     objectId: number;
@@ -56,8 +61,11 @@ export async function calculateCommissionForObject(
     selectedMonth: string,
     incomes: Income[],
     expenses: Expense[],
-    categories: AccountancyCategory[]
+    categories: AccountancyCategory[],
+    bookingFetchers?: BookingFetchers
 ): Promise<ObjectCommissionResult> {
+    const search = bookingFetchers?.searchBookings ?? searchBookings;
+    const getByIds = bookingFetchers?.getBookingsByIds ?? getBookingsByIds;
     const selectedObjectId = obj.id;
     const roomsForObject = obj.roomTypes ?? [];
     const roomFilter: string | 'all' = 'all';
@@ -73,7 +81,7 @@ export async function calculateCommissionForObject(
 
     const { overlapFrom, overlapTo } = monthOverlapIsoRange(selectedMonth);
 
-    const overlapBookings = await searchBookings({
+    const overlapBookings = await search({
         objectId: bookingPropertyId,
         overlapFrom,
         overlapTo,
@@ -98,7 +106,7 @@ export async function calculateCommissionForObject(
     const missingFromOverlap = [...txnBookingIds].filter(
         (id) => !overlapFiltered.some((b) => b.id === id)
     );
-    const extras = missingFromOverlap.length ? await getBookingsByIds(missingFromOverlap) : [];
+    const extras = missingFromOverlap.length ? await getByIds(missingFromOverlap) : [];
     const extrasFiltered = extras.filter((b) =>
         bookingMatchesOwnerRooms(b, bookingPropertyId, roomsForObject, roomFilter)
     );

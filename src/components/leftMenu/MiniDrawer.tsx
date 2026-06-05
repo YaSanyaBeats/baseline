@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Assessment, Reply } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { User } from '@/lib/types';
@@ -26,6 +26,11 @@ import Typography from '@mui/material/Typography';
 import Drawer from '@mui/material/Drawer';
 import { useMediaQuery } from '@mui/material';
 import { useTranslation } from '@/i18n/useTranslation';
+import { useSession } from 'next-auth/react';
+import Button from '@mui/material/Button';
+import { stopImpersonation } from '@/lib/auth';
+import { isAdminImpersonatingOwner } from '@/lib/impersonationAccess';
+import type { Session } from 'next-auth';
 
 const drawerWidth = 240;
 
@@ -36,6 +41,8 @@ type MenuItem = {
     link: string;
     roles: UserRole[];
     showOnlyWhenHasCashflow?: boolean;
+    /** Только для админа, вошедшего под владельцем (тестовый режим). */
+    showOnlyWhenImpersonatingOwner?: boolean;
 };
 
 
@@ -120,8 +127,13 @@ const DesktopDrawer = styled(MuiDrawer, { shouldForwardProp: (prop) => prop !== 
 }),
 );
 
-function DrawerMenu(props: { open: boolean; setOpen: (value: boolean) => void; user: User | null }) {
-    const { open, setOpen, user } = props;
+function DrawerMenu(props: {
+    open: boolean;
+    setOpen: (value: boolean) => void;
+    user: User | null;
+    session: Session | null;
+}) {
+    const { open, setOpen, user, session } = props;
     const { t } = useTranslation();
     
     const menu: MenuItem[] = [
@@ -130,6 +142,13 @@ function DrawerMenu(props: { open: boolean; setOpen: (value: boolean) => void; u
             icon: <Dashboard fontSize="small" />, 
             link: '/dashboard',
             roles: ['admin', 'accountant', 'owner']
+        },
+        {
+            text: t('menu.reports'),
+            icon: <Assessment fontSize="small" />,
+            link: '/dashboard/reports',
+            roles: [],
+            showOnlyWhenImpersonatingOwner: true,
         },
         { 
             text: t('menu.analytics'), 
@@ -187,7 +206,11 @@ function DrawerMenu(props: { open: boolean; setOpen: (value: boolean) => void; u
         }
 
         return menu.filter((menuElem) => {
+            if (menuElem.showOnlyWhenImpersonatingOwner) {
+                return isAdminImpersonatingOwner(session);
+            }
             if (menuElem.showOnlyWhenHasCashflow) return Boolean(user.hasCashflow);
+            if (menuElem.roles.length === 0) return false;
             return menuElem.roles.includes(user.role);
         })
     }
@@ -251,9 +274,13 @@ function DrawerMenu(props: { open: boolean; setOpen: (value: boolean) => void; u
 
 export default function MiniDrawer({ children }: { children: React.ReactNode }) {
     const [open, setOpen] = React.useState(false);
+    const [stoppingImpersonation, setStoppingImpersonation] = React.useState(false);
     const isMobile = !useMediaQuery('(min-width:768px)');
     const { user } = useUser();
+    const { data: session } = useSession();
     const { t } = useTranslation();
+    const impersonatedBy = session?.impersonatedBy;
+    const drawerSession = session ?? null;
 
     const handleDrawerOpen = () => {
         setOpen(true);
@@ -261,6 +288,18 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
 
     const handleDrawerClose = () => {
         setOpen(false);
+    };
+
+    const handleStopImpersonation = async () => {
+        if (stoppingImpersonation) return;
+        setStoppingImpersonation(true);
+        try {
+            await stopImpersonation();
+        } catch (err) {
+            console.error('Stop impersonation error:', err);
+        } finally {
+            setStoppingImpersonation(false);
+        }
     };
 
     return (
@@ -280,7 +319,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     >
                         <MenuIcon />
                     </IconButton>
-                    <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
                         <Link href="/dashboard" >
                             <Image src="/logo-new.svg" alt="HolyCow logo" width={90} height={40}></Image>
                         </Link>
@@ -288,6 +327,27 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                             {user?.name ? `${t('header.greeting')}, ${user.name}` : t('header.greeting')}
                         </Typography>
                     </Box>
+                    {impersonatedBy && (
+                        <Button
+                            variant="outlined"
+                            size="small"
+                            startIcon={<Reply />}
+                            onClick={handleStopImpersonation}
+                            disabled={stoppingImpersonation}
+                            sx={{
+                                color: 'white',
+                                borderColor: 'rgba(255,255,255,0.6)',
+                                mr: 1,
+                                whiteSpace: 'nowrap',
+                                '&:hover': {
+                                    borderColor: 'white',
+                                    bgcolor: 'rgba(255,255,255,0.08)',
+                                },
+                            }}
+                        >
+                            {t('header.exitImpersonation')}
+                        </Button>
+                    )}
                     <HeaderMenu></HeaderMenu>
                 </Toolbar>
             </AppBar>
@@ -304,7 +364,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} />
                 </DesktopDrawer>
             ) : (
                 <Drawer
@@ -331,7 +391,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} />
                 </Drawer>
             )}
 

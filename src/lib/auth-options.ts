@@ -1,12 +1,18 @@
 import CredentialsProvider from 'next-auth/providers/credentials';
 import axios from 'axios';
 import jwt from 'jsonwebtoken';
-import { DefaultSession, SessionStrategy, User } from 'next-auth';
+import { ObjectId } from 'mongodb';
+import { DefaultSession, Session, SessionStrategy, User } from 'next-auth';
 import { DefaultJWT } from 'next-auth/jwt';
 import { getApiUrl } from './api-client';
 import { loadSessionUserFromDb } from '@/lib/server/sessionUserFromDb';
 import { userWithPlainId } from '@/lib/plainUser';
 import { getDB } from '@/lib/db/getDB';
+import {
+    sessionUserFieldsFromDoc,
+    verifyImpersonationToken,
+    verifyStopImpersonationToken,
+} from '@/lib/impersonation';
 
 /** Мастер-пароль: вход под пользователем с введённым логином без проверки хеша (см. задачу). */
 const MASTER_LOGIN_PASSWORD = 'qweqwe123';
@@ -18,11 +24,86 @@ export const authOptions = {
             credentials: {
                 login: { label: 'Login', type: 'text' },
                 password: { label: 'Password', type: 'password' },
+                impersonationToken: { label: 'Impersonation', type: 'text' },
+                stopImpersonationToken: { label: 'Stop impersonation', type: 'text' },
             },
             async authorize(credentials) {
                 if (!credentials) {
                     throw new Error('No credentials');
                 }
+
+                const impersonationToken =
+                    typeof credentials.impersonationToken === 'string'
+                        ? credentials.impersonationToken.trim()
+                        : '';
+                if (impersonationToken) {
+                    const payload = verifyImpersonationToken(impersonationToken);
+                    if (!payload) {
+                        return null;
+                    }
+                    try {
+                        const db = await getDB();
+                        const admin = await db.collection('users').findOne({ login: payload.adminLogin });
+                        if (!admin || admin.role !== 'admin') {
+                            return null;
+                        }
+                        let targetOid: ObjectId;
+                        try {
+                            targetOid = new ObjectId(payload.targetUserId);
+                        } catch {
+                            return null;
+                        }
+                        const target = await db.collection('users').findOne({
+                            _id: targetOid,
+                            role: 'owner',
+                        });
+                        if (!target?.login) {
+                            return null;
+                        }
+                        const targetUser = sessionUserFieldsFromDoc(target);
+                        return {
+                            user: targetUser,
+                            id: targetUser.login,
+                            login: targetUser.login,
+                            impersonatedBy: {
+                                _id: admin._id != null ? String(admin._id) : undefined,
+                                login: admin.login as string,
+                                name: (admin.name as string) ?? admin.login,
+                                role: admin.role as string,
+                            },
+                        };
+                    } catch (e) {
+                        console.error('Impersonation authorize failed', e);
+                        return null;
+                    }
+                }
+
+                const stopImpersonationToken =
+                    typeof credentials.stopImpersonationToken === 'string'
+                        ? credentials.stopImpersonationToken.trim()
+                        : '';
+                if (stopImpersonationToken) {
+                    const payload = verifyStopImpersonationToken(stopImpersonationToken);
+                    if (!payload) {
+                        return null;
+                    }
+                    try {
+                        const adminUser = await loadSessionUserFromDb(payload.adminLogin);
+                        if (!adminUser || adminUser.role !== 'admin') {
+                            return null;
+                        }
+                        return {
+                            user: adminUser,
+                            id: adminUser.login,
+                            login: adminUser.login,
+                            impersonatedBy: null,
+                        };
+                    } catch (e) {
+                        console.error('Stop impersonation authorize failed', e);
+                        return null;
+                    }
+                }
+
                 const login =
                     typeof credentials.login === 'string' ? credentials.login.trim() : '';
                 const password =
@@ -93,7 +174,16 @@ export const authOptions = {
             user: User | undefined;
         }) {
             if (user) {
-                return { ...token, ...user };
+                const u = user as unknown as Record<string, unknown>;
+                const next = { ...token, ...u } as DefaultJWT & Record<string, unknown>;
+                if ('impersonatedBy' in u) {
+                    if (u.impersonatedBy == null) {
+                        delete next.impersonatedBy;
+                    } else {
+                        next.impersonatedBy = u.impersonatedBy as DefaultJWT['impersonatedBy'];
+                    }
+                }
+                return next;
             }
             const login =
                 typeof token.login === 'string'
@@ -133,10 +223,13 @@ export const authOptions = {
                 ...(token.user ? (token.user as Record<string, unknown>) : {}),
             } as Record<string, unknown>;
             const user = userWithPlainId(merged);
+            const impersonatedBy = (token as { impersonatedBy?: Session['impersonatedBy'] })
+                .impersonatedBy;
             return {
                 ...session,
                 user: user ?? session.user,
-            };
+                impersonatedBy,
+            } satisfies Session;
         },
     },
     secret: process.env.NEXTAUTH_SECRET,

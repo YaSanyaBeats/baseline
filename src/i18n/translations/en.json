@@ -43,6 +43,7 @@
   },
   "menu": {
     "home": "Home",
+    "reports": "Reports",
     "analytics": "Analytics",
     "users": "Users",
     "accountancy": "Accountancy",
@@ -57,7 +58,11 @@
   "header": {
     "premium": "Premium",
     "basic": "Basic",
-    "greeting": "Hello"
+    "greeting": "Hello",
+    "exitImpersonation": "Return to admin"
+  },
+  "reports": {
+    "testModeOnly": "This page is in test mode: only available when an administrator is signed in as an owner."
   },
   "dashboard": {
     "myObjects": "My Objects",
@@ -119,7 +124,9 @@
     "reportLinkError": "Enter a valid link (e.g., https://example.com)",
     "formErrors": "Please fix the errors in the form",
     "substring": "Substring",
-    "hasCashflow": "Has cashflow"
+    "hasCashflow": "Has cashflow",
+    "impersonateOwner": "Sign in as this owner",
+    "impersonateError": "Could not sign in as the selected owner"
   },
   "analytics": {
     "title": "Analytics",
@@ -649,7 +656,7 @@
       "sum": "Sum",
       "calculationBySchemes": "Commission calculation by schemes",
       "schemeDescriptions": "Scheme descriptions",
-      "scheme1Desc": "Bookings up to 30 nights — 30% after divisible expenses, before indivisible. Bookings 31–182 — 20% before all expenses. Bookings 183+ — 15% before all expenses. Divisible (only for bookings up to 30 days): OTA, co-agent, electricity, water, internet, weekly cleaning.",
+      "scheme1Desc": "Bookings up to 31 nights — 30% after divisible expenses, before indivisible. Bookings 32–182 — 20% before all expenses. Bookings 183+ — 15% before all expenses. Divisible (only for bookings up to 31 days): OTA, co-agent, electricity, water, internet, weekly cleaning.",
       "scheme2Desc": "Bookings 1–182 — 20% before all expenses except OTA and co-agent. Bookings 183+ — 15% before all expenses.",
       "scheme3Desc": "Bookings 1–182 — 25% before all expenses except OTA and co-agent. Bookings 183+ — 15% before all expenses.",
       "scheme4Desc": "Bookings 1–182 — 20% before all expenses except OTA and co-agent.",

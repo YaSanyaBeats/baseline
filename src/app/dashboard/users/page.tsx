@@ -2,26 +2,31 @@
 
 import { User, UserObject } from "@/lib/types";
 import { getUsers, sendDeleteUser, sendEditUser } from "@/lib/users";
-import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, TextField, Switch, FormControlLabel } from "@mui/material";
+import { TableContainer, Paper, Table, TableHead, TableRow, TableCell, TableBody, Skeleton, Stack, Box, IconButton, Button, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle, Grid, TextField, Switch, FormControlLabel, Tooltip, CircularProgress } from "@mui/material";
 import { useEffect, useState } from "react";
 import StarIcon from '@mui/icons-material/Star';
 import EditIcon from '@mui/icons-material/Edit';
 import PersonAddAlt1Icon from '@mui/icons-material/PersonAddAlt1';
+import SwitchAccountIcon from '@mui/icons-material/SwitchAccount';
 import Link from "next/link";
 import DeleteIcon from '@mui/icons-material/Delete';
 import { red } from "@mui/material/colors";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useObjects } from "@/providers/ObjectsProvider";
 import { useTranslation } from "@/i18n/useTranslation";
+import { useUser } from "@/providers/UserProvider";
+import { impersonateOwner } from "@/lib/auth";
 
 export default function Page() {
     const { objects } = useObjects();
     const { t } = useTranslation();
+    const { isAdmin } = useUser();
     const [users, setUsers] = useState<User[]>([]);
     const [search, setSearch] = useState('');
     const [openConfirm, setOpenConfirm] = useState(false);
     const [selectedDeleteUser, setSelectedDeleteUser] = useState('');
     const [updatingAccountTypeId, setUpdatingAccountTypeId] = useState<string | null>(null);
+    const [impersonatingUserId, setImpersonatingUserId] = useState<string | null>(null);
     const { setSnackbar } = useSnackbar();
     
     const roleDictionary = {
@@ -53,6 +58,30 @@ export default function Page() {
             setOpenConfirm(false);
         })
     }
+
+    const handleImpersonate = async (user: User) => {
+        if (!user._id || user.role !== 'owner' || impersonatingUserId) return;
+        setImpersonatingUserId(user._id);
+        try {
+            const result = await impersonateOwner(user._id);
+            if (result?.error) {
+                setSnackbar({
+                    open: true,
+                    message: t('users.impersonateError'),
+                    severity: 'error',
+                });
+            }
+        } catch (err) {
+            console.error('Impersonation error:', err);
+            setSnackbar({
+                open: true,
+                message: t('users.impersonateError'),
+                severity: 'error',
+            });
+        } finally {
+            setImpersonatingUserId(null);
+        }
+    };
 
     const handleAccountTypeChange = async (user: User) => {
         if (!user._id || updatingAccountTypeId) return;
@@ -147,6 +176,7 @@ export default function Page() {
                         <TableCell>{t('users.role')}</TableCell>
                         <TableCell>{t('users.accountType')}</TableCell>
                         <TableCell>{t('users.hasAccessTo')}</TableCell>
+                        {isAdmin && <TableCell sx={{width: '30px'}}/>}
                         <TableCell sx={{width: '30px'}}/>
                         <TableCell sx={{width: '30px'}}/>
                     </TableRow>
@@ -188,6 +218,26 @@ export default function Page() {
                                         </Grid>
                                     ))}
                                 </TableCell>
+                                {isAdmin && user.role === 'owner' && (
+                                    <TableCell align="right">
+                                        <Tooltip title={t('users.impersonateOwner')}>
+                                            <span>
+                                                <IconButton
+                                                    onClick={() => handleImpersonate(user)}
+                                                    disabled={impersonatingUserId === user._id}
+                                                    color="primary"
+                                                >
+                                                    {impersonatingUserId === user._id ? (
+                                                        <CircularProgress size={22} color="inherit" />
+                                                    ) : (
+                                                        <SwitchAccountIcon />
+                                                    )}
+                                                </IconButton>
+                                            </span>
+                                        </Tooltip>
+                                    </TableCell>
+                                )}
+                                {isAdmin && user.role !== 'owner' && <TableCell />}
                                 <TableCell align="right">
                                     <Link href={"/dashboard/users/edit/" + user._id}>
                                         <IconButton>
