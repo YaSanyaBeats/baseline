@@ -210,7 +210,16 @@
     "ignoreSelectedObjects": "Игнорировать в системе выбранные объекты:",
     "ignoreBySubstring": "Игнорировать в системе объекты, содержащие в названии:",
     "selectAtLeastOneObject": "Выберите хотя бы один объект",
-    "substring": "Подстрока"
+    "substring": "Подстрока",
+    "renameRoomsMenu": "Переименование комнат",
+    "renameRoomsTitle": "Переименование комнат",
+    "renameRoomsDescription": "Комната будет переименована в справочнике объектов, а также во всех связанных записях: доходы, расходы, метаданные комнат, правила автоучёта, фиксации периодов, проценты HC и права пользователей.",
+    "renameRoomsSelectRoom": "Комната",
+    "renameRoomsNewName": "Новое имя комнаты",
+    "renameRoomsSubmit": "Переименовать",
+    "renameRoomsConfirmTitle": "Подтверждение переименования",
+    "renameRoomsConfirmMessage": "Переименовать комнату «{{oldName}}» в «{{newName}}» ({{label}})? Все связанные записи будут обновлены.",
+    "renameRoomsResult": "Обновлено: расходов — {{expenses}}, доходов — {{incomes}}, метаданных — {{metadata}}, правил автоучёта — {{rules}}, фиксаций периодов — {{closedMonths}}, процентов HC — {{rates}}, пользователей — {{users}}."
   },
   "accountancy": {
     "title": "Бухгалтерский учёт",

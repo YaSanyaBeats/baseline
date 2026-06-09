@@ -11,6 +11,7 @@ import { useTranslation } from "@/i18n/useTranslation";
 import Link from "next/link";
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
+import DriveFileRenameOutlineIcon from '@mui/icons-material/DriveFileRenameOutline';
 
 export default function Page() {
     const { refreshObjects } = useObjects();
@@ -91,6 +92,14 @@ export default function Page() {
                     color="error"
                 >
                     {t('accountancy.deleteBeforeDec2025Menu')}
+                </Button>
+                <Button
+                    component={Link}
+                    href="/dashboard/options/rename-rooms"
+                    startIcon={<DriveFileRenameOutlineIcon />}
+                    variant="outlined"
+                >
+                    {t('options.renameRoomsMenu')}
                 </Button>
             </Stack>
             <Box>

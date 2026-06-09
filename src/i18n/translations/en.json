@@ -211,7 +211,16 @@
     "ignoreSelectedObjects": "Ignore selected objects in the system:",
     "ignoreBySubstring": "Ignore objects in the system containing in the name:",
     "selectAtLeastOneObject": "Select at least one object",
-    "substring": "Substring"
+    "substring": "Substring",
+    "renameRoomsMenu": "Rename rooms",
+    "renameRoomsTitle": "Rename rooms",
+    "renameRoomsDescription": "The room will be renamed in the objects catalog and in all related records: incomes, expenses, room metadata, auto-accounting rules, period locks, HC rates, and user permissions.",
+    "renameRoomsSelectRoom": "Room",
+    "renameRoomsNewName": "New room name",
+    "renameRoomsSubmit": "Rename",
+    "renameRoomsConfirmTitle": "Confirm rename",
+    "renameRoomsConfirmMessage": "Rename room «{{oldName}}» to «{{newName}}» ({{label}})? All related records will be updated.",
+    "renameRoomsResult": "Updated: expenses — {{expenses}}, incomes — {{incomes}}, metadata — {{metadata}}, auto-accounting rules — {{rules}}, period locks — {{closedMonths}}, HC rates — {{rates}}, users — {{users}}."
   },
   "accountancy": {
     "title": "Accountancy",
