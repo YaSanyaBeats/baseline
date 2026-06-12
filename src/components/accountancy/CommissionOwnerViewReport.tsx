@@ -1,12 +1,13 @@
 'use client';
 
-import { Fragment } from 'react';
+import { Fragment, useState } from 'react';
 import {
     Accordion,
     AccordionDetails,
     AccordionSummary,
     Alert,
     Box,
+    Button,
     Paper,
     Stack,
     Table,
@@ -17,13 +18,16 @@ import {
     TableRow,
     Typography,
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import {
     type CommissionOwnerViewExpenseGroup,
     type CommissionOwnerViewIncomeGroup,
     type CommissionOwnerViewRoomSection,
     type CommissionOwnerViewStoredPayload,
 } from '@/lib/commissionOwnerView';
+import {
+    normalizeOwnerViewSettlementRow,
+    type CommissionOwnerViewSettlementRow,
+} from '@/lib/ownerViewSettlements';
 import {
     sumOwnerViewExpenseColumnSigned,
     sumOwnerViewExpenseTableSignedTotal,
@@ -107,6 +111,30 @@ function filterExpenseGroupsForDisplay(
 }
 
 type HeadCellSx = (bg: string, color?: string) => Record<string, unknown>;
+
+const SETTLEMENT_SUMMARY_ROW_SX = { bgcolor: 'grey.100' } as const;
+
+function settlementRowKind(row: CommissionOwnerViewSettlementRow): 'opening' | 'closing' | 'transaction' {
+    return normalizeOwnerViewSettlementRow(row).kind;
+}
+
+function SettlementAmountCell({
+    row,
+    locale,
+}: {
+    row: CommissionOwnerViewSettlementRow;
+    locale: string;
+}) {
+    const normalized = normalizeOwnerViewSettlementRow(row);
+    if (normalized.kind === 'transaction') {
+        return <SignedAmountValue value={normalized.signedAmount} locale={locale} />;
+    }
+    return (
+        <Typography component="span" sx={{ fontWeight: 600 }}>
+            {formatAmount(normalized.amount, locale)}
+        </Typography>
+    );
+}
 
 function RoomIncomesTable({
     section,
@@ -368,6 +396,73 @@ function RoomEarningsTable({
     );
 }
 
+function RoomSectionAccordion({
+    section,
+    orderNumber,
+    defaultExpanded,
+    displayLocale,
+    t,
+    headCellSx,
+}: {
+    section: CommissionOwnerViewRoomSection;
+    orderNumber: number;
+    defaultExpanded: boolean;
+    displayLocale: string;
+    t: (key: string) => string;
+    headCellSx: HeadCellSx;
+}) {
+    const [expanded, setExpanded] = useState(defaultExpanded);
+
+    return (
+        <Accordion
+            expanded={expanded}
+            onChange={(_, next) => setExpanded(next)}
+            elevation={0}
+            variant="outlined"
+            sx={{ '&:before': { display: 'none' } }}
+        >
+            <AccordionSummary
+                expandIcon={
+                    <Button size="small" variant="outlined" component="span">
+                        {t('accountancy.commission.ownerViewViewTransactions')}
+                    </Button>
+                }
+                sx={{
+                    '& .MuiAccordionSummary-expandIconWrapper': {
+                        transform: 'none !important',
+                    },
+                }}
+            >
+                <Typography fontWeight={700}>
+                    {orderNumber}. {section.title}
+                </Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+                <Stack spacing={3}>
+                    <RoomIncomesTable
+                        section={section}
+                        locale={displayLocale}
+                        t={t}
+                        headCellSx={headCellSx}
+                    />
+                    <RoomExpensesTable
+                        section={section}
+                        locale={displayLocale}
+                        t={t}
+                        headCellSx={headCellSx}
+                    />
+                    <RoomEarningsTable
+                        section={section}
+                        locale={displayLocale}
+                        t={t}
+                        headCellSx={headCellSx}
+                    />
+                </Stack>
+            </AccordionDetails>
+        </Accordion>
+    );
+}
+
 export type CommissionOwnerViewReportProps = {
     payload: CommissionOwnerViewStoredPayload;
     displayLocale: string;
@@ -416,38 +511,43 @@ export default function CommissionOwnerViewReport({
                                     <TableCell align="right" sx={{ fontWeight: 700 }}>
                                         {t('accountancy.commission.ownerColAmountThb')}
                                     </TableCell>
-                                    <TableCell align="right" sx={{ fontWeight: 700 }}>
-                                        {t('accountancy.commission.ownerColBalance')}
-                                    </TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {payload.settlementRows.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={4}>
+                                        <TableCell colSpan={3}>
                                             <Typography variant="body2" color="text.secondary">
                                                 {t('accountancy.commission.ownerNoSettlements')}
                                             </Typography>
                                         </TableCell>
                                     </TableRow>
                                 ) : (
-                                    payload.settlementRows.map((row) => (
-                                        <TableRow key={row.key}>
-                                            <TableCell>
-                                                {formatDateShort(
-                                                    row.date.includes('T') ? row.date : `${row.date}T12:00:00`,
-                                                    displayLocale
-                                                )}
-                                            </TableCell>
-                                            <TableCell>{row.description}</TableCell>
-                                            <TableCell align="right">
-                                                {formatAmount(row.amount, displayLocale)}
-                                            </TableCell>
-                                            <TableCell align="right">
-                                                {formatAmount(row.balance, displayLocale)}
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
+                                    payload.settlementRows.map((row) => {
+                                        const kind = settlementRowKind(row);
+                                        const isSummaryRow = kind === 'opening' || kind === 'closing';
+                                        return (
+                                            <TableRow
+                                                key={row.key}
+                                                sx={isSummaryRow ? SETTLEMENT_SUMMARY_ROW_SX : undefined}
+                                            >
+                                                <TableCell>
+                                                    {formatDateShort(
+                                                        row.date.includes('T')
+                                                            ? row.date
+                                                            : `${row.date}T12:00:00`,
+                                                        displayLocale
+                                                    )}
+                                                </TableCell>
+                                                <TableCell sx={isSummaryRow ? { fontWeight: 600 } : undefined}>
+                                                    {row.description}
+                                                </TableCell>
+                                                <TableCell align="right">
+                                                    <SettlementAmountCell row={row} locale={displayLocale} />
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })
                                 )}
                             </TableBody>
                         </Table>
@@ -458,39 +558,15 @@ export default function CommissionOwnerViewReport({
                     <Alert severity="info">{t('accountancy.commission.noBookings')}</Alert>
                 ) : (
                     payload.roomSections.map((section, index) => (
-                        <Accordion
+                        <RoomSectionAccordion
                             key={section.key}
+                            section={section}
+                            orderNumber={index + 1}
                             defaultExpanded={index === 0}
-                            elevation={0}
-                            variant="outlined"
-                            sx={{ '&:before': { display: 'none' } }}
-                        >
-                            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                                <Typography fontWeight={700}>{section.title}</Typography>
-                            </AccordionSummary>
-                            <AccordionDetails>
-                                <Stack spacing={3}>
-                                    <RoomIncomesTable
-                                        section={section}
-                                        locale={displayLocale}
-                                        t={t}
-                                        headCellSx={headCellSx}
-                                    />
-                                    <RoomExpensesTable
-                                        section={section}
-                                        locale={displayLocale}
-                                        t={t}
-                                        headCellSx={headCellSx}
-                                    />
-                                    <RoomEarningsTable
-                                        section={section}
-                                        locale={displayLocale}
-                                        t={t}
-                                        headCellSx={headCellSx}
-                                    />
-                                </Stack>
-                            </AccordionDetails>
-                        </Accordion>
+                            displayLocale={displayLocale}
+                            t={t}
+                            headCellSx={headCellSx}
+                        />
                     ))
                 )}
             </Stack>

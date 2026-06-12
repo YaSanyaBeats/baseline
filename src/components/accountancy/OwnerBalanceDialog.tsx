@@ -19,6 +19,7 @@ import {
     Chip,
 } from '@mui/material';
 import { BarChart } from '@mui/x-charts/BarChart';
+import { ownerBalanceSignedLineAmount } from '@/lib/ownerViewSettlements';
 import type { User, Object as PropertyObject } from '@/lib/types';
 
 export type OwnerBalanceLedgerRow = {
@@ -70,6 +71,32 @@ function formatMonthLabel(monthKey: string): string {
     return `${m}.${y}`;
 }
 
+function signedLineAmount(row: OwnerBalanceLedgerRow): number {
+    return ownerBalanceSignedLineAmount(row.category, row);
+}
+
+function signedAmountColor(value: number): 'success.main' | 'error.main' | 'text.secondary' {
+    if (value > 0) return 'success.main';
+    if (value < 0) return 'error.main';
+    return 'text.secondary';
+}
+
+function formatSignedAmount(value: number): string {
+    const sign = value >= 0 ? '+' : '−';
+    return `${sign}${formatAmount(Math.abs(value))}`;
+}
+
+function SignedAmountText({ value, fontWeight }: { value: number; fontWeight?: number }) {
+    return (
+        <Typography
+            component="span"
+            sx={{ color: signedAmountColor(value), fontWeight: fontWeight ?? 400 }}
+        >
+            {formatSignedAmount(value)}
+        </Typography>
+    );
+}
+
 export default function OwnerBalanceDialog({
     open,
     onClose,
@@ -89,7 +116,7 @@ export default function OwnerBalanceDialog({
         const monthMap = new Map<string, number>();
         for (const tx of sortedTx) {
             const monthKey = getMonthKey(tx.date);
-            const amount = (tx.quantity ?? 1) * (tx.amount ?? 0);
+            const amount = signedLineAmount(tx);
             monthMap.set(monthKey, (monthMap.get(monthKey) ?? 0) + amount);
         }
         const sortedKeys = Array.from(monthMap.keys()).sort();
@@ -124,7 +151,7 @@ export default function OwnerBalanceDialog({
     }, [sortedTx]);
 
     const total = useMemo(() => {
-        return sortedTx.reduce((s, e) => s + (e.quantity ?? 1) * (e.amount ?? 0), 0);
+        return sortedTx.reduce((s, e) => s + signedLineAmount(e), 0);
     }, [sortedTx]);
 
     const groupedTx = useMemo(() => {
@@ -155,7 +182,7 @@ export default function OwnerBalanceDialog({
                 map.set(key, group);
             }
             group.rows.push(tx);
-            group.total += (tx.quantity ?? 1) * (tx.amount ?? 0);
+            group.total += signedLineAmount(tx);
         }
         return Array.from(map.values()).sort((a, b) => {
             const byObj = a.objectName.localeCompare(b.objectName, 'ru');
@@ -231,8 +258,7 @@ export default function OwnerBalanceDialog({
                                                     </TableCell>
                                                 </TableRow>
                                                 {group.rows.map((e) => {
-                                                    const amount =
-                                                        (e.quantity ?? 1) * (e.amount ?? 0);
+                                                    const amount = signedLineAmount(e);
                                                     return (
                                                         <TableRow
                                                             key={`${e.recordType}-${e._id}`}
@@ -265,7 +291,7 @@ export default function OwnerBalanceDialog({
                                                                 />
                                                             </TableCell>
                                                             <TableCell align="right">
-                                                                {formatAmount(amount)}
+                                                                <SignedAmountText value={amount} />
                                                             </TableCell>
                                                         </TableRow>
                                                     );
@@ -283,12 +309,7 @@ export default function OwnerBalanceDialog({
                                                         </Typography>
                                                     </TableCell>
                                                     <TableCell align="right">
-                                                        <Typography
-                                                            variant="body2"
-                                                            fontWeight={500}
-                                                        >
-                                                            {formatAmount(group.total)}
-                                                        </Typography>
+                                                        <SignedAmountText value={group.total} fontWeight={500} />
                                                     </TableCell>
                                                 </TableRow>
                                             </Fragment>
@@ -300,9 +321,7 @@ export default function OwnerBalanceDialog({
                                                 </Typography>
                                             </TableCell>
                                             <TableCell align="right">
-                                                <Typography fontWeight={600}>
-                                                    {formatAmount(total)}
-                                                </Typography>
+                                                <SignedAmountText value={total} fontWeight={600} />
                                             </TableCell>
                                         </TableRow>
                                     </TableBody>

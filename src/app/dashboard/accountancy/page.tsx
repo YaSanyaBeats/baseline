@@ -2212,6 +2212,121 @@ export default function Page() {
         ],
     );
 
+    const handleConfirmAllGroupTransactions = useCallback(
+        async (rows: OperationRow[]) => {
+            const toConfirm = rows.filter(
+                (r) =>
+                    !r.readOnlySynthetic &&
+                    (r.isPendingDraft || !!r.entityId) &&
+                    r.status !== 'confirmed' &&
+                    !isOperationRowPeriodLocked(r),
+            );
+            let ok = 0;
+            let fail = 0;
+            for (const row of toConfirm) {
+                try {
+                    if (row.isPendingDraft) {
+                        patchPendingDraft(row.id, { status: 'confirmed' });
+                        ok++;
+                        continue;
+                    }
+                    if (!row.entityId) {
+                        fail++;
+                        continue;
+                    }
+                    if (row.type === 'expense') {
+                        const expense = expenses.find((e) => e._id === row.entityId);
+                        if (!expense) {
+                            fail++;
+                            continue;
+                        }
+                        const payload: Expense = {
+                            ...expense,
+                            status: 'confirmed',
+                            date: expense.date
+                                ? typeof expense.date === 'string'
+                                    ? new Date(expense.date)
+                                    : expense.date
+                                : new Date(),
+                        };
+                        const res = await updateExpense(payload);
+                        if (res.success) {
+                            setExpenses((prev) =>
+                                prev.map((e) =>
+                                    e._id === row.entityId ? { ...e, status: 'confirmed' } : e,
+                                ),
+                            );
+                            ok++;
+                        } else {
+                            fail++;
+                        }
+                    } else {
+                        const income = incomes.find((i) => i._id === row.entityId);
+                        if (!income) {
+                            fail++;
+                            continue;
+                        }
+                        const payload: Income = {
+                            ...income,
+                            status: 'confirmed',
+                            date: income.date
+                                ? typeof income.date === 'string'
+                                    ? new Date(income.date)
+                                    : income.date
+                                : new Date(),
+                        };
+                        const res = await updateIncome(payload);
+                        if (res.success) {
+                            setIncomes((prev) =>
+                                prev.map((i) =>
+                                    i._id === row.entityId ? { ...i, status: 'confirmed' } : i,
+                                ),
+                            );
+                            ok++;
+                        } else {
+                            fail++;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error confirming group transaction:', error);
+                    fail++;
+                }
+            }
+            if (ok === 0 && fail === 0) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.confirmAllGroupTransactionsNothing'),
+                    severity: 'info',
+                });
+            } else if (fail === 0) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.confirmAllGroupTransactionsSuccess').replace(
+                        '{{count}}',
+                        String(ok),
+                    ),
+                    severity: 'success',
+                });
+            } else {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.confirmAllGroupTransactionsPartial')
+                        .replace('{{ok}}', String(ok))
+                        .replace('{{fail}}', String(fail)),
+                    severity: ok > 0 ? 'warning' : 'error',
+                });
+            }
+        },
+        [
+            expenses,
+            incomes,
+            isOperationRowPeriodLocked,
+            patchPendingDraft,
+            setSnackbar,
+            t,
+        ],
+    );
+
     const handleQuantityChange = async (row: OperationRow, newQuantity: number) => {
         if (row.readOnlySynthetic) return;
         if (row.isPendingDraft) {
@@ -3427,14 +3542,16 @@ export default function Page() {
                                                             hover={!groupIsEmpty}
                                                             onClick={() => toggleOperationGroupCollapsed(group.key)}
                                                             onContextMenu={
-                                                                group.key.startsWith('b-')
+                                                                !groupIsEmpty
                                                                     ? (e) => {
                                                                           e.preventDefault();
                                                                           e.stopPropagation();
                                                                           setBookingGroupMenu({
                                                                               mouseX: e.clientX,
                                                                               mouseY: e.clientY,
-                                                                              bookingId: Number(group.key.slice(2)),
+                                                                              bookingId: group.key.startsWith('b-')
+                                                                                  ? Number(group.key.slice(2))
+                                                                                  : undefined,
                                                                               groupLabel: group.label,
                                                                               rows: group.rows,
                                                                           });
@@ -3668,6 +3785,19 @@ export default function Page() {
                               .every((row) => isOperationRowPeriodLocked(row))
                 }
                 onMove={handleMoveBookingTransactions}
+                isConfirmAllDisabled={
+                    bookingGroupMenu == null
+                        ? true
+                        : isSelectedMonthClosed ||
+                          bookingGroupMenu.rows.filter(
+                              (r) =>
+                                  !r.readOnlySynthetic &&
+                                  (r.isPendingDraft || !!r.entityId) &&
+                                  r.status !== 'confirmed' &&
+                                  !isOperationRowPeriodLocked(r),
+                          ).length === 0
+                }
+                onConfirmAll={handleConfirmAllGroupTransactions}
             />
 
             <Dialog open={deleteDialogOpen} onClose={handleOperationDeleteCancel}>

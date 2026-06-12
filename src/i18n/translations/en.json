@@ -454,6 +454,10 @@
     "moveBookingTransactionsSuccess": "Moved transactions: {{count}}",
     "moveBookingTransactionsPartial": "Moved: {{ok}}, errors: {{fail}}",
     "moveBookingTransactionsNothing": "No transactions to move",
+    "confirmAllGroupTransactionsMenu": "Confirm all transactions",
+    "confirmAllGroupTransactionsSuccess": "Confirmed transactions: {{count}}",
+    "confirmAllGroupTransactionsPartial": "Confirmed: {{ok}}, errors: {{fail}}",
+    "confirmAllGroupTransactionsNothing": "No transactions to confirm",
     "noBookingSubgroup": {
       "common": "General expenses",
       "guest": "Guest expenses",
@@ -612,7 +616,7 @@
       "recordTypeValue": "Record type",
       "scheme": "Scheme",
       "ownerBalancesTitle": "Owner balances",
-      "ownerBalancesDescription": "List of all users with the «Owner» role. Balance is the sum of transactions with the categories «Accrued to owner», «Owner payout», and «Debited from owner account» for owner's rooms.",
+      "ownerBalancesDescription": "List of all users with the «Owner» role. Balance is the sum of «Accrued to owner» (+), «Owner payout» and «Debited from owner account» (−) transactions for the owner's rooms.",
       "ownerName": "Owner",
       "noOwners": "No owners found",
       "ownerDetails": "Details",
@@ -703,10 +707,11 @@
       "ownerViewLoading": "Building report…",
       "ownerViewLoadError": "Could not build the report. Check the parameters and try again.",
       "ownerViewBackToCommission": "Back to commission",
+      "ownerViewViewTransactions": "View transactions",
       "ownerTableIncomes": "Incomes",
       "ownerTableExpenses": "Expenses",
       "ownerTableEarnings": "Earnings",
-      "ownerTableSettlements": "Settlements",
+      "ownerTableSettlements": "Mutual settlements (Owner balance)",
       "ownerNoSettlements": "No mutual settlements for the selected month",
       "ownerColArrival": "Arrival date",
       "ownerColDeparture": "Departure date",
@@ -737,7 +742,7 @@
       "settlementOpening": "Opening balance",
       "settlementIncomeMonth": "Incomes for the month",
       "settlementExpensesAndCommission": "Expenses and agency commission for the month",
-      "settlementClosing": "Closing balance"
+      "settlementClosing": "Total (Closing balance)"
     },
     "autoAccounting": {
       "title": "Auto-accounting constructor",

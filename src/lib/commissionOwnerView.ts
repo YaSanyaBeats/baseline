@@ -16,6 +16,7 @@ import {
 } from '@/lib/ownerViewExpenses';
 import {
     buildOwnerViewSettlementRows,
+    normalizeOwnerViewSettlementRow,
     type CommissionOwnerViewSettlementRow,
 } from '@/lib/ownerViewSettlements';
 import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
@@ -480,7 +481,8 @@ export function buildCommissionOwnerViewPayload(
         categoryNameById,
         categories,
         allIncomes,
-        allExpenses
+        allExpenses,
+        language
     );
     const totals = roomSections.reduce(
         (acc, section) => ({
@@ -510,7 +512,9 @@ export function parseCommissionOwnerViewPayload(raw: string | null): CommissionO
             return {
                 ...parsed,
                 settlementRows: Array.isArray(parsed.settlementRows)
-                    ? (parsed.settlementRows as CommissionOwnerViewSettlementRow[])
+                    ? (parsed.settlementRows as CommissionOwnerViewSettlementRow[]).map(
+                          normalizeOwnerViewSettlementRow
+                      )
                     : [],
                 roomSections: parsed.roomSections.map((s) =>
                     normalizeRoomSection(s as unknown as Record<string, unknown>)

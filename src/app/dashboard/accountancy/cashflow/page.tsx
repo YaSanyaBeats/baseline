@@ -42,6 +42,7 @@ import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
 import CashflowRuleDialog from '@/components/accountancy/CashflowRuleDialog';
+import { ownerBalanceSignedLineAmount } from '@/lib/ownerViewSettlements';
 import OwnerBalanceDialog, { type OwnerBalanceLedgerRow } from '@/components/accountancy/OwnerBalanceDialog';
 
 const CASHFLOW_TYPE_KEYS: Record<string, string> = {
@@ -185,13 +186,16 @@ export default function Page() {
 
     const balanceByOwner = owners.reduce<Record<string, number>>((acc, owner) => {
         if (!owner._id) return acc;
-        const expenseSum = ownerBalanceExpenses
-            .filter((e) => isOwnerRoomMatch(owner, e.objectId, e.roomName))
-            .reduce((s, e) => s + getExpenseSum(e), 0);
-        const incomeSum = ownerBalanceIncomes
-            .filter((i) => isOwnerRoomMatch(owner, i.objectId, i.roomName))
-            .reduce((s, i) => s + getIncomeSum(i), 0);
-        acc[owner._id] = expenseSum + incomeSum;
+        let sum = 0;
+        for (const e of ownerBalanceExpenses) {
+            if (!isOwnerRoomMatch(owner, e.objectId, e.roomName)) continue;
+            sum += ownerBalanceSignedLineAmount(resolveCat(e), e);
+        }
+        for (const i of ownerBalanceIncomes) {
+            if (!isOwnerRoomMatch(owner, i.objectId, i.roomName)) continue;
+            sum += ownerBalanceSignedLineAmount(resolveCat(i), i);
+        }
+        acc[owner._id] = sum;
         return acc;
     }, {});
 

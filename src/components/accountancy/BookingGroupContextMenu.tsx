@@ -19,7 +19,8 @@ import type { AccountancyOverviewOperationRowModel } from '@/components/accounta
 export type BookingGroupContextMenuState = {
     mouseX: number;
     mouseY: number;
-    bookingId: number;
+    /** Задан только для групп бронирований (`b-{id}`). */
+    bookingId?: number;
     groupLabel: string;
     rows: AccountancyOverviewOperationRowModel[];
 };
@@ -39,12 +40,24 @@ type BookingGroupContextMenuProps = {
     isTargetMonthDisabled: (targetMonth: string) => boolean;
     isMoveDisabled: boolean;
     onMove: (rows: AccountancyOverviewOperationRowModel[], targetMonth: string) => Promise<void>;
+    isConfirmAllDisabled: boolean;
+    onConfirmAll: (rows: AccountancyOverviewOperationRowModel[]) => Promise<void>;
 };
 
 function getMovableRows(rows: AccountancyOverviewOperationRowModel[]): AccountancyOverviewOperationRowModel[] {
     return rows.filter(
         (r) => !r.readOnlySynthetic && !r.isPendingDraft && !!r.entityId,
     );
+}
+
+function getConfirmableRows(rows: AccountancyOverviewOperationRowModel[]): AccountancyOverviewOperationRowModel[] {
+    return rows.filter(
+        (r) => !r.readOnlySynthetic && (r.isPendingDraft || !!r.entityId),
+    );
+}
+
+function getRowsNeedingConfirm(rows: AccountancyOverviewOperationRowModel[]): AccountancyOverviewOperationRowModel[] {
+    return getConfirmableRows(rows).filter((r) => r.status !== 'confirmed');
 }
 
 const compactMenuPaperSx = {
@@ -78,14 +91,24 @@ export function BookingGroupContextMenu({
     isTargetMonthDisabled,
     isMoveDisabled,
     onMove,
+    isConfirmAllDisabled,
+    onConfirmAll,
 }: BookingGroupContextMenuProps) {
     const { t } = useTranslation();
     const [submenuAnchor, setSubmenuAnchor] = useState<HTMLElement | null>(null);
     const [moveConfirm, setMoveConfirm] = useState<MoveConfirmState | null>(null);
     const [moving, setMoving] = useState(false);
+    const [confirmingAll, setConfirmingAll] = useState(false);
+
+    const isBookingGroup = menuState?.bookingId != null;
 
     const movableRows = useMemo(
         () => (menuState ? getMovableRows(menuState.rows) : []),
+        [menuState],
+    );
+
+    const rowsNeedingConfirm = useMemo(
+        () => (menuState ? getRowsNeedingConfirm(menuState.rows) : []),
         [menuState],
     );
 
@@ -141,6 +164,17 @@ export function BookingGroupContextMenu({
         }
     };
 
+    const handleConfirmAll = async () => {
+        if (!menuState || confirmingAll || rowsNeedingConfirm.length === 0) return;
+        setConfirmingAll(true);
+        handleCloseAll();
+        try {
+            await onConfirmAll(menuState.rows);
+        } finally {
+            setConfirmingAll(false);
+        }
+    };
+
     return (
         <>
             <Menu
@@ -162,23 +196,38 @@ export function BookingGroupContextMenu({
                 }}
                 MenuListProps={{ dense: true }}
             >
+                {isBookingGroup && (
+                    <MenuItem
+                        disabled={isMoveDisabled || movableRows.length === 0}
+                        onMouseEnter={(e) => setSubmenuAnchor(e.currentTarget)}
+                        sx={{ ...compactMenuItemSx, pr: 0.25, gap: 0.25 }}
+                    >
+                        <ListItemText
+                            primary={t('accountancy.moveBookingTransactionsMenu')}
+                            slotProps={{ primary: compactListItemTextProps.primaryTypographyProps }}
+                            sx={{ my: 0 }}
+                        />
+                        <ChevronRightIcon sx={{ fontSize: '0.875rem', opacity: 0.7, flexShrink: 0 }} />
+                    </MenuItem>
+                )}
                 <MenuItem
-                    disabled={isMoveDisabled || movableRows.length === 0}
-                    onMouseEnter={(e) => setSubmenuAnchor(e.currentTarget)}
-                    sx={{ ...compactMenuItemSx, pr: 0.25, gap: 0.25 }}
+                    disabled={
+                        isConfirmAllDisabled || confirmingAll || rowsNeedingConfirm.length === 0
+                    }
+                    onClick={handleConfirmAll}
+                    sx={compactMenuItemSx}
                 >
                     <ListItemText
-                        primary={t('accountancy.moveBookingTransactionsMenu')}
+                        primary={t('accountancy.confirmAllGroupTransactionsMenu')}
                         slotProps={{ primary: compactListItemTextProps.primaryTypographyProps }}
                         sx={{ my: 0 }}
                     />
-                    <ChevronRightIcon sx={{ fontSize: '0.875rem', opacity: 0.7, flexShrink: 0 }} />
                 </MenuItem>
             </Menu>
 
             <Menu
                 anchorEl={submenuAnchor}
-                open={Boolean(submenuAnchor) && menuState != null}
+                open={Boolean(submenuAnchor) && menuState != null && isBookingGroup}
                 onClose={() => setSubmenuAnchor(null)}
                 anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'left' }}
