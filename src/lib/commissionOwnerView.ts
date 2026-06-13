@@ -512,8 +512,8 @@ export function parseCommissionOwnerViewPayload(raw: string | null): CommissionO
             return {
                 ...parsed,
                 settlementRows: Array.isArray(parsed.settlementRows)
-                    ? (parsed.settlementRows as CommissionOwnerViewSettlementRow[]).map(
-                          normalizeOwnerViewSettlementRow
+                    ? (parsed.settlementRows as CommissionOwnerViewSettlementRow[]).map((row) =>
+                          normalizeOwnerViewSettlementRow(row, parsed.monthKey)
                       )
                     : [],
                 roomSections: parsed.roomSections.map((s) =>

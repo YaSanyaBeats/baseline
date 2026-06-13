@@ -42,6 +42,7 @@ import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
 import CashflowRuleDialog from '@/components/accountancy/CashflowRuleDialog';
+import { isOwnerBalanceCategory } from '@/lib/ownerBalanceCategories';
 import { ownerBalanceSignedLineAmount } from '@/lib/ownerViewSettlements';
 import OwnerBalanceDialog, { type OwnerBalanceLedgerRow } from '@/components/accountancy/OwnerBalanceDialog';
 
@@ -53,12 +54,6 @@ const CASHFLOW_TYPE_KEYS: Record<string, string> = {
     premium: 'typePremium',
     other: 'typeOther',
 };
-
-const OWNER_BALANCE_CATEGORIES = [
-    'Начислено владельцу',
-    'Выплата владельцу',
-    'Списано со счёта владельца',
-];
 
 export default function Page() {
     const { t } = useTranslation();
@@ -162,12 +157,8 @@ export default function Page() {
         return acc;
     }, {});
 
-    const ownerBalanceExpenses = expenses.filter((e) =>
-        OWNER_BALANCE_CATEGORIES.includes(resolveCat(e)),
-    );
-    const ownerBalanceIncomes = incomes.filter((i) =>
-        OWNER_BALANCE_CATEGORIES.includes(resolveCat(i)),
-    );
+    const ownerBalanceExpenses = expenses.filter((e) => isOwnerBalanceCategory(e, categoryNameById));
+    const ownerBalanceIncomes = incomes.filter((i) => isOwnerBalanceCategory(i, categoryNameById));
 
     const isOwnerRoomMatch = (owner: User, objectId: number, roomName: string | null | undefined): boolean => {
         if (!owner.objects?.length) return false;

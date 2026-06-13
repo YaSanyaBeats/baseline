@@ -562,7 +562,7 @@ export default function CommissionOwnerViewReport({
                             key={section.key}
                             section={section}
                             orderNumber={index + 1}
-                            defaultExpanded={index === 0}
+                            defaultExpanded={false}
                             displayLocale={displayLocale}
                             t={t}
                             headCellSx={headCellSx}

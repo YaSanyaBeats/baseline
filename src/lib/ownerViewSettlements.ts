@@ -1,7 +1,12 @@
-import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { sortRowsByAccountancyCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
+import {
+    OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
+    OWNER_VIEW_SETTLEMENT_CATEGORY_ORDER,
+    ownerBalanceCategoryKind,
+    resolveOwnerBalanceCanonicalCategoryName,
+} from '@/lib/ownerBalanceCategories';
 import { transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import type { AccountancyCategory, Expense, Income } from '@/lib/types';
 
@@ -27,18 +32,6 @@ type PendingSettlementRow = {
     description: string;
     amount: number;
 };
-
-const OWNER_BALANCE_CATEGORIES = new Set([
-    'Начислено владельцу',
-    'Выплата владельцу',
-    'Списано со счёта владельца',
-]);
-
-const OWNER_VIEW_SETTLEMENT_CATEGORY_ORDER = [
-    'Выплата владельцу',
-    'Начислено владельцу',
-    'Списано со счёта владельца',
-] as const;
 
 const SETTLEMENT_LABELS: Record<string, { opening: string; closing: string }> = {
     ru: {
@@ -70,6 +63,28 @@ function lastDayOfMonth(monthKey: string): string {
     const last = new Date(year, month, 0);
     const day = String(last.getDate()).padStart(2, '0');
     return `${monthKey}-${day}`;
+}
+
+/** Дата строки взаиморасчёта в отчёте: 15-е для выплаты, 30-е для начисления и списания. */
+function settlementTransactionDisplayDate(monthKey: string, category: string): string {
+    let day: number;
+    switch (ownerBalanceCategoryKind(category)) {
+        case 'payout':
+            day = 15;
+            break;
+        case 'accrued':
+        case 'debited':
+            day = 30;
+            break;
+        default:
+            day = 1;
+    }
+    const [yearStr, monthStr] = monthKey.split('-');
+    const year = Number(yearStr);
+    const month = Number(monthStr);
+    const lastDay = new Date(year, month, 0).getDate();
+    const effectiveDay = Math.min(day, lastDay);
+    return `${monthKey}-${String(effectiveDay).padStart(2, '0')}`;
 }
 
 function formatSettlementPeriod(reportMonth: string | null | undefined, date: Date | string): string {
@@ -108,11 +123,11 @@ function transactionAmount(record: Income | Expense, type: 'income' | 'expense')
 
 export function ownerSettlementSignedAmount(category: string, amount: number): number {
     const abs = Math.abs(amount);
-    switch (category) {
-        case 'Выплата владельцу':
-        case 'Списано со счёта владельца':
+    switch (ownerBalanceCategoryKind(category)) {
+        case 'payout':
+        case 'debited':
             return -abs;
-        case 'Начислено владельцу':
+        case 'accrued':
             return abs;
         default:
             return amount;
@@ -161,8 +176,8 @@ export function buildOwnerViewSettlementRows(
     const processRecord = (record: Income | Expense, type: 'income' | 'expense') => {
         if (!matchesOwner(record)) return;
 
-        const categoryName = resolveCategoryName(record, categoryNameById);
-        if (!OWNER_BALANCE_CATEGORIES.has(categoryName)) return;
+        const categoryName = resolveOwnerBalanceCanonicalCategoryName(record, categoryNameById);
+        if (!categoryName) return;
 
         const amount = transactionAmount(record, type);
         if (amount === 0) return;
@@ -182,7 +197,7 @@ export function buildOwnerViewSettlementRows(
 
         monthPending.push({
             key: rowKey(record, type),
-            date: String(record.date),
+            date: settlementTransactionDisplayDate(monthKey, categoryName),
             category: categoryName,
             description: settlementDescription(
                 categoryName,
@@ -247,14 +262,19 @@ export function buildOwnerViewSettlementRows(
 }
 
 const OWNER_BALANCE_CATEGORY_PREFIXES = [
-    'Выплата владельцу',
-    'Начислено владельцу',
+    OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
     'Списано со счёта владельца',
+    'Начислено владельцу',
+    'Выплата владельцу',
 ] as const;
 
 function inferSettlementCategory(description: string): string | undefined {
     for (const cat of OWNER_BALANCE_CATEGORY_PREFIXES) {
-        if (description.startsWith(cat)) return cat;
+        if (description.startsWith(cat)) {
+            return cat === 'Списано со счёта владельца'
+                ? OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME
+                : cat;
+        }
     }
     return undefined;
 }
@@ -270,14 +290,15 @@ function inferSettlementKind(row: CommissionOwnerViewSettlementRow): CommissionO
 
 /** Нормализация строк из кэша (sessionStorage) без kind / signedAmount. */
 export function normalizeOwnerViewSettlementRow(
-    row: CommissionOwnerViewSettlementRow
+    row: CommissionOwnerViewSettlementRow,
+    monthKey?: string
 ): CommissionOwnerViewSettlementRow {
     const kind = inferSettlementKind(row);
-    if (row.signedAmount !== undefined && row.kind === kind) {
-        return row;
-    }
 
     if (kind === 'opening' || kind === 'closing') {
+        if (row.signedAmount !== undefined && row.kind === kind) {
+            return row;
+        }
         return {
             ...row,
             kind,
@@ -289,11 +310,20 @@ export function normalizeOwnerViewSettlementRow(
     const signedAmount =
         row.signedAmount ??
         (category != null ? ownerSettlementSignedAmount(category, row.amount) : row.amount);
+    const date =
+        monthKey && category
+            ? settlementTransactionDisplayDate(monthKey, category)
+            : row.date;
+
+    if (row.signedAmount !== undefined && row.kind === kind && date === row.date) {
+        return { ...row, kind: 'transaction', category, signedAmount };
+    }
 
     return {
         ...row,
         kind: 'transaction',
         category,
         signedAmount,
+        date,
     };
 }
