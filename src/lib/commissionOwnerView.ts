@@ -285,7 +285,6 @@ function buildRoomSectionsFromObjectReports(
             categoryNameById,
             categories,
             allExpenses,
-            allIncomes,
             objectReports,
             bookingMeta,
             extraBookings
@@ -340,8 +339,6 @@ function normalizeRoomSection(raw: Record<string, unknown>): CommissionOwnerView
                             isIncome: false,
                             includeInCommissionShare: true,
                             hasCommissionDeduction: false,
-                            guestSubtransactionsTotal: null,
-                            isSubtransaction: false,
                         })),
                     },
                 ]

@@ -36,15 +36,6 @@ function transactionLineTotal(record: { quantity?: number; amount?: number }): n
     return (record.quantity ?? 1) * (record.amount ?? 0);
 }
 
-function normalizeMongoId(value: unknown): string {
-    if (value == null) return '';
-    return String(value).trim();
-}
-
-function hasParentTransaction(record: { parentExpenseId?: string | null; parentIncomeId?: string | null }): boolean {
-    return normalizeMongoId(record.parentExpenseId) !== '' || normalizeMongoId(record.parentIncomeId) !== '';
-}
-
 function incomeLineKey(i: Income, line: number): string {
     return i._id ?? `inc-${i.bookingId ?? 'u'}-${String(i.date)}-${i.category}-${line}`;
 }
@@ -117,7 +108,6 @@ export function buildOwnerViewIncomeGroupsForRoom(
     for (const income of allIncomes) {
         if (income.objectId !== objectReport.objectId) continue;
         if (!incomeInReportMonth(income, monthKey)) continue;
-        if (hasParentTransaction(income)) continue;
 
         const categoryName = resolveCategoryName(income, categoryNameById);
         const lineTotal = transactionLineTotal(income);
@@ -141,7 +131,9 @@ export function buildOwnerViewIncomeGroupsForRoom(
             continue;
         }
 
-        if (!transactionMatchesOwnerRooms(income.roomName, objectReport.roomsForObject)) continue;
+        if (!transactionMatchesOwnerRooms(income.roomName, objectReport.roomsForObject, roomName)) {
+            continue;
+        }
 
         const subgroup = resolveNoBookingSubgroupForTransaction(
             income.categoryId,

@@ -710,7 +710,7 @@
       "ownerViewViewTransactions": "View transactions",
       "ownerTableIncomes": "Incomes",
       "ownerTableExpenses": "Expenses",
-      "ownerTableEarnings": "Earnings",
+      "ownerTableEarnings": "Monthly results by object",
       "ownerTableSettlements": "Mutual settlements (Owner balance)",
       "ownerNoSettlements": "No mutual settlements for the selected month",
       "ownerColArrival": "Arrival date",

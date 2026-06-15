@@ -709,7 +709,7 @@
       "ownerViewViewTransactions": "Смотреть транзакции",
       "ownerTableIncomes": "Приходы",
       "ownerTableExpenses": "Расходы",
-      "ownerTableEarnings": "Доходы",
+      "ownerTableEarnings": "Результаты месяца по объекту",
       "ownerTableSettlements": "Взаиморасчёты (Баланс владельца)",
       "ownerNoSettlements": "Нет взаиморасчётов за выбранный месяц",
       "ownerColArrival": "Дата заезда",
