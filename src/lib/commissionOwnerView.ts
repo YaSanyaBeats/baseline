@@ -285,6 +285,7 @@ function buildRoomSectionsFromObjectReports(
             categoryNameById,
             categories,
             allExpenses,
+            allIncomes,
             objectReports,
             bookingMeta,
             extraBookings

@@ -356,11 +356,11 @@ function RoomEarningsTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(
-        filterExpenseGroupsForDisplay(section.expenseGroups)
-    );
-    const earningsNet = section.totals.totalIncome + expenseColumnTotal;
-
+    const expenseGroups = filterExpenseGroupsForDisplay(section.expenseGroups);
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
+    const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(expenseGroups, 'agency');
+    const expensesIncludingAgency = expenseColumnTotal + agencyExpenseColumnTotal;
+    const earningsNet = section.totals.totalIncome + expensesIncludingAgency;
     return (
         <Paper variant="outlined" sx={{ overflow: 'hidden', maxWidth: 480 }}>
             <Typography variant="subtitle1" sx={{ ...headCellSx('info.dark'), px: 2, py: 1 }}>
@@ -379,7 +379,7 @@ function RoomEarningsTable({
                             {t('accountancy.commission.ownerEarningsRowExpenses')}
                         </TableCell>
                         <TableCell align="right">
-                            {formatAmount(-expenseColumnTotal, locale)}
+                            {formatAmount(-expensesIncludingAgency, locale)}
                         </TableCell>
                     </TableRow>
                     <TableRow sx={{ bgcolor: 'action.hover' }}>
