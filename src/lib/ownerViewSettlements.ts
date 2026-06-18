@@ -76,6 +76,10 @@ function settlementTransactionDisplayDate(monthKey: string, category: string): s
         case 'debited':
             day = 30;
             break;
+        case 'openingPositive':
+        case 'openingNegative':
+            day = 1;
+            break;
         default:
             day = 1;
     }
@@ -126,8 +130,10 @@ export function ownerSettlementSignedAmount(category: string, amount: number): n
     switch (ownerBalanceCategoryKind(category)) {
         case 'payout':
         case 'debited':
+        case 'openingNegative':
             return -abs;
         case 'accrued':
+        case 'openingPositive':
             return abs;
         default:
             return amount;
@@ -266,6 +272,8 @@ const OWNER_BALANCE_CATEGORY_PREFIXES = [
     'Списано со счёта владельца',
     'Начислено владельцу',
     'Выплата владельцу',
+    'Остаток на начало (положительный)',
+    'Остаток на начало (отрицательный)',
 ] as const;
 
 function inferSettlementCategory(description: string): string | undefined {
