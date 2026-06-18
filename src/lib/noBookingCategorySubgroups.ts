@@ -2,6 +2,7 @@
  * Подгруппы операций «Без брони» по полю noBookingSubgroupId категории (accountancyCategories).
  */
 
+import { getNoBookingSubgroupCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
 import type { AccountancyCategory, NoBookingSubgroupId } from '@/lib/types';
 
 export type { NoBookingSubgroupId };
@@ -41,6 +42,18 @@ function findCategoryForTransaction(
     return undefined;
 }
 
+function resolveSubgroupFromCategoryOrder(categoryName: string): NoBookingSubgroupId | null {
+    const name = categoryName.trim();
+    if (!name) return null;
+    for (const sid of NO_BOOKING_SUBGROUP_ORDER) {
+        if (sid === 'other') continue;
+        if ((getNoBookingSubgroupCategoryOrder(sid) as readonly string[]).includes(name)) {
+            return sid;
+        }
+    }
+    return null;
+}
+
 /**
  * Подгруппа «Без брони» для транзакции по полю noBookingSubgroupId категории; иначе «Прочее».
  */
@@ -51,8 +64,11 @@ export function resolveNoBookingSubgroupForTransaction(
 ): NoBookingSubgroupId {
     const cat = findCategoryForTransaction(categoryId, categoryName, categories);
     if (cat != null && Object.prototype.hasOwnProperty.call(cat, 'noBookingSubgroupId')) {
-        return cat.noBookingSubgroupId ?? 'other';
+        const subgroup = cat.noBookingSubgroupId ?? 'other';
+        if (subgroup !== 'other') return subgroup;
     }
+    const fromOrder = resolveSubgroupFromCategoryOrder((categoryName ?? '').trim());
+    if (fromOrder) return fromOrder;
     return 'other';
 }
 

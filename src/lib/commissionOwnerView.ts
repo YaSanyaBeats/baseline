@@ -11,6 +11,8 @@ import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/o
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
 import {
     buildOwnerViewExpenseGroupsForRoom,
+    isExcludedOwnerViewExpenseCategory,
+    isOwnerViewRoomExpenseSubgroup,
     sumOwnerViewExpenseShares,
     type CommissionOwnerViewExpenseGroup,
 } from '@/lib/ownerViewExpenses';
@@ -165,19 +167,23 @@ function incomeLineTotal(i: Income): number {
     return (i.quantity ?? 1) * (i.amount ?? 0);
 }
 
-function resolveBookingMetaForIncome(
-    income: Income,
+function expenseLineTotal(e: Expense): number {
+    return (e.quantity ?? 1) * (e.amount ?? 0);
+}
+
+function resolveBookingMetaForRecord(
+    record: { bookingId?: number | null; objectId: number },
     objectReports: ObjectCommissionResult[],
     bookingMeta: Map<number, BookingMeta>,
     extraBookings: Booking[]
 ): BookingMeta | null {
-    if (income.bookingId == null) return null;
+    if (record.bookingId == null) return null;
 
-    const existing = bookingMeta.get(income.bookingId);
+    const existing = bookingMeta.get(record.bookingId);
     if (existing) return existing;
 
-    const objectReport = objectReports.find((r) => r.objectId === income.objectId);
-    const booking = extraBookings.find((b) => b.id === income.bookingId);
+    const objectReport = objectReports.find((r) => r.objectId === record.objectId);
+    const booking = extraBookings.find((b) => b.id === record.bookingId);
     if (!objectReport || !booking) return null;
 
     return {
@@ -187,6 +193,15 @@ function resolveBookingMetaForIncome(
         objectName: objectReport.objectName,
         roomsForObject: objectReport.roomsForObject,
     };
+}
+
+function resolveBookingMetaForIncome(
+    income: Income,
+    objectReports: ObjectCommissionResult[],
+    bookingMeta: Map<number, BookingMeta>,
+    extraBookings: Booking[]
+): BookingMeta | null {
+    return resolveBookingMetaForRecord(income, objectReports, bookingMeta, extraBookings);
 }
 
 function buildRoomSectionsFromObjectReports(
@@ -260,6 +275,44 @@ function buildRoomSectionsFromObjectReports(
 
         if (!transactionMatchesOwnerRooms(income.roomName, objectReport.roomsForObject)) continue;
         const roomName = (income.roomName ?? '').trim() || '—';
+        if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) continue;
+        getBucket(objectReport.objectId, objectReport.objectName, roomName);
+    }
+
+    for (const expense of allExpenses) {
+        if (!ownerObjectIds.has(expense.objectId)) continue;
+        if (!incomeInReportMonth(expense, monthKey)) continue;
+        if (expenseLineTotal(expense) === 0) continue;
+
+        const objectReport = objectReports.find((r) => r.objectId === expense.objectId);
+        if (!objectReport) continue;
+
+        const categoryName = resolveCategoryName(expense, categoryNameById);
+        if (isExcludedOwnerViewExpenseCategory(categoryName)) continue;
+
+        const subgroup = resolveNoBookingSubgroupForTransaction(
+            expense.categoryId,
+            categoryName,
+            categories
+        );
+        if (!isOwnerViewRoomExpenseSubgroup(subgroup)) continue;
+
+        if (expense.bookingId != null) {
+            const meta = resolveBookingMetaForRecord(
+                expense,
+                objectReports,
+                bookingMeta,
+                extraBookings
+            );
+            if (!meta) continue;
+            const roomName = roomLabelForBooking(meta.booking, meta.roomsForObject);
+            if (!isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
+            getBucket(meta.objectId, meta.objectName, roomName);
+            continue;
+        }
+
+        if (!transactionMatchesOwnerRooms(expense.roomName, objectReport.roomsForObject)) continue;
+        const roomName = (expense.roomName ?? '').trim() || '—';
         if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) continue;
         getBucket(objectReport.objectId, objectReport.objectName, roomName);
     }

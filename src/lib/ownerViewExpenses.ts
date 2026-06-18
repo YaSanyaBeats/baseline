@@ -14,7 +14,10 @@ import {
 } from '@/lib/commissionCalculation';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
-import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
+import {
+    resolveNoBookingSubgroupForTransaction,
+    type NoBookingSubgroupId,
+} from '@/lib/noBookingCategorySubgroups';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
 
@@ -87,6 +90,14 @@ function transactionLineTotal(record: { quantity?: number; amount?: number }): n
 
 function isExcludedExpenseCategory(categoryName: string): boolean {
     return EXCLUDED_EXPENSE_CATEGORIES.has(categoryName.trim());
+}
+
+export function isExcludedOwnerViewExpenseCategory(categoryName: string): boolean {
+    return isExcludedExpenseCategory(categoryName);
+}
+
+export function isOwnerViewRoomExpenseSubgroup(subgroup: NoBookingSubgroupId): boolean {
+    return subgroup === 'common' || subgroup === 'guest' || subgroup === 'owner';
 }
 
 function getManagementPercentForBooking(
