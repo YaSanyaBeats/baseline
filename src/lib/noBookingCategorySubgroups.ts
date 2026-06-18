@@ -3,6 +3,11 @@
  */
 
 import { getNoBookingSubgroupCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
+import {
+    OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME,
+    OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
+    OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME,
+} from '@/lib/ownerBalanceCategories';
 import type { AccountancyCategory, NoBookingSubgroupId } from '@/lib/types';
 
 export type { NoBookingSubgroupId };
@@ -72,18 +77,18 @@ export function resolveNoBookingSubgroupForTransaction(
     return 'other';
 }
 
-/** Не входят в суммы таблицы «Баланс по комнатам объекта» за период и в накопление остатка на начало (см. порог месяца ниже). */
-const ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES = new Set([
-    'Выплата владельцу',
-    'Остаток на начало (отрицательный)',
-    'Остаток на начало (положительный)',
+/** Не входят в общий баланс комнаты (ни в период, ни в накопление «остатка на начало»). */
+const ACCOUNTANCY_ROOM_STATS_ALWAYS_EXCLUDED_CATEGORIES = new Set([
+    OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
+    OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME,
 ]);
 
-/** YYYY-MM: перечисленные категории исключаются из суммы только для проводок со строго большим месяцем (т.е. с 2026-01). */
+/** YYYY-MM: «Выплата владельцу» исключается из суммы только для проводок со строго большим месяцем (т.е. с 2026-01). */
 export const ACCOUNTANCY_ROOM_STATS_EXCLUSION_AFTER_MONTH = '2025-12';
 
 /**
- * Исключение из суммы баланса по комнате для «Выплата владельцу» и остатков на начало — только после декабря 2025.
+ * Исключение из суммы баланса по комнате.
+ * «Остаток на начало (±)» — всегда; «Выплата владельцу» — только после декабря 2025.
  * @param ledgerMonth YYYY-MM как в ledgerMonthFromRecord (отчётный месяц или по дате операции).
  */
 export function isExcludedFromAccountancyRoomStatsSum(
@@ -91,7 +96,11 @@ export function isExcludedFromAccountancyRoomStatsSum(
     ledgerMonth: string | null | undefined,
 ): boolean {
     const n = (categoryName ?? '').trim();
-    if (n === '' || !ACCOUNTANCY_ROOM_STATS_EXCLUDED_CATEGORIES.has(n)) return false;
+    if (n === '') return false;
+
+    if (ACCOUNTANCY_ROOM_STATS_ALWAYS_EXCLUDED_CATEGORIES.has(n)) return true;
+
+    if (n !== OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME) return false;
 
     const lm = (ledgerMonth ?? '').trim();
     if (!/^\d{4}-\d{2}$/.test(lm)) return false;
