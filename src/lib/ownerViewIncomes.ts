@@ -6,15 +6,9 @@ import {
 import { joinBookingGroupSegments, buildBookingGroupLineModel } from '@/lib/bookingGroupLine';
 import { incomeInReportMonth } from '@/lib/commissionCalculation';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
-import { normalizeMongoIdString } from '@/lib/mongoId';
 import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
 import type { AccountancyCategory, Booking, Income, NoBookingSubgroupId } from '@/lib/types';
-
-/** Категории приходов, отображаемые в таблице, но не входящие в «Итого». */
-export const OWNER_VIEW_INCOME_TOTAL_EXCLUDED_CATEGORY_IDS = new Set([
-    '6989ec3782886b7142faa382',
-]);
 
 export type CommissionOwnerViewIncomeLine = {
     key: string;
@@ -22,8 +16,6 @@ export type CommissionOwnerViewIncomeLine = {
     quantity: number;
     unitPrice: number;
     lineTotal: number;
-    /** Не учитывать строку в итоге таблицы «Приходы». */
-    excludeFromIncomeTotal?: boolean;
 };
 
 export type CommissionOwnerViewIncomeGroup = {
@@ -94,11 +86,6 @@ function bookingGroupLabel(booking: Booking): string {
     return joinBookingGroupSegments(buildBookingGroupLineModel(booking).segments);
 }
 
-function isExcludedFromOwnerViewIncomeTotal(income: Income): boolean {
-    const categoryId = normalizeMongoIdString(income.categoryId);
-    return categoryId !== '' && OWNER_VIEW_INCOME_TOTAL_EXCLUDED_CATEGORY_IDS.has(categoryId);
-}
-
 export function ensureHolyCowIncomeLineInGroups(
     incomeGroups: CommissionOwnerViewIncomeGroup[],
     syntheticAmount: number,
@@ -114,7 +101,6 @@ export function ensureHolyCowIncomeLineInGroups(
         quantity: 1,
         unitPrice: syntheticAmount,
         lineTotal: syntheticAmount,
-        excludeFromIncomeTotal: true,
     };
 
     if (hcGroup) {
@@ -201,7 +187,6 @@ export function buildOwnerViewIncomeGroupsForRoom(
                 quantity: income.quantity ?? 1,
                 unitPrice: income.amount ?? 0,
                 lineTotal,
-                excludeFromIncomeTotal: isExcludedFromOwnerViewIncomeTotal(income),
                 bookingId: income.bookingId,
                 sortDate: String(income.date),
             });
@@ -225,7 +210,6 @@ export function buildOwnerViewIncomeGroupsForRoom(
             quantity: income.quantity ?? 1,
             unitPrice: income.amount ?? 0,
             lineTotal,
-            excludeFromIncomeTotal: isExcludedFromOwnerViewIncomeTotal(income),
             bookingId: null,
             sortDate: String(income.date),
             noBookingSubgroup: subgroup,
@@ -299,12 +283,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
 
 export function sumOwnerViewIncomeTableTotal(groups: CommissionOwnerViewIncomeGroup[]): number {
     return groups.reduce(
-        (sum, g) =>
-            sum +
-            g.lines.reduce(
-                (s, line) => (line.excludeFromIncomeTotal ? s : s + line.lineTotal),
-                0
-            ),
+        (sum, g) => sum + g.lines.reduce((s, line) => s + line.lineTotal, 0),
         0
     );
 }
