@@ -2,6 +2,8 @@ import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY } from '@/lib/accountancyOperationGroupCategoryOrder';
 import {
     buildOwnerViewIncomeGroupsForRoom,
+    ensureHolyCowIncomeLineInGroups,
+    resolveHolyCowExpenseShareIncomeCategoryName,
     sumOwnerViewIncomeTableTotal,
     type CommissionOwnerViewIncomeGroup,
 } from '@/lib/ownerViewIncomes';
@@ -342,6 +344,12 @@ function buildRoomSectionsFromObjectReports(
             objectReports,
             bookingMeta,
             extraBookings
+        );
+        ensureHolyCowIncomeLineInGroups(
+            bucket.incomeGroups,
+            sumOwnerViewExpenseShares(bucket.expenseGroups),
+            resolveHolyCowExpenseShareIncomeCategoryName(categories, categoryNameById),
+            monthKey,
         );
     }
 

@@ -106,6 +106,11 @@ import {
     type BookingGroupLineModel,
 } from "@/lib/bookingGroupLine";
 import {
+    buildParentSubtransactionTotals,
+    commissionSubtransactionTotalForParent,
+    holyCowShareFromLineTotal,
+} from "@/lib/holyCowExpenseShareCalculation";
+import {
     NO_BOOKING_SUBGROUP_ORDER,
     isExcludedFromAccountancyRoomStatsSum,
     resolveNoBookingSubgroupForTransaction,
@@ -143,14 +148,22 @@ function normalizeStoredRoomFilter(
     if (raw === 'all' || raw === null || raw === undefined || raw === '') return 'all';
     if (typeof raw === 'number' && Number.isFinite(raw)) {
         const row = rooms.find((r) => r.id === raw);
-        return row ? stableAccountancyRoomLabel(row) : 'all';
+        return row ? stableAccountancyRoomLabel(row) : String(raw);
     }
     const s = String(raw);
     if (/^\d+$/.test(s)) {
         const row = rooms.find((r) => r.id === Number(s));
-        return row ? stableAccountancyRoomLabel(row) : 'all';
+        return row ? stableAccountancyRoomLabel(row) : s;
     }
     return s;
+}
+
+function roomsForStoredAccountancyObject(
+    objects: { id: number; name: string; roomTypes?: { id: number; name?: string }[] }[],
+    objectId: number | 'all',
+): { id: number; name?: string }[] {
+    if (objectId === 'all') return [];
+    return mergeRoomsForAccountancyObjectGroup(getAccountancyObjectGroupMembers(objects, objectId));
 }
 
 /** YYYY-MM-DD по локальному календарю — границы периода и даты операций без сдвига UTC. */
@@ -623,12 +636,23 @@ export default function Page() {
         setDateFrom(s.dateFrom);
         setDateTo(s.dateTo);
         setSelectedMonth(s.selectedMonth);
-        const obj = s.selectedObjectId !== 'all' ? objects.find((o) => o.id === s.selectedObjectId) : null;
-        const rooms = obj?.roomTypes ?? [];
+        const rooms = roomsForStoredAccountancyObject(objects, s.selectedObjectId);
         setSelectedRoomId(normalizeStoredRoomFilter(s.selectedRoomIdRaw, rooms));
         overviewFiltersLoadedRef.current = true;
         setFiltersHydrated(true);
     }, [objects]);
+
+    /** Legacy numeric room id → стабильное имя, когда подгрузились комнаты группы объекта. */
+    useEffect(() => {
+        if (!filtersHydrated || selectedRoomId === 'all') return;
+        if (!/^\d+$/.test(selectedRoomId)) return;
+        const rooms = roomsForStoredAccountancyObject(objects, selectedObjectId);
+        if (rooms.length === 0) return;
+        const row = rooms.find((r) => r.id === Number(selectedRoomId));
+        if (!row) return;
+        const label = stableAccountancyRoomLabel(row);
+        if (label !== selectedRoomId) setSelectedRoomId(label);
+    }, [filtersHydrated, selectedObjectId, selectedRoomId, objects]);
 
     useEffect(() => {
         if (!filtersHydrated) return;
@@ -1575,23 +1599,57 @@ export default function Page() {
                 (row) =>
                     row.type === 'expense' &&
                     row.bookingId != null &&
+                    !row.parentTransaction &&
                     row.includeInSynthetic !== false &&
                     row.category !== 'Комиссия за управление' &&
                     row.category !== BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
             );
-            const commonExpenseRows = noneRows.filter((row) => {
+            const noBookingHolyCowRows = noneRows.filter((row) => {
+                if (row.type !== 'expense' || row.parentTransaction) return false;
                 const sid = resolveNoBookingSubgroupForTransaction(
                     row.categoryId,
                     row.category,
                     allCategories,
                 );
-                return sid === 'common' && row.includeInSynthetic !== false;
+                if (sid !== 'common' && sid !== 'guest') return false;
+                return row.includeInSynthetic !== false;
             });
+
+            const parentExpenseIdsInHolyCowScope = new Set(
+                [...bookingExpenseRows, ...noBookingHolyCowRows]
+                    .map((row) => normalizeMongoIdString(row.entityId).trim())
+                    .filter(Boolean),
+            );
+            const subtransactionTotals = buildParentSubtransactionTotals(
+                expenses,
+                incomes,
+                (record) => {
+                    if (!selectedObject) return false;
+                    if (!recordObjectMatchesAccountancySelection(record.objectId, selectedObject, objects)) {
+                        return false;
+                    }
+                    if (
+                        !recordMatchesReportPeriod(
+                            record.date,
+                            record.reportMonth,
+                            reportMonthsInFilter,
+                            isDateInRange,
+                        )
+                    ) {
+                        return false;
+                    }
+                    const parentId = normalizeMongoIdString(record.parentExpenseId).trim();
+                    return parentId !== '' && parentExpenseIdsInHolyCowScope.has(parentId);
+                },
+                categoryNameById,
+            );
+
             let bookingExpenseShare = 0;
             const bookingShareLineItems = bookingExpenseRows.map((row) => {
                 const bid = row.bookingId!;
                 const percent = getPercentForBooking(bid);
-                const share = row.amount * (percent / 100);
+                const subTotal = commissionSubtransactionTotalForParent(row.entityId, subtransactionTotals);
+                const share = holyCowShareFromLineTotal(Math.abs(row.amount), subTotal, percent);
                 bookingExpenseShare += share;
                 return {
                     kind: 'expense' as const,
@@ -1603,11 +1661,12 @@ export default function Page() {
                 };
             });
 
-            let commonExpenseShare = 0;
-            const commonExpenseShareLineItems = commonExpenseRows.map((row) => {
+            let noBookingExpenseShare = 0;
+            const noBookingShareLineItems = noBookingHolyCowRows.map((row) => {
                 const percent = operationRowCommissionPercent(row);
-                const share = row.amount * (percent / 100);
-                commonExpenseShare += share;
+                const subTotal = commissionSubtransactionTotalForParent(row.entityId, subtransactionTotals);
+                const share = holyCowShareFromLineTotal(Math.abs(row.amount), subTotal, percent);
+                noBookingExpenseShare += share;
                 return {
                     kind: row.type,
                     id: row.entityId || row.id,
@@ -1617,7 +1676,7 @@ export default function Page() {
                     comment: row.comment,
                 };
             });
-            const rawAmount = bookingExpenseShare + commonExpenseShare;
+            const rawAmount = bookingExpenseShare + noBookingExpenseShare;
             const amount = Math.abs(rawAmount);
             const [cy, cm] = commissionCalculationMonthKey.split('-').map(Number);
             const lastDay = new Date(cy, cm, 0);
@@ -1630,24 +1689,24 @@ export default function Page() {
                     {
                         description: 'Доля от расходов по броням (× процент каждой брони)',
                         value: bookingExpenseShare,
-                        formula: 'Σ (расход × % комиссии брони) по каждой транзакции',
+                        formula: 'Σ ((расход − подтранзакции) × % комиссии брони) по каждой транзакции',
                         lineItems: bookingShareLineItems,
                     },
                     {
-                        description: 'Общие расходы (× % комиссии)',
-                        value: commonExpenseShare,
-                        formula: 'Σ (транзакция «Общие расходы» × % из Select)',
-                        lineItems: commonExpenseShareLineItems,
+                        description: 'Общие и гостевые расходы (× % комиссии)',
+                        value: noBookingExpenseShare,
+                        formula: 'Σ ((сумма − подтранзакции) × % из Select) по «Общие» и «Расходы гостя»',
+                        lineItems: noBookingShareLineItems,
                     },
                     {
                         description: HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
                         value: amount,
-                        formula: `|${bookingExpenseShare.toFixed(2)} + ${commonExpenseShare.toFixed(2)}| = ${amount.toFixed(2)}`,
+                        formula: `|${bookingExpenseShare.toFixed(2)} + ${noBookingExpenseShare.toFixed(2)}| = ${amount.toFixed(2)}`,
                     },
                 ],
                 commission: amount,
                 income: 0,
-                totalExpenses: bookingExpenseShare + commonExpenseShare,
+                totalExpenses: bookingExpenseShare + noBookingExpenseShare,
                 otaCoAgentExpenses: 0,
                 divisibleExpenses: 0,
                 indivisibleExpenses: 0,
@@ -1693,6 +1752,12 @@ export default function Page() {
         bookingAutoCommissionByBookingId,
         commissionRatesByBookingId,
         allCategories,
+        expenses,
+        incomes,
+        objects,
+        categoryNameById,
+        reportMonthsInFilter,
+        isDateInRange,
     ]);
 
     const toggleOperationGroupCollapsed = (groupKey: string) => {
@@ -3154,6 +3219,7 @@ export default function Page() {
     }, [selectedObjectId, selectedRoomId]);
 
     const handleRoomFilterChange = useCallback((value: UserObject[]) => {
+        if (!filtersHydrated) return;
         startTransition(() => {
             if (!value.length || !value[0].rooms.length) {
                 setSelectedObjectId('all');
@@ -3163,7 +3229,7 @@ export default function Page() {
             setSelectedObjectId(value[0].id);
             setSelectedRoomId(String(value[0].rooms[0]));
         });
-    }, []);
+    }, [filtersHydrated]);
 
     if (!hasAccess) {
         return (
