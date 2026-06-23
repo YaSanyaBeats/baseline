@@ -43,6 +43,7 @@ import {
     Booking,
     Expense,
     Income,
+    Object as Obj,
     type BookingManagementCommissionRate,
     type UserObject,
 } from "@/lib/types";
@@ -159,7 +160,7 @@ function normalizeStoredRoomFilter(
 }
 
 function roomsForStoredAccountancyObject(
-    objects: { id: number; name: string; roomTypes?: { id: number; name?: string }[] }[],
+    objects: Obj[],
     objectId: number | 'all',
 ): { id: number; name?: string }[] {
     if (objectId === 'all') return [];
