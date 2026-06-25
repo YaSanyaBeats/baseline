@@ -12,7 +12,7 @@ const { EJSON } = require('bson');
 
 // --- настройки: отредактируйте под себя ---
 
-const DATA_DIR = 'C:\\Users\\alexa\\OneDrive\\Рабочий стол\\backup-in-nsk\\20260612_042332';
+const DATA_DIR = 'C:\\Users\\Александр\\Desktop\\baseline_backup\\20260623_072034';
 const MONGO_URI =
   'mongodb://localhost:27017/';
 const DB_NAME = 'baseline';

@@ -61,7 +61,7 @@ export default function ExpenseEditForm({
     notFoundRedirect,
     requireMatchingUserCashflow = false,
 }: ExpenseEditFormProps) {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const router = useRouter();
     const params = useParams();
     const expenseId = params?.id as string;
@@ -458,10 +458,10 @@ export default function ExpenseEditForm({
                                     }));
                                 }}
                             >
-                                {buildCategoriesForSelect(categories, 'expense').map((item) => (
+                                {buildCategoriesForSelect(categories, 'expense', { language }).map((item) => (
                                     <MenuItem key={item.id} value={item.id}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                        {item.name}
+                                        {item.label}
                                     </MenuItem>
                                 ))}
                             </Select>

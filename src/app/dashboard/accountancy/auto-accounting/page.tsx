@@ -43,6 +43,7 @@ import {
 } from '@/lib/autoAccounting';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import type { AccountancyCategory } from '@/lib/types';
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import type { AutoAccountingRule as AutoRule, AutoAccountingAmountSource, AutoAccountingQuantitySource } from '@/lib/types';
 import { getCounterparties } from '@/lib/counterparties';
@@ -63,13 +64,20 @@ const PERIOD_OPTIONS: { value: AutoRule['period']; labelKey: string }[] = [
 ];
 
 export default function AutoAccountingPage() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
     const { objects } = useObjects();
     const { setSnackbar } = useSnackbar();
     const [rules, setRules] = useState<AutoRule[]>([]);
-    const [expenseCategories, setExpenseCategories] = useState<{ id: string; name: string; depth: number }[]>([]);
-    const [incomeCategories, setIncomeCategories] = useState<{ id: string; name: string; depth: number }[]>([]);
+    const [allCategories, setAllCategories] = useState<AccountancyCategory[]>([]);
+    const expenseCategories = useMemo(
+        () => buildCategoriesForSelect(allCategories, 'expense', { language }),
+        [allCategories, language],
+    );
+    const incomeCategories = useMemo(
+        () => buildCategoriesForSelect(allCategories, 'income', { language }),
+        [allCategories, language],
+    );
     const [unprocessedCount, setUnprocessedCount] = useState<number>(0);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [cashflows, setCashflows] = useState<{ _id: string; name: string }[]>([]);
@@ -140,10 +148,7 @@ export default function AutoAccountingPage() {
             loadRules(),
             loadStatus(),
         ]).then(([categories, cps, cfs, usersCf]) => {
-            const expense = buildCategoriesForSelect(categories, 'expense');
-            const income = buildCategoriesForSelect(categories, 'income');
-            setExpenseCategories(expense);
-            setIncomeCategories(income);
+            setAllCategories(categories);
             setCounterparties(cps.map((c) => ({ _id: c._id!, name: c.name })));
             setCashflows(cfs.map((c) => ({ _id: c._id!, name: c.name })));
             setUsersWithCashflow(usersCf);
@@ -158,8 +163,8 @@ export default function AutoAccountingPage() {
     const categoriesByType = form.ruleType === 'expense' ? expenseCategories : incomeCategories;
     const categoryNameById = useMemo(() => {
         const map = new Map<string, string>();
-        for (const c of expenseCategories) map.set(c.id, c.name);
-        for (const c of incomeCategories) map.set(c.id, c.name);
+        for (const c of expenseCategories) map.set(c.id, c.label);
+        for (const c of incomeCategories) map.set(c.id, c.label);
         return map;
     }, [expenseCategories, incomeCategories]);
 
@@ -683,7 +688,7 @@ export default function AutoAccountingPage() {
                             >
                                 {categoriesByType.map((c) => (
                                     <MenuItem key={c.id} value={c.id}>
-                                        {'\u00A0'.repeat(c.depth * 2)}{c.name}
+                                        {'\u00A0'.repeat(c.depth * 2)}{c.label}
                                     </MenuItem>
                                 ))}
                             </Select>
@@ -827,6 +832,11 @@ export default function AutoAccountingPage() {
                                                 usersWithCashflow,
                                                 cashflows,
                                                 t('accountancy.sourceRecipientRoomFromBooking'),
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                language,
                                             )}
                                         </TableCell>
                                         <TableCell>
@@ -837,6 +847,11 @@ export default function AutoAccountingPage() {
                                                 usersWithCashflow,
                                                 cashflows,
                                                 t('accountancy.sourceRecipientRoomFromBooking'),
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                language,
                                             )}
                                         </TableCell>
                                         <TableCell>{resolveCategoryName(r, categoryNameById)}</TableCell>

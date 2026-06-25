@@ -13,6 +13,7 @@ export const COMPANY_OBJECT_ID = -1;
 export interface InternalObjectRoom {
     id: number;
     name: string;
+    nameEn?: string | null;
 }
 
 export interface InternalObject {
@@ -141,26 +142,53 @@ export async function removeCompanyBranch(branchId: number) {
 }
 
 /**
- * Переименовывает филиал объекта "HolyCowPhuket внутренний объект"
+ * Обновляет филиал объекта "HolyCowPhuket внутренний объект"
  */
-export async function renameCompanyBranch(branchId: number, newName: string) {
+export async function updateCompanyBranch(
+    branchId: number,
+    updates: { name?: string; nameEn?: string | null },
+) {
     const db = await getDB();
     const collection = db.collection('internalObjects');
 
-    await collection.updateOne(
-        { 
-            id: COMPANY_OBJECT_ID,
-            'roomTypes.0.units.id': branchId
-        },
-        {
-            $set: {
-                'roomTypes.0.units.$.name': newName
-            }
+    const setDoc: Record<string, unknown> = {};
+    const unsetDoc: Record<string, ''> = {};
+
+    if (typeof updates.name === 'string' && updates.name.trim()) {
+        setDoc['roomTypes.0.units.$[b].name'] = updates.name.trim();
+    }
+    if (Object.prototype.hasOwnProperty.call(updates, 'nameEn')) {
+        const raw = updates.nameEn;
+        if (raw == null || String(raw).trim() === '') {
+            unsetDoc['roomTypes.0.units.$[b].nameEn'] = '';
+        } else {
+            setDoc['roomTypes.0.units.$[b].nameEn'] = String(raw).trim();
         }
+    }
+
+    if (Object.keys(setDoc).length === 0 && Object.keys(unsetDoc).length === 0) {
+        return {
+            success: true,
+            message: 'Филиал без изменений',
+        };
+    }
+
+    await collection.updateOne(
+        { id: COMPANY_OBJECT_ID },
+        {
+            ...(Object.keys(setDoc).length > 0 ? { $set: setDoc } : {}),
+            ...(Object.keys(unsetDoc).length > 0 ? { $unset: unsetDoc } : {}),
+        },
+        { arrayFilters: [{ 'b.id': branchId }] },
     );
 
-    return { 
-        success: true, 
-        message: 'Филиал успешно переименован'
+    return {
+        success: true,
+        message: 'Филиал успешно обновлён',
     };
+}
+
+/** @deprecated Используйте updateCompanyBranch */
+export async function renameCompanyBranch(branchId: number, newName: string) {
+    return updateCompanyBranch(branchId, { name: newName });
 }

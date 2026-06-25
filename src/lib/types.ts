@@ -7,6 +7,8 @@ export type ObjectType = 'apartments' | 'villa';
 export interface Room {
     id: number;
     name: string;
+    /** Альтернативное название для английского интерфейса (филиалы внутренних объектов) */
+    nameEn?: string | null;
     // Для админа: список пользователей, у которых есть доступ к этой комнате
     accessUsers?: string[];
     // Метаданные из objectRoomMetadata (редактируемые)
@@ -529,6 +531,8 @@ export type NoBookingSubgroupId = 'common' | 'guest' | 'hc' | 'owner' | 'mutual'
 export interface AccountancyCategory {
     _id?: string;
     name: string;
+    /** Альтернативное название для английского интерфейса */
+    nameEn?: string | null;
     type: AccountancyCategoryType;
     parentId?: string | null;           // ID родительской категории (null = корневая)
     order?: number;                     // Порядок отображения среди siblings

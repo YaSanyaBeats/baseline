@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
-import { addCompanyBranch, removeCompanyBranch, renameCompanyBranch } from '@/lib/server/internalObjects';
+import { addCompanyBranch, removeCompanyBranch, updateCompanyBranch } from '@/lib/server/internalObjects';
 
 /**
  * API для управления филиалами объекта "HolyCowPhuket внутренний объект"
@@ -108,16 +108,42 @@ export async function PUT(request: NextRequest) {
         }
 
         const body = await request.json();
-        const { branchId, newName } = body;
+        const { branchId, newName, nameEn } = body;
 
-        if (typeof branchId !== 'number' || !newName || typeof newName !== 'string' || newName.trim().length === 0) {
+        if (typeof branchId !== 'number') {
             return NextResponse.json(
                 { success: false, message: 'Некорректные параметры запроса' },
-                { status: 400 }
+                { status: 400 },
             );
         }
 
-        const result = await renameCompanyBranch(branchId, newName.trim());
+        const updates: { name?: string; nameEn?: string | null } = {};
+        if (typeof newName === 'string' && newName.trim()) {
+            updates.name = newName.trim();
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'nameEn')) {
+            updates.nameEn =
+                nameEn == null || nameEn === ''
+                    ? null
+                    : typeof nameEn === 'string'
+                      ? nameEn.trim()
+                      : undefined;
+            if (updates.nameEn === undefined && Object.prototype.hasOwnProperty.call(body, 'nameEn')) {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректное английское название' },
+                    { status: 400 },
+                );
+            }
+        }
+
+        if (!updates.name && !Object.prototype.hasOwnProperty.call(updates, 'nameEn')) {
+            return NextResponse.json(
+                { success: false, message: 'Нет данных для обновления' },
+                { status: 400 },
+            );
+        }
+
+        const result = await updateCompanyBranch(branchId, updates);
         return NextResponse.json(result);
     } catch (error) {
         console.error('Error in PUT /api/internalObjects/branches:', error);

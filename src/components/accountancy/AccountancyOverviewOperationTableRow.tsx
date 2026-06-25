@@ -88,6 +88,7 @@ export type AccountancyOverviewOperationTableRowProps = {
     /** Показать чекбокс «Делимость» (брони — расходы; «Общие расходы» без брони — расходы и приходы) */
     showDivisibilityCheckbox?: boolean;
     t: (key: string) => string;
+    language: import('@/lib/accountancyCategoryResolve').AppLanguage;
     opTableSelectFormSx: object;
     opTableCatSelectFormSx: object;
     opTableQtySelectFormSx: object;
@@ -168,6 +169,7 @@ function resolveSourceRecipientDisplayLabel(
     usersWithCashflow: { _id: string; name: string }[],
     cashflows: { _id: string; name: string }[],
     t: (key: string) => string,
+    language: import('@/lib/accountancyCategoryResolve').AppLanguage,
 ): string {
     if (!value?.trim()) return '—';
     const fromOptions = prefetchedOptions.find((o) => o.value === value)?.label;
@@ -183,6 +185,7 @@ function resolveSourceRecipientDisplayLabel(
         t('accountancy.sourceRecipientCurrentCommissionFund'),
         t('accountancy.sourceRecipientCurrentManagerFund'),
         t('accountancy.sourceRecipientCurrentInternetProvider'),
+        language,
     );
 }
 
@@ -299,6 +302,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
               p.usersWithCashflow,
               p.cashflows,
               t,
+              p.language,
           )
         : null;
     const recipientDisplayLabel = periodLocked && !isSynthetic
@@ -310,6 +314,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
               p.usersWithCashflow,
               p.cashflows,
               t,
+              p.language,
           )
         : null;
     const parentHref =
@@ -463,7 +468,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                 const items =
                                     row.type === 'expense' ? p.categoryItemsExpense : p.categoryItemsIncome;
                                 const found = items.find((it) => it.id === selected);
-                                return found?.name ?? row.category ?? selected;
+                                return found?.label ?? row.category ?? selected;
                             }}
                         >
                             <MenuItem value="">
@@ -487,7 +492,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                                             {item.depth > 0
                                                 ? '\u00A0'.repeat(item.depth * 2) + '↳ '
                                                 : ''}
-                                            {item.name}
+                                            {item.label}
                                         </MenuItem>
                                     )),
                                 ];

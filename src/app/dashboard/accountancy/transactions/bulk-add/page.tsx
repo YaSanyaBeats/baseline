@@ -290,7 +290,7 @@ function getEffectiveRowCategory(row: BulkRow, globalCategory: string): string {
 }
 
 export default function BulkAddTransactionsPage() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const router = useRouter();
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
@@ -1066,8 +1066,9 @@ export default function BulkAddTransactionsPage() {
                 includeCashflows: false,
                 includeBookingRoomOption: false,
                 t,
+                language,
             }),
-        [objects, counterparties, usersWithCashflow, t],
+        [objects, counterparties, usersWithCashflow, t, language],
     );
 
     const recipientRecipientOptions = useMemo(
@@ -1080,8 +1081,9 @@ export default function BulkAddTransactionsPage() {
                 includeCashflows: true,
                 includeBookingRoomOption: false,
                 t,
+                language,
             }),
-        [objects, counterparties, usersWithCashflow, cashflows, t],
+        [objects, counterparties, usersWithCashflow, cashflows, t, language],
     );
 
     const bulkColCount = bulkAddTableColCount(transactionType);
@@ -1159,10 +1161,10 @@ export default function BulkAddTransactionsPage() {
                             }}
                         >
                             <MenuItem value="">—</MenuItem>
-                            {buildCategoriesForSelect(categories, transactionType).map((c) => (
+                            {buildCategoriesForSelect(categories, transactionType, { language }).map((c) => (
                                 <MenuItem key={c.id} value={c.name}>
                                     {c.depth > 0 ? '\u00A0'.repeat(c.depth * 2) + '↳ ' : ''}
-                                    {c.name}
+                                    {c.label}
                                 </MenuItem>
                             ))}
                         </Select>
@@ -1369,10 +1371,10 @@ export default function BulkAddTransactionsPage() {
                                                 <MenuItem value="" sx={{ fontSize: '0.6875rem' }}>
                                                     —
                                                 </MenuItem>
-                                                {buildCategoriesForSelect(categories, transactionType).map((c) => (
+                                                {buildCategoriesForSelect(categories, transactionType, { language }).map((c) => (
                                                     <MenuItem key={c.id} value={c.name} sx={{ fontSize: '0.6875rem' }}>
                                                         {c.depth > 0 ? '\u00A0'.repeat(c.depth * 2) + '↳ ' : ''}
-                                                        {c.name}
+                                                        {c.label}
                                                     </MenuItem>
                                                 ))}
                                             </Select>
@@ -1725,12 +1727,13 @@ export default function BulkAddTransactionsPage() {
                                                                       ? categories
                                                                       : subExpenseCategories,
                                                                 sub.recordKind,
+                                                                { language },
                                                             ).map((cat) => (
                                                                 <MenuItem key={cat.id} value={cat.name} sx={{ fontSize: '0.6875rem' }}>
                                                                     {cat.depth > 0
                                                                         ? '\u00A0'.repeat(cat.depth * 2) + '↳ '
                                                                         : ''}
-                                                                    {cat.name}
+                                                                    {cat.label}
                                                                 </MenuItem>
                                                             ))}
                                                         </Select>

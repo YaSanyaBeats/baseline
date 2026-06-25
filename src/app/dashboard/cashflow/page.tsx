@@ -45,7 +45,7 @@ type RecordRow = {
 };
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { objects } = useObjects();
     const { user, isAdmin, isAccountant } = useUser();
     const { setSnackbar } = useSnackbar();
@@ -204,6 +204,11 @@ export default function Page() {
             usersWithCashflow,
             allCashflows,
             roomFromBookingLabel,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            language,
         );
 
     const formatAmount = (value: number): string => {

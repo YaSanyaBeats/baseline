@@ -43,12 +43,29 @@ export type CategoryRecordRef = {
     category?: string | null;
 };
 
-/** Карта categoryId → название категории. */
-export function buildCategoryNameByIdMap(categories: AccountancyCategory[]): Map<string, string> {
+export type AppLanguage = 'ru' | 'en';
+
+/** Отображаемое название категории с учётом языка интерфейса. */
+export function getCategoryDisplayName(
+    category: Pick<AccountancyCategory, 'name' | 'nameEn'>,
+    language: AppLanguage = 'ru',
+): string {
+    if (language === 'en') {
+        const en = category.nameEn != null ? String(category.nameEn).trim() : '';
+        if (en) return en;
+    }
+    return String(category.name ?? '').trim();
+}
+
+/** Карта categoryId → название категории для отображения. */
+export function buildCategoryNameByIdMap(
+    categories: AccountancyCategory[],
+    language: AppLanguage = 'ru',
+): Map<string, string> {
     const map = new Map<string, string>();
     for (const c of categories) {
         const id = c._id != null ? normalizeMongoIdString(c._id).trim() : '';
-        if (id) map.set(id, c.name);
+        if (id) map.set(id, getCategoryDisplayName(c, language));
     }
     return map;
 }

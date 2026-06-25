@@ -28,6 +28,7 @@ import {
     reorderAccountancyCategories,
 } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
+import { getCategoryDisplayName } from '@/lib/accountancyCategoryResolve';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -46,7 +47,8 @@ type CategoryTreeItem = TreeItem<{ name: string; category: AccountancyCategory }
 
 function categoriesToTree(
     categories: AccountancyCategory[],
-    type: AccountancyCategoryType
+    type: AccountancyCategoryType,
+    language: 'ru' | 'en',
 ): TreeItems<{ name: string; category: AccountancyCategory }> {
     const filtered = categories.filter((c) => c.type === type);
     const byParent = new Map<string | null, AccountancyCategory[]>();
@@ -66,7 +68,7 @@ function categoriesToTree(
                 const childItems = build(c._id!);
                 return {
                     id: c._id!,
-                    name: c.name,
+                    name: getCategoryDisplayName(c, language),
                     category: c,
                     collapsed: false,
                     children: childItems.length > 0 ? childItems : undefined,
@@ -105,7 +107,7 @@ const CategoryTreeItem = React.forwardRef<
     HTMLDivElement,
     TreeItemComponentProps<{ name: string; category: AccountancyCategory }>
 >(function CategoryTreeItemComponent(props, ref) {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { setSnackbar } = useSnackbar();
     const refresh = React.useContext(RefreshContext);
     const { item } = props;
@@ -181,17 +183,17 @@ function CategorySection({
     newName: string;
     setNewName: (s: string) => void;
 }) {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { setSnackbar } = useSnackbar();
 
     const [treeItems, setTreeItems] = useState<TreeItems<{ name: string; category: AccountancyCategory }>>([]);
     const lastPayloadRef = useRef<string>('');
 
     useEffect(() => {
-        const next = categoriesToTree(categories, type);
+        const next = categoriesToTree(categories, type, language);
         setTreeItems(next);
         lastPayloadRef.current = JSON.stringify(treeToReorderPayload(next));
-    }, [categories, type]);
+    }, [categories, type, language]);
 
     const handleItemsChanged = useCallback(
         (
@@ -283,10 +285,10 @@ function CategorySection({
                                 }
                             >
                                 <MenuItem value="">{t('accountancy.noParent')}</MenuItem>
-                                {buildCategoriesForSelect(categories, type).map((item) => (
+                                {buildCategoriesForSelect(categories, type, { language }).map((item) => (
                                     <MenuItem key={item.id} value={item.id}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                        {item.name}
+                                        {item.label}
                                     </MenuItem>
                                 ))}
                             </Select>
@@ -317,7 +319,7 @@ function CategorySection({
 }
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
 
     const [expenseCategories, setExpenseCategories] = useState<AccountancyCategory[]>([]);

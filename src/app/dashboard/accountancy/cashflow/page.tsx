@@ -56,7 +56,7 @@ const CASHFLOW_TYPE_KEYS: Record<string, string> = {
 };
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
     const { objects } = useObjects();
     const { setSnackbar } = useSnackbar();
@@ -77,8 +77,8 @@ export default function Page() {
     const hasAccess = isAdmin || isAccountant;
 
     const categoryNameById = useMemo(
-        () => buildCategoryNameByIdMap(categories as import('@/lib/types').AccountancyCategory[]),
-        [categories],
+        () => buildCategoryNameByIdMap(categories as import('@/lib/types').AccountancyCategory[], language),
+        [categories, language],
     );
     const resolveCat = (record: { categoryId?: string | null; category?: string }) =>
         resolveCategoryName(record, categoryNameById);

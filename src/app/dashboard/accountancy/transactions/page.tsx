@@ -134,7 +134,7 @@ function rowSum(row: TransactionListRow): number {
 }
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const router = useRouter();
     const { isAdmin, isAccountant } = useUser();
     const { objects } = useObjects();
@@ -156,10 +156,10 @@ export default function Page() {
     const categoryNameById = useMemo(
         () =>
             mergeCategoryNameMaps(
-                buildCategoryNameByIdMap(categoriesExpense),
-                buildCategoryNameByIdMap(categoriesIncome),
+                buildCategoryNameByIdMap(categoriesExpense, language),
+                buildCategoryNameByIdMap(categoriesIncome, language),
             ),
-        [categoriesExpense, categoriesIncome],
+        [categoriesExpense, categoriesIncome, language],
     );
     const getRowCategoryName = (row: TransactionListRow) => resolveCategoryName(row, categoryNameById);
     const [filtersHydrated, setFiltersHydrated] = useState(false);
@@ -687,17 +687,17 @@ export default function Page() {
                                             </MenuItem>
                                         ))}
                                     {filterRecordType === 'expense' &&
-                                        buildCategoriesForSelect(categoriesExpense, 'expense').map((item) => (
+                                        buildCategoriesForSelect(categoriesExpense, 'expense', { language }).map((item) => (
                                             <MenuItem key={item.id} value={item.name}>
                                                 {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                                {item.name}
+                                                {item.label}
                                             </MenuItem>
                                         ))}
                                     {filterRecordType === 'income' &&
-                                        buildCategoriesForSelect(categoriesIncome, 'income').map((item) => (
+                                        buildCategoriesForSelect(categoriesIncome, 'income', { language }).map((item) => (
                                             <MenuItem key={item.id} value={item.name}>
                                                 {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                                {item.name}
+                                                {item.label}
                                             </MenuItem>
                                         ))}
                                 </Select>
@@ -851,6 +851,12 @@ export default function Page() {
                                                 counterparties,
                                                 usersWithCashflow,
                                                 cashflows,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                language,
                                             )}
                                         </TableCell>
                                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
@@ -860,6 +866,12 @@ export default function Page() {
                                                 counterparties,
                                                 usersWithCashflow,
                                                 cashflows,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                undefined,
+                                                language,
                                             )}
                                         </TableCell>
                                         <TableCell>{formatAmount(row.amount)}</TableCell>

@@ -1,8 +1,12 @@
 import { AccountancyCategory, AccountancyCategoryType } from './types';
+import { AppLanguage, getCategoryDisplayName } from './accountancyCategoryResolve';
 
 export interface CategorySelectItem {
     id: string;
+    /** Каноническое название (для значений форм и фильтров) */
     name: string;
+    /** Название для отображения в UI */
+    label: string;
     depth: number;
 }
 
@@ -13,7 +17,7 @@ export interface CategorySelectItem {
 export function buildCategoriesForSelect(
     categories: AccountancyCategory[],
     type: AccountancyCategoryType,
-    options?: { excludeIds?: string[] }
+    options?: { excludeIds?: string[]; language?: AppLanguage }
 ): CategorySelectItem[] {
     const filtered = categories.filter((c) => c.type === type);
     const toExclude = new Set(options?.excludeIds ?? []);
@@ -29,12 +33,18 @@ export function buildCategoriesForSelect(
         arr.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     }
 
+    const language = options?.language ?? 'ru';
     const result: CategorySelectItem[] = [];
     function build(parentId: string | null, depth: number) {
         const children = byParent.get(parentId) ?? [];
         for (const c of children) {
             if (!c._id) continue;
-            result.push({ id: c._id, name: c.name, depth });
+            result.push({
+                id: c._id,
+                name: c.name,
+                label: getCategoryDisplayName(c, language),
+                depth,
+            });
             build(c._id, depth + 1);
         }
     }

@@ -74,6 +74,11 @@ function mapRoomsForProperty(
         return {
             id: room?.id,
             name: room?.name,
+            ...(room?.nameEn != null && String(room.nameEn).trim() !== ''
+                ? { nameEn: String(room.nameEn).trim() }
+                : room?.nameEn === null
+                  ? { nameEn: null }
+                  : {}),
             accessUsers: roomAccessUsers,
             ...(roomMeta && {
                 bedrooms: roomMeta.bedrooms,

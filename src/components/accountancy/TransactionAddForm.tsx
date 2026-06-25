@@ -206,7 +206,7 @@ interface TransactionAddFormProps {
 }
 
 export default function TransactionAddForm({ type, attachCashflowId = false }: TransactionAddFormProps) {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const router = useRouter();
     const searchParams = useSearchParams();
     const parentExpenseId = searchParams.get('parentExpenseId')?.trim() ?? '';
@@ -272,7 +272,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
             ...subIncomeCategories,
             ...subExpenseCategories,
             ...categories,
-        ]);
+        ], language);
         const categoryLabel = resolveCategoryName(record, nameById);
         return `${typeLabel}: ${categoryLabel} - ${total} (#${id})`;
     };
@@ -818,8 +818,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 includeCashflows: false,
                 includeBookingRoomOption: false,
                 t,
+                language,
             }),
-        [objects, counterparties, usersWithCashflow, t],
+        [objects, counterparties, usersWithCashflow, t, language],
     );
 
     const recipientRecipientOptions = useMemo(
@@ -832,8 +833,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 includeCashflows: true,
                 includeBookingRoomOption: false,
                 t,
+                language,
             }),
-        [objects, counterparties, usersWithCashflow, cashflows, t],
+        [objects, counterparties, usersWithCashflow, cashflows, t, language],
     );
 
     const handleOpenBookingModal = (index: number) => setBookingModalTarget({ kind: 'main', index });
@@ -1229,10 +1231,11 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                   ? categories
                                   : subExpenseCategories,
                             sub.recordKind,
+                            { language },
                         ).map((cat) => (
                             <MenuItem key={cat.id} value={cat.name} sx={{ fontSize: '0.6875rem' }}>
                                 {cat.depth > 0 ? '\u00A0'.repeat(cat.depth * 2) + '↳ ' : ''}
-                                {cat.name}
+                                {cat.label}
                             </MenuItem>
                         ))}
                     </Select>
@@ -1602,9 +1605,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                                     MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
                                                 >
                                                     <MenuItem value="" sx={{ fontSize: '0.6875rem' }}>—</MenuItem>
-                                                    {buildCategoriesForSelect(categories, type).map((cat) => (
+                                                    {buildCategoriesForSelect(categories, type, { language }).map((cat) => (
                                                         <MenuItem key={cat.id} value={cat.name} sx={{ fontSize: '0.6875rem' }}>
-                                                            {cat.depth > 0 ? '\u00A0'.repeat(cat.depth * 2) + '↳ ' : ''}{cat.name}
+                                                            {cat.depth > 0 ? '\u00A0'.repeat(cat.depth * 2) + '↳ ' : ''}{cat.label}
                                                         </MenuItem>
                                                     ))}
                                                 </Select>

@@ -548,7 +548,7 @@ function pendingDraftToOperationRow(draft: PendingOperationDraft): OperationRow 
 }
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { isAdmin, isAccountant } = useUser();
     const { setSnackbar } = useSnackbar();
     const { objects } = useObjects();
@@ -573,10 +573,10 @@ export default function Page() {
     const categoryNameById = useMemo(
         () =>
             mergeCategoryNameMaps(
-                buildCategoryNameByIdMap(categoriesExpense),
-                buildCategoryNameByIdMap(categoriesIncome),
+                buildCategoryNameByIdMap(categoriesExpense, language),
+                buildCategoryNameByIdMap(categoriesIncome, language),
             ),
-        [categoriesExpense, categoriesIncome],
+        [categoriesExpense, categoriesIncome, language],
     );
     const allCategories = useMemo(
         () => [...categoriesExpense, ...categoriesIncome],
@@ -1158,12 +1158,12 @@ export default function Page() {
     }, []);
 
     const categorySelectItemsExpense = useMemo(
-        () => buildCategoriesForSelect(categoriesExpense, 'expense'),
-        [categoriesExpense],
+        () => buildCategoriesForSelect(categoriesExpense, 'expense', { language }),
+        [categoriesExpense, language],
     );
     const categorySelectItemsIncome = useMemo(
-        () => buildCategoriesForSelect(categoriesIncome, 'income'),
-        [categoriesIncome],
+        () => buildCategoriesForSelect(categoriesIncome, 'income', { language }),
+        [categoriesIncome, language],
     );
 
     const sourceRecipientOptionsTable = useMemo(
@@ -1176,8 +1176,9 @@ export default function Page() {
                 includeCashflows: false,
                 includeBookingRoomOption: false,
                 t,
+                language,
             }),
-        [objects, counterparties, usersWithCashflow, cashflows, t],
+        [objects, counterparties, usersWithCashflow, cashflows, t, language],
     );
 
     const recipientRecipientOptionsTable = useMemo(
@@ -1190,8 +1191,9 @@ export default function Page() {
                 includeCashflows: true,
                 includeBookingRoomOption: false,
                 t,
+                language,
             }),
-        [objects, counterparties, usersWithCashflow, cashflows, t],
+        [objects, counterparties, usersWithCashflow, cashflows, t, language],
     );
 
     const bookingsForAutoLabels = useMemo(
@@ -3105,6 +3107,7 @@ export default function Page() {
     const sharedOperationRowProps = useMemo(
         () => ({
             t,
+            language,
             opTableSelectFormSx,
             opTableCatSelectFormSx,
             opTableQtySelectFormSx,
@@ -3156,6 +3159,7 @@ export default function Page() {
         }),
         [
             t,
+            language,
             handleStatusToggle,
             statusUpdatingId,
             inlinePatchUpdatingId,

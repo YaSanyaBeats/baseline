@@ -35,6 +35,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import { red } from "@mui/material/colors";
 import { useSnackbar } from "@/providers/SnackbarContext";
 import { useTranslation } from "@/i18n/useTranslation";
+import { getInternalObjectRoomDisplayName } from "@/lib/internalObjectDisplay";
 
 interface InternalObject {
     id: number;
@@ -44,13 +45,14 @@ interface InternalObject {
         units: {
             id: number;
             name: string;
+            nameEn?: string | null;
         }[];
     }[];
 }
 
 export default function InternalObjectsPage() {
     const { data: session } = useSession();
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { setSnackbar } = useSnackbar();
     
     const [companyObject, setCompanyObject] = useState<InternalObject | null>(null);
@@ -66,6 +68,7 @@ export default function InternalObjectsPage() {
     const [editDialogOpen, setEditDialogOpen] = useState(false);
     const [editBranchId, setEditBranchId] = useState<number | null>(null);
     const [editBranchName, setEditBranchName] = useState('');
+    const [editBranchNameEn, setEditBranchNameEn] = useState('');
     const [editingBranch, setEditingBranch] = useState(false);
     
     // Диалог удаления филиала
@@ -201,7 +204,8 @@ export default function InternalObjectsPage() {
                 },
                 body: JSON.stringify({ 
                     branchId: editBranchId, 
-                    newName: editBranchName.trim() 
+                    newName: editBranchName.trim(),
+                    nameEn: editBranchNameEn.trim() ? editBranchNameEn.trim() : null,
                 }),
             });
             const result = await response.json();
@@ -216,6 +220,7 @@ export default function InternalObjectsPage() {
                 setEditDialogOpen(false);
                 setEditBranchId(null);
                 setEditBranchName('');
+                setEditBranchNameEn('');
                 await loadCompanyObject();
             }
         } catch (error) {
@@ -267,9 +272,10 @@ export default function InternalObjectsPage() {
         }
     };
 
-    const openEditDialog = (branchId: number, branchName: string) => {
+    const openEditDialog = (branchId: number, branchName: string, branchNameEn?: string | null) => {
         setEditBranchId(branchId);
         setEditBranchName(branchName);
+        setEditBranchNameEn(branchNameEn ?? '');
         setEditDialogOpen(true);
     };
 
@@ -407,11 +413,13 @@ export default function InternalObjectsPage() {
                                                 {branches.map((branch) => (
                                                     <TableRow key={branch.id}>
                                                         <TableCell>{branch.id}</TableCell>
-                                                        <TableCell>{branch.name}</TableCell>
+                                                        <TableCell>
+                                                            {getInternalObjectRoomDisplayName(branch, language)}
+                                                        </TableCell>
                                                         <TableCell align="right">
                                                             <IconButton
                                                                 size="small"
-                                                                onClick={() => openEditDialog(branch.id, branch.name)}
+                                                                onClick={() => openEditDialog(branch.id, branch.name, branch.nameEn)}
                                                             >
                                                                 <EditIcon fontSize="small" />
                                                             </IconButton>
@@ -463,15 +471,25 @@ export default function InternalObjectsPage() {
             <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)}>
                 <DialogTitle>{t('internalObjects.editBranch')}</DialogTitle>
                 <DialogContent>
-                    <TextField
-                        autoFocus
-                        margin="dense"
-                        label={t('internalObjects.branchName')}
-                        fullWidth
-                        value={editBranchName}
-                        onChange={(e) => setEditBranchName(e.target.value)}
-                        disabled={editingBranch}
-                    />
+                    <Stack spacing={2} sx={{ pt: 1, minWidth: 360 }}>
+                        <TextField
+                            autoFocus
+                            label={t('internalObjects.branchName')}
+                            fullWidth
+                            value={editBranchName}
+                            onChange={(e) => setEditBranchName(e.target.value)}
+                            disabled={editingBranch}
+                            required
+                        />
+                        <TextField
+                            label={t('internalObjects.branchNameEn')}
+                            fullWidth
+                            value={editBranchNameEn}
+                            onChange={(e) => setEditBranchNameEn(e.target.value)}
+                            helperText={t('internalObjects.branchNameEnHint')}
+                            disabled={editingBranch}
+                        />
+                    </Stack>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setEditDialogOpen(false)} disabled={editingBranch}>

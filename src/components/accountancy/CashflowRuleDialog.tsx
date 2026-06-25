@@ -22,6 +22,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useState, useEffect } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
+import { getCategoryDisplayName } from '@/lib/accountancyCategoryResolve';
 import type { CashflowRule, CashflowRuleFilter, CashflowRuleFilterType, UserObject } from '@/lib/types';
 import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
@@ -99,7 +100,7 @@ export default function CashflowRuleDialog({
     objects,
     onSave,
 }: CashflowRuleDialogProps) {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const [name, setName] = useState('');
     const [filterLogic, setFilterLogic] = useState<'and' | 'or'>('and');
     const [balanceSign, setBalanceSign] = useState<'plus' | 'minus'>('plus');
@@ -446,7 +447,7 @@ export default function CashflowRuleDialog({
                                     >
                                         {categories.map((c) => (
                                             <MenuItem key={c._id} value={c.name}>
-                                                {c.name} ({c.type === 'expense' ? t('accountancy.expense') : t('accountancy.income')})
+                                                {getCategoryDisplayName(c, language)} ({c.type === 'expense' ? t('accountancy.expense') : t('accountancy.income')})
                                             </MenuItem>
                                         ))}
                                     </Select>

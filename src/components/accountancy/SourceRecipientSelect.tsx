@@ -9,6 +9,8 @@ import { formatRoomSourceRecipient } from '@/lib/roomBinding';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { useTranslation } from '@/i18n/useTranslation';
+import type { AppLanguage } from '@/lib/accountancyCategoryResolve';
+import { getInternalObjectRoomDisplayName } from '@/lib/internalObjectDisplay';
 import {
     PREFIX_CF,
     PREFIX_CP,
@@ -69,6 +71,7 @@ export function buildSourceRecipientAutocompleteOptions(params: {
     includeRoomList?: boolean;
     /** Филиалы внутренних объектов (id < 0) — для настроек категории */
     includeInternalObjectsList?: boolean;
+    language?: AppLanguage;
     t: (key: string) => string;
 }): SourceRecipientAutocompleteOption[] {
     const {
@@ -84,6 +87,7 @@ export function buildSourceRecipientAutocompleteOptions(params: {
         includeCurrentInternetProviderOption = false,
         includeRoomList = true,
         includeInternalObjectsList = false,
+        language = 'ru',
         t,
     } = params;
 
@@ -148,17 +152,21 @@ export function buildSourceRecipientAutocompleteOptions(params: {
 
     if (includeRoomList) {
         objects.forEach((obj) => {
+            const isInternalObject = obj.id < 0;
             obj.roomTypes?.forEach((room) => {
-                const roomLabel = `${obj.name} — ${room.name || `Room ${room.id}`}`;
                 const stableName =
                     room.name != null && String(room.name).trim() !== ''
                         ? String(room.name).trim()
                         : `Unit ${room.id}`;
+                const roomPart = isInternalObject
+                    ? getInternalObjectRoomDisplayName(room, language) || `Room ${room.id}`
+                    : room.name || `Room ${room.id}`;
+                const roomLabel = `${obj.name} — ${roomPart}`;
                 list.push({
                     value: formatRoomSourceRecipient(obj.id, stableName),
                     label: roomLabel,
-                    searchText: `${obj.name} ${room.name || ''} ${room.id}`.trim(),
-                    groupKey: GROUP_OBJECTS,
+                    searchText: `${obj.name} ${room.name || ''} ${room.nameEn || ''} ${room.id}`.trim(),
+                    groupKey: isInternalObject ? GROUP_INTERNAL_OBJECTS : GROUP_OBJECTS,
                 });
             });
         });
@@ -169,15 +177,16 @@ export function buildSourceRecipientAutocompleteOptions(params: {
             .filter((obj) => obj.id < 0)
             .forEach((obj) => {
                 obj.roomTypes?.forEach((room) => {
-                    const roomLabel = `${obj.name} — ${room.name || `Room ${room.id}`}`;
                     const stableName =
                         room.name != null && String(room.name).trim() !== ''
                             ? String(room.name).trim()
                             : `Unit ${room.id}`;
+                    const roomDisplayName = getInternalObjectRoomDisplayName(room, language);
+                    const roomLabel = `${obj.name} — ${roomDisplayName || `Room ${room.id}`}`;
                     list.push({
                         value: formatRoomSourceRecipient(obj.id, stableName),
                         label: roomLabel,
-                        searchText: `${obj.name} ${room.name || ''} ${room.id}`.trim(),
+                        searchText: `${obj.name} ${room.name || ''} ${room.nameEn || ''} ${room.id}`.trim(),
                         groupKey: GROUP_INTERNAL_OBJECTS,
                     });
                 });
@@ -227,7 +236,7 @@ export function buildSourceRecipientAutocompleteOptions(params: {
 
 export function formatSourceRecipientLabel(
     value: SourceRecipientOptionValue | undefined,
-    objects: { id: number; name: string; roomTypes: { id: number; name: string }[] }[],
+    objects: { id: number; name: string; roomTypes: { id: number; name: string; nameEn?: string | null }[] }[],
     counterparties: { _id: string; name: string }[],
     usersWithCashflow?: { _id: string; name: string }[],
     cashflows?: { _id: string; name: string }[],
@@ -238,6 +247,7 @@ export function formatSourceRecipientLabel(
     currentCommissionFundLabel?: string,
     currentManagerFundLabel?: string,
     currentInternetProviderLabel?: string,
+    language: AppLanguage = 'ru',
 ): string {
     const parsed = parseSourceRecipientValue(value);
     if (!parsed) return '—';
@@ -259,7 +269,13 @@ export function formatSourceRecipientLabel(
     if (parsed.type === 'room') {
         const obj = objects.find((o) => o.id === parsed.objectId);
         const room = obj?.roomTypes?.find((r) => (r.name || '').trim() === (parsed.roomName || '').trim());
-        if (obj && room) return `${obj.name} — ${room.name || `Room ${room.id}`}`;
+        if (obj && room) {
+            const roomLabel =
+                obj.id < 0
+                    ? getInternalObjectRoomDisplayName(room, language) || `Room ${room.id}`
+                    : room.name || `Room ${room.id}`;
+            return `${obj.name} — ${roomLabel}`;
+        }
         return `Object ${parsed.objectId}, ${parsed.roomName}`;
     }
     if (parsed.type === 'counterparty') {
@@ -341,7 +357,7 @@ function SourceRecipientSelectInner({
     prefetchedOptions,
 }: SourceRecipientSelectProps) {
     const { objects } = useObjects();
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
 
     const options = useMemo((): SourceRecipientAutocompleteOption[] => {
         if (prefetchedOptions) return prefetchedOptions;
@@ -358,6 +374,7 @@ function SourceRecipientSelectInner({
             includeCurrentInternetProviderOption,
             includeRoomList,
             includeInternalObjectsList,
+            language,
             t,
         });
     }, [
@@ -374,6 +391,7 @@ function SourceRecipientSelectInner({
         includeCurrentInternetProviderOption,
         includeRoomList,
         includeInternalObjectsList,
+        language,
         t,
     ]);
 
@@ -398,6 +416,7 @@ function SourceRecipientSelectInner({
             t('accountancy.sourceRecipientCurrentCommissionFund'),
             t('accountancy.sourceRecipientCurrentManagerFund'),
             t('accountancy.sourceRecipientCurrentInternetProvider'),
+            language,
         );
         const displayLabel =
             parsed?.type === 'counterparty' && label !== '—'
@@ -414,7 +433,10 @@ function SourceRecipientSelectInner({
                 parsed?.type === 'counterparty'
                     ? GROUP_COUNTERPARTIES
                     : parsed?.type === 'room'
-                      ? GROUP_OBJECTS
+                      ? objects.find((o) => o.id === parsed.objectId)?.id != null &&
+                        objects.find((o) => o.id === parsed.objectId)!.id < 0
+                          ? GROUP_INTERNAL_OBJECTS
+                          : GROUP_OBJECTS
                       : GROUP_BASE,
         };
     }, [
@@ -425,6 +447,7 @@ function SourceRecipientSelectInner({
         usersWithCashflow,
         cashflows,
         t,
+        language,
     ]);
 
     const groupHeaders = useMemo(

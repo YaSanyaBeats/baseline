@@ -46,7 +46,7 @@ function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
 }
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const router = useRouter();
     const params = useParams();
     const incomeId = params?.id as string;
@@ -412,10 +412,10 @@ export default function Page() {
                                     }));
                                 }}
                             >
-                                {buildCategoriesForSelect(categories, 'income').map((item) => (
+                                {buildCategoriesForSelect(categories, 'income', { language }).map((item) => (
                                     <MenuItem key={item.id} value={item.id}>
                                         {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                        {item.name}
+                                        {item.label}
                                     </MenuItem>
                                 ))}
                             </Select>

@@ -30,7 +30,7 @@ import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 
 export default function UnlinkBookingsByCategoryPage() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const { setSnackbar } = useSnackbar();
     const { isAdmin, isAccountant } = useUser();
 
@@ -54,8 +54,8 @@ export default function UnlinkBookingsByCategoryPage() {
     }, [transactionType]);
 
     const categoryItems = useMemo(
-        () => buildCategoriesForSelect(categories, transactionType),
-        [categories, transactionType],
+        () => buildCategoriesForSelect(categories, transactionType, { language }),
+        [categories, transactionType, language],
     );
 
     const handleSubmit = async () => {
@@ -146,7 +146,7 @@ export default function UnlinkBookingsByCategoryPage() {
                             {categoryItems.map((item) => (
                                 <MenuItem key={item.id} value={item.name}>
                                     {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                    {item.name}
+                                    {item.label}
                                 </MenuItem>
                             ))}
                         </Select>

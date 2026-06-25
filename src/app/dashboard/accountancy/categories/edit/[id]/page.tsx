@@ -40,7 +40,7 @@ import { useRouter, useParams } from 'next/navigation';
 const DIVISIBILITY_OPTIONS: CategoryDivisibility[] = ['/2', '/3', 'неделимый'];
 
 export default function Page() {
-    const { t } = useTranslation();
+    const { t, language } = useTranslation();
     const router = useRouter();
     const params = useParams();
     const categoryId = params?.id as string;
@@ -110,7 +110,7 @@ export default function Page() {
     const descendantIds = categoryId ? getDescendantIds(categoryId) : [];
     const excludeIds = categoryId ? [categoryId, ...descendantIds] : [];
     const parentOptionsForSelect = category.type
-        ? buildCategoriesForSelect(allCategories, category.type, { excludeIds })
+        ? buildCategoriesForSelect(allCategories, category.type, { excludeIds, language })
         : [];
 
     const handleSubmit = async () => {
@@ -127,6 +127,7 @@ export default function Page() {
         try {
             const payload: UpdateAccountancyCategoryPayload = {
                 name: category.name!.trim(),
+                nameEn: category.nameEn?.trim() ? category.nameEn.trim() : null,
                 parentId: category.parentId || null,
                 order: category.order,
                 unit: category.unit,
@@ -211,6 +212,14 @@ export default function Page() {
                     required
                 />
 
+                <TextField
+                    label={t('accountancy.categoryNameEn')}
+                    value={category.nameEn ?? ''}
+                    onChange={(e) => setCategory((p) => ({ ...p, nameEn: e.target.value }))}
+                    helperText={t('accountancy.categoryNameEnHint')}
+                    fullWidth
+                />
+
                 <FormControl fullWidth>
                     <InputLabel>{t('accountancy.parentCategory')}</InputLabel>
                     <Select
@@ -227,7 +236,7 @@ export default function Page() {
                         {parentOptionsForSelect.map((item) => (
                             <MenuItem key={item.id} value={item.id}>
                                 {item.depth > 0 ? '\u00A0'.repeat(item.depth * 2) + '↳ ' : ''}
-                                {item.name}
+                                {item.label}
                             </MenuItem>
                         ))}
                     </Select>

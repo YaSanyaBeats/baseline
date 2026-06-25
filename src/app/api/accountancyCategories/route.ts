@@ -221,6 +221,13 @@ export async function PUT(request: NextRequest) {
                   ? body.recipient
                   : undefined
             : undefined;
+        const nameEn: string | null | undefined = Object.prototype.hasOwnProperty.call(body, 'nameEn')
+            ? body.nameEn == null || body.nameEn === ''
+                ? null
+                : typeof body.nameEn === 'string'
+                  ? body.nameEn.trim()
+                  : undefined
+            : undefined;
 
         let noBookingSubgroupId: NoBookingSubgroupId | null | undefined = undefined;
         if (Object.prototype.hasOwnProperty.call(body, 'noBookingSubgroupId')) {
@@ -301,6 +308,10 @@ export async function PUT(request: NextRequest) {
         if (recipient !== undefined) {
             if (recipient === null) unsetData.recipient = '';
             else updateData.recipient = recipient;
+        }
+        if (nameEn !== undefined) {
+            if (nameEn === null) unsetData.nameEn = '';
+            else updateData.nameEn = nameEn;
         }
 
         if (Object.keys(updateData).length === 0 && Object.keys(unsetData).length === 0) {
