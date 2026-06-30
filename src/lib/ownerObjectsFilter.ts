@@ -70,3 +70,48 @@ export function filterObjectsForOwner(objects: Object[], ownerAssignments: UserO
         })
         .filter((row) => row.roomTypes.length > 0);
 }
+
+function ownerAssignmentRoomNames(uo: UserObject): Set<string> {
+    const names = new Set<string>();
+    for (const r of uo.rooms ?? []) {
+        if (typeof r === 'string') {
+            const trimmed = r.trim();
+            if (trimmed) names.add(trimmed);
+        } else if (typeof r === 'number') {
+            names.add(String(r));
+        }
+    }
+    return names;
+}
+
+/**
+ * Проводка относится к владельцу по user.objects: совпадение roomType/property id и имени комнаты.
+ * Учитывает objectId как id строки объекта (roomType) или propertyId.
+ */
+export function transactionMatchesOwnerAssignment(
+    record: { objectId: number; roomName?: string | null },
+    ownerAssignments: UserObject[],
+    ownerObjects: { id: number; propertyId?: number }[],
+): boolean {
+    if (!Array.isArray(ownerAssignments) || ownerAssignments.length === 0) return false;
+
+    const roomName = (record.roomName ?? '').trim();
+    if (!roomName) return false;
+
+    for (const uo of ownerAssignments) {
+        const assignedRooms = ownerAssignmentRoomNames(uo);
+
+        if (assignedRooms.size > 0 && !assignedRooms.has(roomName)) continue;
+
+        if (uo.id === record.objectId) return true;
+
+        for (const obj of ownerObjects) {
+            const linkedToAssignment = obj.id === uo.id || obj.propertyId === uo.id;
+            if (!linkedToAssignment) continue;
+            if (record.objectId !== obj.id && record.objectId !== obj.propertyId) continue;
+            return true;
+        }
+    }
+
+    return false;
+}

@@ -13,6 +13,9 @@ export const OWNER_ACCRUED_TO_OWNER_CATEGORY_ID = '69fb4611d160e819981f6d19';
 /** «Выплата владельцу» — accountancyCategories. */
 export const OWNER_PAYOUT_TO_OWNER_CATEGORY_ID = '6978c110aef81bcff93d2e18';
 
+/** «Приход от владельца целевой» — accountancyCategories. */
+export const OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_ID = '6978c107aef81bcff93d2e17';
+
 /** «Остаток на начало (положительный)» — accountancyCategories. */
 export const OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_ID = '698324adaef81bcff93e8e6f';
 
@@ -23,6 +26,7 @@ export const OWNER_BALANCE_CATEGORY_IDS = new Set([
     OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_ID,
     OWNER_ACCRUED_TO_OWNER_CATEGORY_ID,
     OWNER_PAYOUT_TO_OWNER_CATEGORY_ID,
+    OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_ID,
     OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_ID,
     OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_ID,
 ]);
@@ -31,6 +35,7 @@ export const OWNER_BALANCE_CATEGORY_IDS = new Set([
 export const OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME = 'Списано со счета владельца';
 export const OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME = 'Начислено владельцу';
 export const OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME = 'Выплата владельцу';
+export const OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME = 'Приход от владельца целевой';
 export const OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME = 'Остаток на начало (положительный)';
 export const OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME = 'Остаток на начало (отрицательный)';
 
@@ -38,6 +43,7 @@ export const OWNER_VIEW_SETTLEMENT_CATEGORY_ORDER = [
     OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
     OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME,
     OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME,
+    OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
     OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME,
     OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
 ] as const;
@@ -46,6 +52,7 @@ const CANONICAL_NAME_BY_ID: Record<string, string> = {
     [OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_ID]: OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
     [OWNER_ACCRUED_TO_OWNER_CATEGORY_ID]: OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME,
     [OWNER_PAYOUT_TO_OWNER_CATEGORY_ID]: OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME,
+    [OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_ID]: OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
     [OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_ID]: OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
     [OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_ID]: OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME,
 };
@@ -61,6 +68,8 @@ const CANONICAL_NAME_BY_COMPARE_KEY: Record<string, string> = {
         OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME,
     [normalizeOwnerBalanceCategoryCompareKey(OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME)]:
         OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME,
+    [normalizeOwnerBalanceCategoryCompareKey(OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME)]:
+        OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
     [normalizeOwnerBalanceCategoryCompareKey(OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME)]:
         OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
     [normalizeOwnerBalanceCategoryCompareKey(OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME)]:
@@ -69,6 +78,7 @@ const CANONICAL_NAME_BY_COMPARE_KEY: Record<string, string> = {
 
 export type OwnerBalanceCategoryKind =
     | 'payout'
+    | 'targetedIncomeFromOwner'
     | 'accrued'
     | 'debited'
     | 'openingPositive'
@@ -80,6 +90,8 @@ export function ownerBalanceCategoryKind(category: string): OwnerBalanceCategory
     switch (canonical) {
         case OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME:
             return 'payout';
+        case OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME:
+            return 'targetedIncomeFromOwner';
         case OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME:
             return 'accrued';
         case OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME:

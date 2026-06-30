@@ -23,7 +23,7 @@ import {
     normalizeOwnerViewSettlementRow,
     type CommissionOwnerViewSettlementRow,
 } from '@/lib/ownerViewSettlements';
-import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
+import type { AccountancyCategory, Booking, Expense, Income, Object as AppObject, UserObject } from '@/lib/types';
 
 export type { CommissionOwnerViewExpenseGroup, CommissionOwnerViewExpenseLine } from '@/lib/ownerViewExpenses';
 export type { CommissionOwnerViewSettlementRow } from '@/lib/ownerViewSettlements';
@@ -523,7 +523,9 @@ export function buildCommissionOwnerViewPayload(
     categories: AccountancyCategory[],
     allIncomes: Income[],
     allExpenses: Expense[],
-    extraBookings: Booking[] = []
+    extraBookings: Booking[] = [],
+    ownerAssignments: UserObject[] = [],
+    ownerObjects: AppObject[] = []
 ): CommissionOwnerViewStoredPayload {
     const roomSections = buildRoomSectionsFromObjectReports(
         result.objectReports,
@@ -541,7 +543,9 @@ export function buildCommissionOwnerViewPayload(
         categories,
         allIncomes,
         allExpenses,
-        language
+        language,
+        ownerAssignments,
+        ownerObjects
     );
     const totals = roomSections.reduce(
         (acc, section) => ({

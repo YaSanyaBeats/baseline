@@ -23,6 +23,7 @@ import {
     Check as CheckIcon,
     Close as CloseIcon,
     Delete as DeleteIcon,
+    ArrowUpward as ArrowUpwardIcon,
     SubdirectoryArrowRight as SubdirectoryArrowRightIcon,
     Visibility,
 } from '@mui/icons-material';
@@ -149,6 +150,13 @@ export type AccountancyOverviewOperationTableRowProps = {
     ) => void | Promise<void>;
     /** Отчётный период транзакции зафиксирован — только просмотр */
     periodLocked?: boolean;
+    /** Реальная транзакция для заполнения из синтетической строки */
+    syntheticFillTarget?: AccountancyOverviewOperationRowModel | null;
+    syntheticFillUpdatingId?: string | null;
+    onSyntheticFill?: (
+        syntheticRow: AccountancyOverviewOperationRowModel,
+        targetRow: AccountancyOverviewOperationRowModel,
+    ) => void | Promise<void>;
 };
 
 const COMMISSION_TOOLTIP_LINE_CAP = 14;
@@ -688,6 +696,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     fontSize: '0.6875rem',
                 }}
             >
+                <Stack direction="row" alignItems="center" spacing={0.25} justifyContent="flex-start">
                 {p.amountEditingId === row.id && !ro ? (
                     <TextField
                         size="small"
@@ -790,6 +799,31 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                         </Box>
                     </Tooltip>
                 )}
+                {isSynthetic ? (
+                    <Tooltip title={t('accountancy.syntheticFillHint')}>
+                        <span>
+                            <IconButton
+                                size="small"
+                                color="primary"
+                                disabled={
+                                    p.periodLocked ||
+                                    !p.syntheticFillTarget ||
+                                    p.syntheticFillUpdatingId === row.id ||
+                                    (p.syntheticFillTarget != null && p.syntheticFillTarget.periodLocked)
+                                }
+                                onClick={() => {
+                                    if (!p.syntheticFillTarget || !p.onSyntheticFill) return;
+                                    void p.onSyntheticFill(row, p.syntheticFillTarget);
+                                }}
+                                aria-label={t('accountancy.syntheticFillHint')}
+                                sx={{ p: 0.25, flexShrink: 0, ml: 0.25 }}
+                            >
+                                <ArrowUpwardIcon sx={{ fontSize: '0.95rem' }} />
+                            </IconButton>
+                        </span>
+                    </Tooltip>
+                ) : null}
+                </Stack>
             </TableCell>
             <TableCell align="center" sx={{ px: 0.25, verticalAlign: 'middle' }}>
                 {p.showDivisibilityCheckbox || p.shouldShowCommissionPercentSelect(row) ? (

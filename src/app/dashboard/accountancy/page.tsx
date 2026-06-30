@@ -21,15 +21,14 @@ import {
     TableRow,
     TextField,
     Tooltip,
+    IconButton,
     Dialog,
     DialogTitle,
     DialogContent,
     DialogContentText,
     DialogActions,
 } from "@mui/material";
-import {
-    Add as AddIcon,
-    Warning as WarningIcon,
+import { Add as AddIcon, Remove as RemoveIcon, Warning as WarningIcon,
     ExpandMore as ExpandMoreIcon,
     Lock as LockIcon,
 } from "@mui/icons-material";
@@ -135,6 +134,18 @@ import {
     getBookingManagementCommissionRates,
     saveBookingManagementCommissionRate,
 } from "@/lib/bookingManagementCommissionRates";
+import {
+    OWNER_ACCRUED_TO_OWNER_CATEGORY_ID,
+    OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME,
+    OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_ID,
+    OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
+} from '@/lib/ownerBalanceCategories';
+import {
+    findSyntheticFillTargetRow,
+    isAccountancyBalanceZeroish,
+    lastCalendarDayOfReportMonth,
+    resolveSyntheticCalculatedUnitAmount,
+} from '@/lib/accountancyOverviewSyntheticFill';
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
 
@@ -619,6 +630,8 @@ export default function Page() {
     );
     const [pendingDrafts, setPendingDrafts] = useState<PendingOperationDraft[]>([]);
     const [pendingDraftSavingId, setPendingDraftSavingId] = useState<string | null>(null);
+    const [roomBalanceSettlingKey, setRoomBalanceSettlingKey] = useState<string | null>(null);
+    const [syntheticFillUpdatingId, setSyntheticFillUpdatingId] = useState<string | null>(null);
     const [closedPeriodsData, setClosedPeriodsData] = useState<ClosedPeriodsData>({
         globalMonths: [],
         roomPeriods: [],
@@ -1991,6 +2004,182 @@ export default function Page() {
         }
     };
 
+    const handleRoomBalanceSettle = useCallback(
+        async (roomKey: string, balance: number) => {
+            if (!selectedObject || isAccountancyBalanceZeroish(balance) || !defaultReportMonthForPending) return;
+            if (isSelectedMonthClosed) return;
+            if (
+                isLedgerPeriodClosed(
+                    closedPeriodsCache,
+                    defaultReportMonthForPending,
+                    selectedObject.id,
+                    roomKey,
+                )
+            ) {
+                return;
+            }
+
+            const absAmount = Math.abs(balance);
+            const isAccrue = balance > 0;
+            const type = isAccrue ? 'expense' : 'income';
+            const categoryId = isAccrue
+                ? OWNER_ACCRUED_TO_OWNER_CATEGORY_ID
+                : OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_ID;
+            const categoryName = isAccrue
+                ? OWNER_ACCRUED_TO_OWNER_CATEGORY_NAME
+                : OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME;
+            const cats = isAccrue ? categoriesExpense : categoriesIncome;
+            const cat = findCategoryById(cats, categoryId);
+            const defaults = resolveCategoryTransactionDefaults(cat, quickAddCategoryContext);
+            const roomContext = quickAddCategoryContext;
+
+            setRoomBalanceSettlingKey(roomKey);
+            try {
+                const payloadBase = {
+                    objectId: selectedObject.id,
+                    roomName: roomKey,
+                    categoryId,
+                    category: categoryName,
+                    amount: absAmount,
+                    quantity: 1,
+                    date: lastCalendarDayOfReportMonth(defaultReportMonthForPending),
+                    comment: '',
+                    status: 'confirmed' as const,
+                    reportMonth: defaultReportMonthForPending,
+                    source: resolveCategorySourceRecipientValue(defaults.source, roomContext),
+                    recipient: resolveCategorySourceRecipientValue(defaults.recipient, roomContext),
+                    attachments: [],
+                    accountantId: '',
+                    commissionPercent: 30 as const,
+                };
+
+                if (type === 'expense') {
+                    const res = await addExpense(payloadBase);
+                    setSnackbar({
+                        open: true,
+                        message: res.message || t('accountancy.expenseAdded'),
+                        severity: res.success ? 'success' : 'error',
+                    });
+                    if (res.success && res.id) {
+                        setExpenses((prev) => [...prev, { ...payloadBase, _id: res.id }]);
+                    }
+                } else {
+                    const res = await addIncome(payloadBase);
+                    setSnackbar({
+                        open: true,
+                        message: res.message || t('accountancy.incomeAdded'),
+                        severity: res.success ? 'success' : 'error',
+                    });
+                    if (res.success && res.id) {
+                        setIncomes((prev) => [...prev, { ...payloadBase, _id: res.id }]);
+                    }
+                }
+            } catch (error) {
+                console.error('Error settling room balance:', error);
+                setSnackbar({
+                    open: true,
+                    message: resolveApiErrorMessage(error, t('common.serverError')),
+                    severity: 'error',
+                });
+            } finally {
+                setRoomBalanceSettlingKey(null);
+            }
+        },
+        [
+            selectedObject,
+            defaultReportMonthForPending,
+            isSelectedMonthClosed,
+            closedPeriodsCache,
+            categoriesExpense,
+            categoriesIncome,
+            quickAddCategoryContext,
+            setSnackbar,
+            t,
+        ],
+    );
+
+    const handleSyntheticFill = useCallback(
+        async (syntheticRow: OperationRow, targetRow: OperationRow) => {
+            if (!syntheticRow.readOnlySynthetic || !targetRow.entityId || targetRow.isPendingDraft) return;
+            if (isOperationRowPeriodLocked(targetRow)) return;
+
+            const newUnitAmount = resolveSyntheticCalculatedUnitAmount(syntheticRow);
+            if (!(newUnitAmount > 0)) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.amountMustBeGreaterThanZero'),
+                    severity: 'warning',
+                });
+                return;
+            }
+
+            setSyntheticFillUpdatingId(syntheticRow.id);
+            try {
+                if (targetRow.type === 'expense') {
+                    const expense = expenses.find((e) => e._id === targetRow.entityId);
+                    if (!expense) return;
+                    const payload: Expense = {
+                        ...expense,
+                        date: expense.date
+                            ? typeof expense.date === 'string'
+                                ? new Date(expense.date)
+                                : expense.date
+                            : new Date(),
+                        amount: newUnitAmount,
+                    };
+                    const res = await updateExpense(payload);
+                    setSnackbar({
+                        open: true,
+                        message: res.message || t('accountancy.syntheticFillApplied'),
+                        severity: res.success ? 'success' : 'error',
+                    });
+                    if (res.success) {
+                        setExpenses((prev) =>
+                            prev.map((e) =>
+                                e._id === targetRow.entityId ? { ...e, amount: newUnitAmount } : e,
+                            ),
+                        );
+                    }
+                } else {
+                    const income = incomes.find((i) => i._id === targetRow.entityId);
+                    if (!income) return;
+                    const payload: Income = {
+                        ...income,
+                        date: income.date
+                            ? typeof income.date === 'string'
+                                ? new Date(income.date)
+                                : income.date
+                            : new Date(),
+                        amount: newUnitAmount,
+                    };
+                    const res = await updateIncome(payload);
+                    setSnackbar({
+                        open: true,
+                        message: res.message || t('accountancy.syntheticFillApplied'),
+                        severity: res.success ? 'success' : 'error',
+                    });
+                    if (res.success) {
+                        setIncomes((prev) =>
+                            prev.map((i) =>
+                                i._id === targetRow.entityId ? { ...i, amount: newUnitAmount } : i,
+                            ),
+                        );
+                    }
+                }
+            } catch (error) {
+                console.error('Error applying synthetic fill:', error);
+                setSnackbar({
+                    open: true,
+                    message: resolveApiErrorMessage(error, t('common.serverError')),
+                    severity: 'error',
+                });
+            } finally {
+                setSyntheticFillUpdatingId(null);
+            }
+        },
+        [expenses, incomes, isOperationRowPeriodLocked, setSnackbar, t],
+    );
+
     const handleStatusToggle = async (row: OperationRow) => {
         if (row.readOnlySynthetic) return;
         if (row.isPendingDraft) {
@@ -3156,6 +3345,8 @@ export default function Page() {
             handleIncludeInSyntheticChange,
             commissionPercentUpdatingId,
             handleCommissionPercentChange,
+            syntheticFillUpdatingId,
+            onSyntheticFill: handleSyntheticFill,
         }),
         [
             t,
@@ -3196,6 +3387,8 @@ export default function Page() {
             handleIncludeInSyntheticChange,
             commissionPercentUpdatingId,
             handleCommissionPercentChange,
+            syntheticFillUpdatingId,
+            handleSyntheticFill,
         ],
     );
 
@@ -3523,7 +3716,57 @@ export default function Page() {
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.expenses)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.incomes)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1, color: balance >= 0 ? 'success.main' : 'error.main' }}>
-                                                    {formatAmount(balance)}
+                                                    <Stack direction="row" alignItems="center" spacing={0.25} justifyContent="flex-start">
+                                                        <Box component="span">{formatAmount(balance)}</Box>
+                                                        {!isUnallocatedRow ? (
+                                                            <Tooltip
+                                                                title={
+                                                                    isSelectedMonthClosed
+                                                                        ? t('accountancy.reportPeriodLockedAlert')
+                                                                        : balance > 0
+                                                                          ? t('accountancy.roomBalanceSettleAccrue')
+                                                                          : t('accountancy.roomBalanceSettleDebit')
+                                                                }
+                                                            >
+                                                                <span>
+                                                                    <IconButton
+                                                                        size="small"
+                                                                        color={balance > 0 ? 'success' : 'error'}
+                                                                        disabled={
+                                                                            isAccountancyBalanceZeroish(balance) ||
+                                                                            isSelectedMonthClosed ||
+                                                                            !defaultReportMonthForPending ||
+                                                                            roomBalanceSettlingKey === row.roomKey ||
+                                                                            (defaultReportMonthForPending !== '' &&
+                                                                                selectedObject != null &&
+                                                                                isLedgerPeriodClosed(
+                                                                                    closedPeriodsCache,
+                                                                                    defaultReportMonthForPending,
+                                                                                    selectedObject.id,
+                                                                                    row.roomKey,
+                                                                                ))
+                                                                        }
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            void handleRoomBalanceSettle(row.roomKey, balance);
+                                                                        }}
+                                                                        aria-label={
+                                                                            balance > 0
+                                                                                ? t('accountancy.roomBalanceSettleAccrue')
+                                                                                : t('accountancy.roomBalanceSettleDebit')
+                                                                        }
+                                                                        sx={{ p: 0.25 }}
+                                                                    >
+                                                                        {balance > 0 ? (
+                                                                            <AddIcon sx={{ fontSize: '0.95rem' }} />
+                                                                        ) : (
+                                                                            <RemoveIcon sx={{ fontSize: '0.95rem' }} />
+                                                                        )}
+                                                                    </IconButton>
+                                                                </span>
+                                                            </Tooltip>
+                                                        ) : null}
+                                                    </Stack>
                                                 </TableCell>
                                             </TableRow>
                                         );
@@ -3753,6 +3996,11 @@ export default function Page() {
                                                                     key={row.id}
                                                                     row={row}
                                                                     periodLocked={isOperationRowPeriodLocked(row)}
+                                                                    syntheticFillTarget={
+                                                                        row.readOnlySynthetic
+                                                                            ? findSyntheticFillTargetRow(row, group.rows)
+                                                                            : null
+                                                                    }
                                                                     showDivisibilityCheckbox={operationRowShowsDivisibilityCheckbox(
                                                                         group.key,
                                                                         row,

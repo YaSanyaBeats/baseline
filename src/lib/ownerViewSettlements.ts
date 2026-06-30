@@ -3,12 +3,13 @@ import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import {
     OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
+    OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
     OWNER_VIEW_SETTLEMENT_CATEGORY_ORDER,
     ownerBalanceCategoryKind,
     resolveOwnerBalanceCanonicalCategoryName,
 } from '@/lib/ownerBalanceCategories';
-import { transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
-import type { AccountancyCategory, Expense, Income } from '@/lib/types';
+import { transactionMatchesOwnerAssignment } from '@/lib/ownerObjectsFilter';
+import type { AccountancyCategory, Expense, Income, Object as AppObject, UserObject } from '@/lib/types';
 
 export type CommissionOwnerViewSettlementRowKind = 'opening' | 'closing' | 'transaction';
 
@@ -74,6 +75,7 @@ function settlementTransactionDisplayDate(monthKey: string, category: string): s
             break;
         case 'accrued':
         case 'debited':
+        case 'targetedIncomeFromOwner':
             day = 30;
             break;
         case 'openingPositive':
@@ -130,6 +132,7 @@ export function ownerSettlementSignedAmount(category: string, amount: number): n
     switch (ownerBalanceCategoryKind(category)) {
         case 'payout':
         case 'debited':
+        case 'targetedIncomeFromOwner':
         case 'openingNegative':
             return -abs;
         case 'accrued':
@@ -160,20 +163,40 @@ export function buildOwnerViewSettlementRows(
     _categories: AccountancyCategory[],
     allIncomes: Income[],
     allExpenses: Expense[],
-    language = 'ru'
+    language = 'ru',
+    ownerAssignments: UserObject[] = [],
+    ownerObjects: AppObject[] = []
 ): CommissionOwnerViewSettlementRow[] {
-    const ownerObjectIds = new Set(objectReports.map((r) => r.objectId));
-    const roomsByObjectId = new Map(
-        objectReports.map((r) => [r.objectId, r.roomsForObject] as const)
-    );
     const objectNameById = new Map(objectReports.map((r) => [r.objectId, r.objectName] as const));
     const labels = settlementLabels(language);
 
+    const resolveObjectName = (record: Income | Expense): string => {
+        const obj =
+            ownerObjects.find(
+                (o) => o.id === record.objectId || o.propertyId === record.objectId
+            ) ?? null;
+        if (obj) return obj.propertyName ?? obj.name;
+        return objectNameById.get(record.objectId) ?? String(record.objectId);
+    };
+
     const matchesOwner = (record: Income | Expense): boolean => {
+        if (ownerAssignments.length > 0 && ownerObjects.length > 0) {
+            return transactionMatchesOwnerAssignment(record, ownerAssignments, ownerObjects);
+        }
+        const ownerObjectIds = new Set(objectReports.map((r) => r.objectId));
+        const roomsByObjectId = new Map(
+            objectReports.map((r) => [r.objectId, r.roomsForObject] as const)
+        );
         if (!ownerObjectIds.has(record.objectId)) return false;
         const rooms = roomsByObjectId.get(record.objectId);
-        if (!rooms || !transactionMatchesOwnerRooms(record.roomName, rooms)) return false;
-        return true;
+        if (!rooms) return false;
+        const roomName = (record.roomName ?? '').trim();
+        if (!roomName) return false;
+        return rooms.some(
+            (r) =>
+                (r.name != null && String(r.name).trim() === roomName) ||
+                roomName === `Unit ${r.id ?? ''}`
+        );
     };
 
     let openingBalance = 0;
@@ -197,7 +220,7 @@ export function buildOwnerViewSettlementRows(
         }
         if (ledgerMonth !== monthKey) return;
 
-        const objectName = objectNameById.get(record.objectId) ?? String(record.objectId);
+        const objectName = resolveObjectName(record);
         const roomName = (record.roomName ?? '').trim() || '—';
         const period = formatSettlementPeriod(record.reportMonth, record.date);
 
@@ -272,6 +295,7 @@ const OWNER_BALANCE_CATEGORY_PREFIXES = [
     'Списано со счёта владельца',
     'Начислено владельцу',
     'Выплата владельцу',
+    OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
     'Остаток на начало (положительный)',
     'Остаток на начало (отрицательный)',
 ] as const;

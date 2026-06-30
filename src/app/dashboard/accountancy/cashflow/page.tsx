@@ -42,8 +42,9 @@ import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
 import CashflowRuleDialog from '@/components/accountancy/CashflowRuleDialog';
-import { isOwnerBalanceCategory } from '@/lib/ownerBalanceCategories';
+import { isOwnerBalanceCategory, resolveOwnerBalanceCanonicalCategoryName } from '@/lib/ownerBalanceCategories';
 import { ownerBalanceSignedLineAmount } from '@/lib/ownerViewSettlements';
+import { transactionMatchesOwnerAssignment } from '@/lib/ownerObjectsFilter';
 import OwnerBalanceDialog, { type OwnerBalanceLedgerRow } from '@/components/accountancy/OwnerBalanceDialog';
 
 const CASHFLOW_TYPE_KEYS: Record<string, string> = {
@@ -160,31 +161,24 @@ export default function Page() {
     const ownerBalanceExpenses = expenses.filter((e) => isOwnerBalanceCategory(e, categoryNameById));
     const ownerBalanceIncomes = incomes.filter((i) => isOwnerBalanceCategory(i, categoryNameById));
 
-    const isOwnerRoomMatch = (owner: User, objectId: number, roomName: string | null | undefined): boolean => {
-        if (!owner.objects?.length) return false;
-        const name = (roomName ?? '').trim();
-        if (!name) return false;
-        return owner.objects.some((uo) => {
-            if (uo.id !== objectId) return false;
-            return uo.rooms.some((r) => {
-                if (typeof r === 'string') return r.trim() === name;
-                const obj = objects.find((o) => o.id === objectId);
-                const room = obj?.roomTypes?.find((rt) => rt.id === r);
-                return (room?.name ?? '').trim() === name;
-            });
-        });
+    const ownerBalanceSignedAmount = (
+        record: { categoryId?: string | null; category?: string; quantity?: number; amount: number }
+    ): number => {
+        const canonical = resolveOwnerBalanceCanonicalCategoryName(record, categoryNameById);
+        if (!canonical) return 0;
+        return ownerBalanceSignedLineAmount(canonical, record);
     };
 
     const balanceByOwner = owners.reduce<Record<string, number>>((acc, owner) => {
         if (!owner._id) return acc;
         let sum = 0;
         for (const e of ownerBalanceExpenses) {
-            if (!isOwnerRoomMatch(owner, e.objectId, e.roomName)) continue;
-            sum += ownerBalanceSignedLineAmount(resolveCat(e), e);
+            if (!transactionMatchesOwnerAssignment(e, owner.objects ?? [], objects)) continue;
+            sum += ownerBalanceSignedAmount(e);
         }
         for (const i of ownerBalanceIncomes) {
-            if (!isOwnerRoomMatch(owner, i.objectId, i.roomName)) continue;
-            sum += ownerBalanceSignedLineAmount(resolveCat(i), i);
+            if (!transactionMatchesOwnerAssignment(i, owner.objects ?? [], objects)) continue;
+            sum += ownerBalanceSignedAmount(i);
         }
         acc[owner._id] = sum;
         return acc;
@@ -193,12 +187,13 @@ export default function Page() {
     const getOwnerLedgerRows = (owner: User): OwnerBalanceLedgerRow[] => {
         const rows: OwnerBalanceLedgerRow[] = [];
         for (const e of ownerBalanceExpenses) {
-            if (!e._id || !isOwnerRoomMatch(owner, e.objectId, e.roomName)) continue;
+            if (!e._id || !transactionMatchesOwnerAssignment(e, owner.objects ?? [], objects)) continue;
+            const category = resolveOwnerBalanceCanonicalCategoryName(e, categoryNameById) ?? resolveCat(e);
             rows.push({
                 _id: e._id,
                 recordType: 'expense',
                 date: e.date,
-                category: resolveCat(e),
+                category,
                 objectId: e.objectId,
                 roomName: e.roomName,
                 reportMonth: e.reportMonth,
@@ -208,12 +203,13 @@ export default function Page() {
             });
         }
         for (const i of ownerBalanceIncomes) {
-            if (!i._id || !isOwnerRoomMatch(owner, i.objectId, i.roomName)) continue;
+            if (!i._id || !transactionMatchesOwnerAssignment(i, owner.objects ?? [], objects)) continue;
+            const category = resolveOwnerBalanceCanonicalCategoryName(i, categoryNameById) ?? resolveCat(i);
             rows.push({
                 _id: i._id,
                 recordType: 'income',
                 date: i.date,
-                category: resolveCat(i),
+                category,
                 objectId: i.objectId,
                 roomName: i.roomName,
                 reportMonth: i.reportMonth,

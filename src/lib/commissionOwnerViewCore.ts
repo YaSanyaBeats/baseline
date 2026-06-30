@@ -93,6 +93,8 @@ export async function computeCommissionOwnerViewPayload(
         categories,
         incomes,
         expenses,
-        extraBookings
+        extraBookings,
+        owner.objects ?? [],
+        ownerObjects
     );
 }

@@ -32,9 +32,9 @@ const EXCLUDED_EXPENSE_CATEGORIES = new Set([
     'Доля расходов Holy Cow Phuket',
 ]);
 
-function isManagementCommissionExpense(
+export function isManagementCommissionExpenseCategory(
     categoryName: string,
-    categoryId?: string | null
+    categoryId?: string | null,
 ): boolean {
     if (normalizeMongoId(categoryId) === MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID) return true;
     return categoryName.trim() === MANAGEMENT_COMMISSION_EXPENSE_CATEGORY;
@@ -309,7 +309,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
         const isAgency = isOtaCommission(categoryName) || isCoAgentCommission(categoryName);
 
-        const isManagementCommission = isManagementCommissionExpense(
+        const isManagementCommission = isManagementCommissionExpenseCategory(
             categoryName,
             expense.categoryId
         );
