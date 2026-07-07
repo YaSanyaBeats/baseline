@@ -29,7 +29,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { useSession } from 'next-auth/react';
 import Button from '@mui/material/Button';
 import { stopImpersonation } from '@/lib/auth';
-import { isAdminImpersonatingOwner } from '@/lib/impersonationAccess';
+import { canAccessReports } from '@/lib/impersonationAccess';
 import type { Session } from 'next-auth';
 
 const drawerWidth = 240;
@@ -41,8 +41,8 @@ type MenuItem = {
     link: string;
     roles: UserRole[];
     showOnlyWhenHasCashflow?: boolean;
-    /** Только для админа, вошедшего под владельцем (тестовый режим). */
-    showOnlyWhenImpersonatingOwner?: boolean;
+    /** Только для владельца Premium или админа, вошедшего под владельцем. */
+    showOnlyWhenCanAccessReports?: boolean;
 };
 
 
@@ -132,8 +132,10 @@ function DrawerMenu(props: {
     setOpen: (value: boolean) => void;
     user: User | null;
     session: Session | null;
+    isOwner: boolean;
+    isPremium: boolean;
 }) {
-    const { open, setOpen, user, session } = props;
+    const { open, setOpen, user, session, isOwner, isPremium } = props;
     const { t } = useTranslation();
     
     const menu: MenuItem[] = [
@@ -148,7 +150,7 @@ function DrawerMenu(props: {
             icon: <Description fontSize="small" />,
             link: '/dashboard/reports',
             roles: [],
-            showOnlyWhenImpersonatingOwner: true,
+            showOnlyWhenCanAccessReports: true,
         },
         { 
             text: t('menu.analytics'), 
@@ -206,8 +208,8 @@ function DrawerMenu(props: {
         }
 
         return menu.filter((menuElem) => {
-            if (menuElem.showOnlyWhenImpersonatingOwner) {
-                return isAdminImpersonatingOwner(session);
+            if (menuElem.showOnlyWhenCanAccessReports) {
+                return canAccessReports(session, { isOwner, isPremium });
             }
             if (menuElem.showOnlyWhenHasCashflow) return Boolean(user.hasCashflow);
             if (menuElem.roles.length === 0) return false;
@@ -276,7 +278,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
     const [open, setOpen] = React.useState(false);
     const [stoppingImpersonation, setStoppingImpersonation] = React.useState(false);
     const isMobile = !useMediaQuery('(min-width:768px)');
-    const { user } = useUser();
+    const { user, isOwner, isPremium } = useUser();
     const { data: session } = useSession();
     const { t } = useTranslation();
     const impersonatedBy = session?.impersonatedBy;
@@ -364,7 +366,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} isPremium={isPremium} />
                 </DesktopDrawer>
             ) : (
                 <Drawer
@@ -391,7 +393,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} isPremium={isPremium} />
                 </Drawer>
             )}
 

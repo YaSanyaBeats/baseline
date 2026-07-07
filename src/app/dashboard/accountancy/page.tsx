@@ -103,6 +103,7 @@ import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import {
     buildBookingGroupLineModel,
     joinBookingGroupSegments,
+    resolveBookingLocationFromObjects,
     type BookingGroupLineModel,
 } from "@/lib/bookingGroupLine";
 import {
@@ -445,6 +446,7 @@ function normalizeUnitOrRoomId(value: unknown): number | null {
 function buildBookingGroupLine(
     bookingId: number,
     bookings: Booking[],
+    objects: Obj[],
 ): { label: string; bookingGroupLine: BookingGroupLineModel | undefined } {
     const b = bookings.find((x) => normalizeUnitOrRoomId(x.id) === bookingId);
     if (!b) {
@@ -453,7 +455,8 @@ function buildBookingGroupLine(
             bookingGroupLine: undefined,
         };
     }
-    const bookingGroupLine = buildBookingGroupLineModel(b);
+    const location = resolveBookingLocationFromObjects(b, objects);
+    const bookingGroupLine = buildBookingGroupLineModel(b, location);
     return {
         label: joinBookingGroupSegments(bookingGroupLine.segments),
         bookingGroupLine,
@@ -470,11 +473,12 @@ function resolveAutoCreatedSourceBookingId(record: Expense | Income): number | n
 function resolveAutoCreatedBookingLabel(
     record: Expense | Income,
     bookingsForLabels: Booking[],
+    objects: Obj[],
 ): string | undefined {
     if (!record.autoCreated) return undefined;
     const bid = resolveAutoCreatedSourceBookingId(record);
     if (bid == null) return undefined;
-    const label = buildBookingGroupLine(bid, bookingsForLabels).label;
+    const label = buildBookingGroupLine(bid, bookingsForLabels, objects).label;
     return label || undefined;
 }
 
@@ -1302,7 +1306,7 @@ export default function Page() {
                     source: e.source,
                     recipient: e.recipient,
                     autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
-                    autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(e, bookingsForAutoLabels),
+                    autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(e, bookingsForAutoLabels, objects),
                     includeInSynthetic: e.includeInSynthetic,
                     commissionPercent: e.commissionPercent ?? 30,
                     resolvedRoomKey,
@@ -1347,7 +1351,7 @@ export default function Page() {
                     source: i.source,
                     recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
-                    autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(i, bookingsForAutoLabels),
+                    autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(i, bookingsForAutoLabels, objects),
                     includeInSynthetic: i.includeInSynthetic,
                     commissionPercent: i.commissionPercent ?? 30,
                     resolvedRoomKey,
@@ -1527,7 +1531,7 @@ export default function Page() {
         const bookingGroups: OperationListGroup[] = bookingEntries.map(([key, rows]) => {
             const bid = Number(key.slice(2));
             const b = bookingsMergedForLabels.find((x) => normalizeUnitOrRoomId(x.id) === bid);
-            const { label, bookingGroupLine } = buildBookingGroupLine(bid, bookingsMergedForLabels);
+            const { label, bookingGroupLine } = buildBookingGroupLine(bid, bookingsMergedForLabels, objects);
 
             let finalRows = rows;
             if (selectedObject && commissionCalculationMonthKey && bookingAutoCommissionByBookingId.has(bid)) {

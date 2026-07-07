@@ -62,7 +62,9 @@
     "exitImpersonation": "Return to admin"
   },
   "reports": {
-    "testModeOnly": "This page is in test mode: only available when an administrator is signed in as an owner."
+    "noAccess": "Reports are available to Premium owners or an administrator signed in as an owner.",
+    "noClosedMonths": "No fixed months for your properties. A report will be available after the reporting period is locked.",
+    "loadingClosedMonths": "Loading fixed months…"
   },
   "dashboard": {
     "myObjects": "My Objects",

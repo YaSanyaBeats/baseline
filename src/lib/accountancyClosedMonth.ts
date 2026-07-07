@@ -1,4 +1,6 @@
 import type { Db } from 'mongodb';
+import type { Object as AppObject } from '@/lib/types';
+import { ownerRoomNameSet } from '@/lib/ownerObjectsFilter';
 
 export const ACCOUNTANCY_CLOSED_MONTHS_COLLECTION = 'accountancyClosedMonths';
 
@@ -216,6 +218,46 @@ export type RoomPeriodInput = {
     objectId: number;
     roomKey: string;
 };
+
+function ownerObjectMatchesPeriodObject(
+    obj: AppObject,
+    objectId: number,
+): boolean {
+    return obj.id === objectId || obj.propertyId === objectId;
+}
+
+/** Зафиксированные месяцы, доступные владельцу для отчётов (глобальные + по его комнатам). */
+export function getClosedReportMonthsForOwnerObjects(
+    data: ClosedPeriodsData,
+    ownerObjects: AppObject[],
+): string[] {
+    const months = new Set<string>();
+
+    for (const reportMonth of data.globalMonths) {
+        months.add(reportMonth);
+    }
+
+    for (const period of data.roomPeriods) {
+        for (const obj of ownerObjects) {
+            if (!ownerObjectMatchesPeriodObject(obj, period.objectId)) continue;
+            const roomNames = ownerRoomNameSet(obj.roomTypes);
+            if (roomNames.has(period.roomKey)) {
+                months.add(period.reportMonth);
+                break;
+            }
+        }
+    }
+
+    return Array.from(months).sort((a, b) => b.localeCompare(a));
+}
+
+export function isClosedReportMonthForOwnerObjects(
+    data: ClosedPeriodsData,
+    ownerObjects: AppObject[],
+    monthKey: string,
+): boolean {
+    return getClosedReportMonthsForOwnerObjects(data, ownerObjects).includes(monthKey);
+}
 
 export function parseRoomPeriodInputs(raw: unknown): RoomPeriodInput[] | null {
     if (!Array.isArray(raw) || raw.length === 0) return null;

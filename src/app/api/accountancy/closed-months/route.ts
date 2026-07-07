@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import type { Session } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 import { logAuditAction } from '@/lib/auditLog';
+import { canAccessReports } from '@/lib/impersonationAccess';
 import {
     ACCOUNTANCY_CLOSED_MONTHS_COLLECTION,
     getClosedPeriodsData,
@@ -21,12 +23,20 @@ function requireAccountantOrAdmin(session: Awaited<ReturnType<typeof getServerSe
     return { ok: true as const, session: session as { user: { _id?: string; name?: string; role?: string } } };
 }
 
+function canReadClosedMonths(session: Session | null): boolean {
+    const accountantOrAdmin = requireAccountantOrAdmin(session);
+    if (accountantOrAdmin.ok) return true;
+    return canAccessReports(session);
+}
+
 export async function GET() {
     try {
         const session = await getServerSession(authOptions);
-        const access = requireAccountantOrAdmin(session);
-        if (!access.ok) {
-            return NextResponse.json({ success: false, message: access.message }, { status: access.status });
+        if (!session?.user) {
+            return NextResponse.json({ success: false, message: 'Необходима авторизация' }, { status: 401 });
+        }
+        if (!canReadClosedMonths(session)) {
+            return NextResponse.json({ success: false, message: 'Недостаточно прав' }, { status: 403 });
         }
 
         const db = await getDB();

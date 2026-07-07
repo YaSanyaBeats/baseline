@@ -4,6 +4,7 @@ import { Fragment } from 'react';
 import { Box, Tooltip, Typography, type TypographyProps } from '@mui/material';
 import {
     BOOKING_GROUP_COMMENT_MAX,
+    formatBookingGroupLocationTooltip,
     type BookingGroupLineModel,
 } from '@/lib/bookingGroupLine';
 
@@ -29,8 +30,9 @@ export function BookingGroupLineText({
         line.commentFull != null && line.commentFull.length > BOOKING_GROUP_COMMENT_MAX
             ? line.commentFull
             : null;
+    const locationTooltip = formatBookingGroupLocationTooltip(line);
 
-    return (
+    const content = (
         <Typography component="span" sx={typographySx}>
             {line.segments
                 .map((seg, i) => ({ seg, i }))
@@ -61,5 +63,26 @@ export function BookingGroupLineText({
                     </Fragment>
                 ))}
         </Typography>
+    );
+
+    if (locationTooltip == null) return content;
+
+    return (
+        <Tooltip
+            title={locationTooltip}
+            enterDelay={200}
+            slotProps={{
+                tooltip: {
+                    sx: {
+                        maxWidth: 480,
+                        whiteSpace: 'pre-wrap',
+                    },
+                },
+            }}
+        >
+            <Box component="span" sx={{ display: 'inline', minWidth: 0, overflow: 'hidden' }}>
+                {content}
+            </Box>
+        </Tooltip>
     );
 }

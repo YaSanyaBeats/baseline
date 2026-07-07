@@ -1,9 +1,10 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
     Alert,
     Box,
+    CircularProgress,
     FormControl,
     InputLabel,
     MenuItem,
@@ -14,20 +15,24 @@ import {
 import { useSession } from 'next-auth/react';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useUser } from '@/providers/UserProvider';
-import { isAdminImpersonatingOwner } from '@/lib/impersonationAccess';
+import { canAccessReports } from '@/lib/impersonationAccess';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
-import { buildMonthOptions } from '@/lib/monthOptions';
+import { buildMonthOptionsFromKeys } from '@/lib/monthOptions';
+import { getClosedPeriods } from '@/lib/accountancyClosedMonthsClient';
+import { getClosedReportMonthsForOwnerObjects } from '@/lib/accountancyClosedMonth';
 import CommissionOwnerViewPanel from '@/components/accountancy/CommissionOwnerViewPanel';
 
 export default function ReportsPage() {
     const { t } = useTranslation();
     const { data: session } = useSession();
-    const { user } = useUser();
+    const { user, isOwner, isPremium } = useUser();
     const { objects } = useObjects();
     const [selectedMonth, setSelectedMonth] = useState('');
+    const [closedPeriodsLoading, setClosedPeriodsLoading] = useState(false);
+    const [closedMonthKeys, setClosedMonthKeys] = useState<string[]>([]);
 
-    const canAccess = isAdminImpersonatingOwner(session);
+    const canAccess = canAccessReports(session, { isOwner, isPremium });
     const ownerId = user?._id ?? '';
 
     const ownerObjects = useMemo(() => {
@@ -35,14 +40,48 @@ export default function ReportsPage() {
         return filterObjectsForOwner(objects, user.objects ?? []);
     }, [user, objects]);
 
-    const monthOptions = useMemo(() => buildMonthOptions(t), [t]);
+    useEffect(() => {
+        if (!canAccess) return;
+
+        let cancelled = false;
+
+        const loadClosedMonths = async () => {
+            setClosedPeriodsLoading(true);
+            try {
+                const data = await getClosedPeriods();
+                if (cancelled) return;
+                setClosedMonthKeys(getClosedReportMonthsForOwnerObjects(data, ownerObjects));
+            } catch (err) {
+                console.error('Failed to load closed months for reports:', err);
+                if (!cancelled) setClosedMonthKeys([]);
+            } finally {
+                if (!cancelled) setClosedPeriodsLoading(false);
+            }
+        };
+
+        void loadClosedMonths();
+        return () => {
+            cancelled = true;
+        };
+    }, [canAccess, ownerObjects]);
+
+    const monthOptions = useMemo(
+        () => buildMonthOptionsFromKeys(t, closedMonthKeys),
+        [t, closedMonthKeys],
+    );
+
+    useEffect(() => {
+        if (selectedMonth && !closedMonthKeys.includes(selectedMonth)) {
+            setSelectedMonth('');
+        }
+    }, [selectedMonth, closedMonthKeys]);
 
     if (!canAccess) {
         return (
             <Box>
                 <Typography variant="h4">{t('menu.reports')}</Typography>
                 <Alert severity="warning" sx={{ mt: 2 }}>
-                    {t('reports.testModeOnly')}
+                    {t('reports.noAccess')}
                 </Alert>
             </Box>
         );
@@ -55,7 +94,7 @@ export default function ReportsPage() {
             </Typography>
 
             <Paper sx={{ p: 2, mb: 3 }}>
-                <FormControl sx={{ minWidth: 240 }} size="small">
+                <FormControl sx={{ minWidth: 240 }} size="small" disabled={closedPeriodsLoading}>
                     <InputLabel>{t('accountancy.selectMonth')}</InputLabel>
                     <Select
                         label={t('accountancy.selectMonth')}
@@ -72,6 +111,19 @@ export default function ReportsPage() {
                         ))}
                     </Select>
                 </FormControl>
+                {closedPeriodsLoading && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
+                        <CircularProgress size={20} />
+                        <Typography variant="body2" color="text.secondary">
+                            {t('reports.loadingClosedMonths')}
+                        </Typography>
+                    </Box>
+                )}
+                {!closedPeriodsLoading && monthOptions.length === 0 && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        {t('reports.noClosedMonths')}
+                    </Alert>
+                )}
                 {ownerObjects.length === 0 && (
                     <Alert severity="info" sx={{ mt: 2 }}>
                         {t('accountancy.commission.noOwnerObjects')}
