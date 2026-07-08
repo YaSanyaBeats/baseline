@@ -186,14 +186,14 @@ export function buildAccountancyRoomHighlightMap(params: {
     for (const e of expenses) {
         const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
         if (!lm) continue;
-        if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(e, categoryNameById), lm)) continue;
+        if (isExcludedFromAccountancyRoomStatsSum(e.categoryId, lm)) continue;
         processRecord(e.objectId, e.roomName, e.bookingId, lm, getExpenseSum(e), 'expense');
     }
 
     for (const i of incomes) {
         const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
         if (!lm) continue;
-        if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(i, categoryNameById), lm)) continue;
+        if (isExcludedFromAccountancyRoomStatsSum(i.categoryId, lm)) continue;
         processRecord(i.objectId, i.roomName, i.bookingId, lm, getIncomeSum(i), 'income');
     }
 
@@ -268,7 +268,7 @@ export function getAccountancyRoomBalanceForMonth(params: {
         if (!recordObjectMatchesAccountancySelection(e.objectId, ctx.anchor, allObjects)) continue;
         const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
         if (!lm) continue;
-        if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(e, categoryNameById), lm)) continue;
+        if (isExcludedFromAccountancyRoomStatsSum(e.categoryId, lm)) continue;
         if (resolveRoom(e.objectId, e.roomName, e.bookingId) !== roomKey) continue;
         const amount = getExpenseSum(e);
         if (lm < month) openingBalance += -amount;
@@ -279,7 +279,7 @@ export function getAccountancyRoomBalanceForMonth(params: {
         if (!recordObjectMatchesAccountancySelection(i.objectId, ctx.anchor, allObjects)) continue;
         const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
         if (!lm) continue;
-        if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(i, categoryNameById), lm)) continue;
+        if (isExcludedFromAccountancyRoomStatsSum(i.categoryId, lm)) continue;
         if (resolveRoom(i.objectId, i.roomName, i.bookingId) !== roomKey) continue;
         const amount = getIncomeSum(i);
         if (lm < month) openingBalance += amount;

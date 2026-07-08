@@ -108,6 +108,8 @@ import {
 } from '@/lib/accountancyCategoryResolve';
 import { isResolvableRoomContextToken } from '@/lib/sourceRecipientParse';
 import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
+import { MIN_LEDGER_REPORT_MONTH } from '@/lib/accountancyClosedMonth';
+import { buildMonthOptions } from '@/lib/monthOptions';
 
 function newRowKey(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -270,18 +272,6 @@ function parseTransactionDateString(iso: string): Date | null {
     return dt;
 }
 
-function reportMonthSelectOptions(t: (key: string) => string): { value: string; label: string }[] {
-    const options: { value: string; label: string }[] = [];
-    const now = new Date();
-    for (let i = 0; i < 24; i++) {
-        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-        const y = d.getFullYear();
-        const m = d.getMonth() + 1;
-        const value = `${y}-${String(m).padStart(2, '0')}`;
-        options.push({ value, label: `${t(`accountancy.months.${m}`)} ${y}` });
-    }
-    return options;
-}
 
 function getEffectiveRowCategory(row: BulkRow, globalCategory: string): string {
     const own = row.rowCategory.trim();
@@ -1054,7 +1044,10 @@ export default function BulkAddTransactionsPage() {
         updateSubRow(rowKey, subKey, { bookingId: undefined });
     };
 
-    const monthOptions = useMemo(() => reportMonthSelectOptions(t), [t]);
+    const monthOptions = useMemo(
+        () => buildMonthOptions(t, 24, MIN_LEDGER_REPORT_MONTH),
+        [t],
+    );
 
     const sourceRecipientOptions = useMemo(
         () =>

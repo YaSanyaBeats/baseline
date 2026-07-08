@@ -5,14 +5,26 @@
 
 import { Booking, Expense, Income, AccountancyCategory } from './types';
 import type { CategoryDivisibility } from './types';
+import {
+    isCoAgentCommissionCategoryId,
+    isManagementCommissionBaseIncomeCategoryId,
+    isOtaCommissionCategoryId,
+    isOtaOrCoAgentCategoryId,
+    normalizeAccountancyCategoryId,
+} from '@/lib/accountancyCategoryIds';
+import { normalizeMongoIdString } from '@/lib/mongoId';
 
 export type CommissionSchemeId = 1 | 2 | 3 | 4;
 export type ManagementCommissionPercent = 15 | 20 | 25 | 30;
 
 export const MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY = 'Аренда (баланс/остаток)';
 
-/** Маппинг: название категории → делимость. /2 и /3 = делимый, иначе нет. */
+/** Маппинг: id категории → делимость. /2 и /3 = делимый, иначе нет. */
 export type CategoryDivisibilityMap = Record<string, CategoryDivisibility | undefined>;
+
+function recordCategoryId(record: { categoryId?: string | null }): string {
+    return normalizeAccountancyCategoryId(record.categoryId);
+}
 
 /** Ключевые слова для OTA и ко-агента (схемы 2–4) */
 const CATEGORY_KEYWORDS = {
@@ -26,18 +38,22 @@ function categoryMatches(categoryName: string, keywords: readonly string[]): boo
 }
 
 /** Проверка: категория — комиссия OTA */
-export function isOtaCommission(categoryName: string): boolean {
-    return categoryMatches(categoryName, CATEGORY_KEYWORDS.otaCommission);
+export function isOtaCommission(categoryIdOrName: string, categoryName?: string): boolean {
+    if (isOtaCommissionCategoryId(categoryIdOrName)) return true;
+    const name = categoryName ?? categoryIdOrName;
+    return categoryMatches(name, CATEGORY_KEYWORDS.otaCommission);
 }
 
 /** Проверка: категория — комиссия ко-агента */
-export function isCoAgentCommission(categoryName: string): boolean {
-    return categoryMatches(categoryName, CATEGORY_KEYWORDS.coAgentCommission);
+export function isCoAgentCommission(categoryIdOrName: string, categoryName?: string): boolean {
+    if (isCoAgentCommissionCategoryId(categoryIdOrName)) return true;
+    const name = categoryName ?? categoryIdOrName;
+    return categoryMatches(name, CATEGORY_KEYWORDS.coAgentCommission);
 }
 
 /** Проверка: OTA или ко-агент (для схем 2, 3, 4) */
-export function isOtaOrCoAgent(categoryName: string): boolean {
-    return isOtaCommission(categoryName) || isCoAgentCommission(categoryName);
+export function isOtaOrCoAgent(categoryIdOrName: string, categoryName?: string): boolean {
+    return isOtaCommission(categoryIdOrName, categoryName) || isCoAgentCommission(categoryIdOrName, categoryName);
 }
 
 /** Проверка: расход делимый по divisibility категории (/2 или /3) */
@@ -114,7 +130,7 @@ export interface BookingCommissionInput {
     totalNights: number;
     incomesInMonth: number;
     expensesInMonth: number;
-    expensesByCategory: Array<{ category: string; amount: number }>;
+    expensesByCategory: Array<{ categoryId: string; category: string; amount: number }>;
     /** Маппинг категория → divisibility для определения делимых расходов */
     categoryDivisibilityMap: CategoryDivisibilityMap;
     /** Доходы по брони за выбранный месяц (для детализации шага «Доход за месяц») */
@@ -166,27 +182,29 @@ export interface BookingCommissionResult {
     commissionPercentOverridden?: boolean;
 }
 
-function getOtaCoAgentAmount(expensesByCategory: Array<{ category: string; amount: number }>): number {
+function getOtaCoAgentAmount(
+    expensesByCategory: Array<{ categoryId: string; category: string; amount: number }>,
+): number {
     return expensesByCategory
-        .filter((e) => isOtaOrCoAgent(e.category))
+        .filter((e) => isOtaOrCoAgentCategoryId(e.categoryId))
         .reduce((s, e) => s + e.amount, 0);
 }
 
 function getDivisibleAmount(
-    expensesByCategory: Array<{ category: string; amount: number }>,
-    categoryDivisibilityMap: CategoryDivisibilityMap
+    expensesByCategory: Array<{ categoryId: string; category: string; amount: number }>,
+    categoryDivisibilityMap: CategoryDivisibilityMap,
 ): number {
     return expensesByCategory
-        .filter((e) => isDivisibleByCategory(categoryDivisibilityMap[e.category]))
+        .filter((e) => isDivisibleByCategory(categoryDivisibilityMap[e.categoryId]))
         .reduce((s, e) => s + e.amount, 0);
 }
 
 function getIndivisibleAmount(
-    expensesByCategory: Array<{ category: string; amount: number }>,
-    categoryDivisibilityMap: CategoryDivisibilityMap
+    expensesByCategory: Array<{ categoryId: string; category: string; amount: number }>,
+    categoryDivisibilityMap: CategoryDivisibilityMap,
 ): number {
     return expensesByCategory
-        .filter((e) => !isDivisibleByCategory(categoryDivisibilityMap[e.category]))
+        .filter((e) => !isDivisibleByCategory(categoryDivisibilityMap[e.categoryId]))
         .reduce((s, e) => s + e.amount, 0);
 }
 
@@ -270,7 +288,9 @@ export function calculateBookingCommission(
                 description: 'Делимые расходы (категории с divisibility /2 или /3)',
                 value: divisible,
                 lineItems: mapExpenseLineItems(
-                    bookingExpenses.filter((e) => isDivisibleByCategory(categoryDivisibilityMap[e.category]))
+                    bookingExpenses.filter((e) =>
+                        isDivisibleByCategory(categoryDivisibilityMap[recordCategoryId(e)]),
+                    ),
                 ),
             });
             const base = Math.max(0, incomesInMonth - divisible);
@@ -424,8 +444,8 @@ export function calculateBookingManagementCommission(
 ): BookingCommissionResult {
     const defaultPercent = getDefaultManagementCommissionPercent(schemeId, input.totalNights);
     const percent = percentOverride ?? defaultPercent;
-    const baseIncomes = input.bookingIncomes.filter(
-        (i) => (i.category ?? '').trim() === MANAGEMENT_COMMISSION_BASE_INCOME_CATEGORY,
+    const baseIncomes = input.bookingIncomes.filter((i) =>
+        isManagementCommissionBaseIncomeCategoryId(i.categoryId),
     );
     const baseIncome = baseIncomes.reduce((s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0), 0);
     const commission = baseIncome * (percent / 100);
@@ -482,13 +502,12 @@ export interface CommissionCalculationResult {
     totalExpenses: number;
 }
 
-/** Строит маппинг название категории → divisibility из списка категорий */
+/** Строит маппинг id категории → divisibility из списка категорий */
 function buildCategoryDivisibilityMap(categories: AccountancyCategory[]): CategoryDivisibilityMap {
     const map: CategoryDivisibilityMap = {};
     for (const c of categories) {
-        if (c.name) {
-            map[c.name] = c.divisibility;
-        }
+        const id = normalizeMongoIdString(c._id).trim();
+        if (id) map[id] = c.divisibility;
     }
     return map;
 }
@@ -616,15 +635,16 @@ export function prepareCommissionData(
         const expensesByCategory = bookingExpenses.reduce(
             (acc, e) => {
                 const sum = getExpenseSum(e);
-                const existing = acc.find((x) => x.category === e.category);
+                const categoryId = recordCategoryId(e);
+                const existing = acc.find((x) => x.categoryId === categoryId);
                 if (existing) {
                     existing.amount += sum;
                 } else {
-                    acc.push({ category: e.category, amount: sum });
+                    acc.push({ categoryId, category: e.category, amount: sum });
                 }
                 return acc;
             },
-            [] as Array<{ category: string; amount: number }>
+            [] as Array<{ categoryId: string; category: string; amount: number }>,
         );
 
         const totalNights = getNightsCount(booking.arrival, booking.departure);

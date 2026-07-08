@@ -1,4 +1,4 @@
-import { buildCategoryNameByIdMap } from '@/lib/accountancyCategoryResolve';
+import { buildCategoryNameByIdMap, type AppLanguage } from '@/lib/accountancyCategoryResolve';
 import {
     buildCommissionOwnerViewPayload,
     collectOwnerViewExtraBookingIds,
@@ -38,7 +38,8 @@ export async function computeCommissionOwnerViewPayload(
     const ownerObjects = filterObjectsForOwner(objects, owner.objects ?? []);
     if (ownerObjects.length === 0) return null;
 
-    const categoryNameById = buildCategoryNameByIdMap(categories);
+    const appLanguage: AppLanguage = locale.startsWith('en') ? 'en' : 'ru';
+    const categoryNameById = buildCategoryNameByIdMap(categories, appLanguage);
 
     const objectReports = await Promise.all(
         ownerObjects.map((obj) =>

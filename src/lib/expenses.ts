@@ -55,7 +55,7 @@ export async function addExpense(expense: Expense, options?: AddTransactionOptio
         return response.data;
     } catch (error) {
         const parsed = extractCommonResponseFromAxiosError(error);
-        if (parsed?.code === 'FORBID_DUPLICATES' || parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        if (parsed?.code === 'FORBID_DUPLICATES' || parsed?.code === 'REPORT_MONTH_CLOSED' || parsed?.code === 'REPORT_MONTH_TOO_EARLY') return parsed;
         throw error;
     }
 }
@@ -70,7 +70,7 @@ export async function updateExpense(expense: Expense): Promise<CommonResponse> {
         return response.data;
     } catch (error) {
         const parsed = extractCommonResponseFromAxiosError(error);
-        if (parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        if (parsed?.code === 'REPORT_MONTH_CLOSED' || parsed?.code === 'REPORT_MONTH_TOO_EARLY') return parsed;
         throw error;
     }
 }
@@ -85,7 +85,7 @@ export async function deleteExpense(id: string): Promise<CommonResponse> {
         return response.data;
     } catch (error) {
         const parsed = extractCommonResponseFromAxiosError(error);
-        if (parsed?.code === 'REPORT_MONTH_CLOSED') return parsed;
+        if (parsed?.code === 'REPORT_MONTH_CLOSED' || parsed?.code === 'REPORT_MONTH_TOO_EARLY') return parsed;
         throw error;
     }
 }

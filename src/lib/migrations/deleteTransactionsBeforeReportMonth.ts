@@ -1,7 +1,8 @@
 import type { Db } from 'mongodb';
+import { MIN_LEDGER_REPORT_MONTH } from '@/lib/accountancyClosedMonth';
 
 /** Минимальный месяц отчёта, который сохраняется (декабрь 2025 и позже). */
-export const RETAINED_REPORT_MONTH_FROM = '2025-12';
+export const RETAINED_REPORT_MONTH_FROM = MIN_LEDGER_REPORT_MONTH;
 
 function buildDeleteFilter() {
     return {

@@ -95,6 +95,8 @@ import {
     parseDecimalInput,
     sanitizeDecimalTyping,
 } from '@/lib/accountancyUtils';
+import { MIN_LEDGER_REPORT_MONTH } from '@/lib/accountancyClosedMonth';
+import { buildMonthOptions } from '@/lib/monthOptions';
 
 type LineFields = {
     category: string;
@@ -243,16 +245,8 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const [parentTransaction, setParentTransaction] = useState<ParentTransactionContext | null>(null);
 
     const reportMonthOptions = useMemo(
-        () =>
-            Array.from({ length: 24 }, (_, i) => {
-                const now = new Date();
-                const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-                const y = d.getFullYear();
-                const m = d.getMonth() + 1;
-                const value = `${y}-${String(m).padStart(2, '0')}`;
-                return { value, label: `${t(`accountancy.months.${m}`)} ${y}` };
-            }),
-        [t]
+        () => buildMonthOptions(t, 24, MIN_LEDGER_REPORT_MONTH),
+        [t],
     );
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);

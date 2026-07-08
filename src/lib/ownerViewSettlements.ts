@@ -1,3 +1,4 @@
+import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { sortRowsByAccountancyCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
@@ -205,8 +206,8 @@ export function buildOwnerViewSettlementRows(
     const processRecord = (record: Income | Expense, type: 'income' | 'expense') => {
         if (!matchesOwner(record)) return;
 
-        const categoryName = resolveOwnerBalanceCanonicalCategoryName(record, categoryNameById);
-        if (!categoryName) return;
+        const canonicalCategory = resolveOwnerBalanceCanonicalCategoryName(record, categoryNameById);
+        if (!canonicalCategory) return;
 
         const amount = transactionAmount(record, type);
         if (amount === 0) return;
@@ -215,7 +216,7 @@ export function buildOwnerViewSettlementRows(
         if (!ledgerMonth) return;
 
         if (ledgerMonth < monthKey) {
-            openingBalance += ownerSettlementSignedAmount(categoryName, amount);
+            openingBalance += ownerSettlementSignedAmount(canonicalCategory, amount);
             return;
         }
         if (ledgerMonth !== monthKey) return;
@@ -223,13 +224,14 @@ export function buildOwnerViewSettlementRows(
         const objectName = resolveObjectName(record);
         const roomName = (record.roomName ?? '').trim() || '—';
         const period = formatSettlementPeriod(record.reportMonth, record.date);
+        const displayCategory = resolveCategoryName(record, categoryNameById);
 
         monthPending.push({
             key: rowKey(record, type),
-            date: settlementTransactionDisplayDate(monthKey, categoryName),
-            category: categoryName,
+            date: settlementTransactionDisplayDate(monthKey, canonicalCategory),
+            category: canonicalCategory,
             description: settlementDescription(
-                categoryName,
+                displayCategory,
                 objectName,
                 roomName,
                 period,

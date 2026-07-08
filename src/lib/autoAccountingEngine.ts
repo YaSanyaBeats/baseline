@@ -31,7 +31,11 @@ import {
     normalizeTransactionCategoryFields,
     type NormalizedTransactionCategory,
 } from '@/lib/accountancyCategoryServerResolve';
-import { getClosedPeriodsCache, isLedgerPeriodClosed } from '@/lib/accountancyClosedMonth';
+import {
+    getClosedPeriodsCache,
+    isLedgerMonthBeforeMinimum,
+    isLedgerPeriodClosed,
+} from '@/lib/accountancyClosedMonth';
 
 /** Подставляет «комнату из брони» в значение room:objectId:encodedName для создаваемой транзакции */
 function resolveAutoRuleSourceRecipient(
@@ -490,15 +494,20 @@ export async function runRulesForBookings(
             if (rule.ruleType === 'expense') {
                 if (rule.period === 'per_booking') {
                     const reportMonthBooking = `${departure.getFullYear()}-${String(departure.getMonth() + 1).padStart(2, '0')}`;
-                    if (isLedgerPeriodClosed(closedPeriodsCache, reportMonthBooking, accountingObjectId, bookingUnitName)) {
+                    if (
+                        isLedgerMonthBeforeMinimum(reportMonthBooking) ||
+                        isLedgerPeriodClosed(closedPeriodsCache, reportMonthBooking, accountingObjectId, bookingUnitName)
+                    ) {
                         continue;
                     }
                     if (
                         await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                             objectId: accountingObjectId,
                             category: categoryFields.category,
+                            categoryId: categoryFields.categoryId ?? null,
                             roomName: bookingUnitName ?? null,
                             reportMonth: reportMonthBooking,
+                            bookingId: bid,
                         })
                     ) {
                         continue;
@@ -532,15 +541,20 @@ export async function runRulesForBookings(
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
-                        if (isLedgerPeriodClosed(closedPeriodsCache, reportMonth, accountingObjectId, bookingUnitName)) {
+                        if (
+                            isLedgerMonthBeforeMinimum(reportMonth) ||
+                            isLedgerPeriodClosed(closedPeriodsCache, reportMonth, accountingObjectId, bookingUnitName)
+                        ) {
                             continue;
                         }
                         if (
                             await hasDuplicateForForbidCategory(db, 'expenses', 'expense', {
                                 objectId: accountingObjectId,
                                 category: categoryFields.category,
+                                categoryId: categoryFields.categoryId ?? null,
                                 roomName: bookingUnitName ?? null,
                                 reportMonth,
+                                bookingId: bid,
                             })
                         ) {
                             continue;
@@ -574,15 +588,20 @@ export async function runRulesForBookings(
             } else {
                 if (rule.period === 'per_booking') {
                     const reportMonthBookingInc = `${departure.getFullYear()}-${String(departure.getMonth() + 1).padStart(2, '0')}`;
-                    if (isLedgerPeriodClosed(closedPeriodsCache, reportMonthBookingInc, accountingObjectId, bookingUnitName)) {
+                    if (
+                        isLedgerMonthBeforeMinimum(reportMonthBookingInc) ||
+                        isLedgerPeriodClosed(closedPeriodsCache, reportMonthBookingInc, accountingObjectId, bookingUnitName)
+                    ) {
                         continue;
                     }
                     if (
                         await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                             objectId: accountingObjectId,
                             category: categoryFields.category,
+                            categoryId: categoryFields.categoryId ?? null,
                             roomName: bookingUnitName ?? null,
                             reportMonth: reportMonthBookingInc,
+                            bookingId: bid,
                         })
                     ) {
                         continue;
@@ -616,15 +635,20 @@ export async function runRulesForBookings(
                     for (const { year, month } of months) {
                         const date = new Date(year, month - 1, 1);
                         const reportMonth = `${year}-${String(month).padStart(2, '0')}`;
-                        if (isLedgerPeriodClosed(closedPeriodsCache, reportMonth, accountingObjectId, bookingUnitName)) {
+                        if (
+                            isLedgerMonthBeforeMinimum(reportMonth) ||
+                            isLedgerPeriodClosed(closedPeriodsCache, reportMonth, accountingObjectId, bookingUnitName)
+                        ) {
                             continue;
                         }
                         if (
                             await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                                 objectId: accountingObjectId,
                                 category: categoryFields.category,
+                                categoryId: categoryFields.categoryId ?? null,
                                 roomName: bookingUnitName ?? null,
                                 reportMonth,
+                                bookingId: bid,
                             })
                         ) {
                             continue;

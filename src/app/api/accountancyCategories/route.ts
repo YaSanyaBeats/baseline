@@ -5,10 +5,15 @@ import { getDB } from '@/lib/db/getDB';
 import {
     AccountancyCategory,
     AccountancyCategoryType,
+    CategoryDuplicateRule,
     CategoryDivisibility,
     CategoryCheckInOut,
     NoBookingSubgroupId,
 } from '@/lib/types';
+import {
+    isValidCategoryDuplicateRule,
+    legacyForbidDuplicatesFromRule,
+} from '@/lib/accountancyCategoryDuplicateRule';
 import { NO_BOOKING_SUBGROUP_BINDABLE } from '@/lib/noBookingCategorySubgroups';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
@@ -204,6 +209,19 @@ export async function PUT(request: NextRequest) {
         const reportingPeriod: string | undefined = body.reportingPeriod;
         const forbidDuplicates: boolean | undefined =
             typeof body.forbidDuplicates === 'boolean' ? body.forbidDuplicates : undefined;
+        let duplicateRule: CategoryDuplicateRule | undefined = undefined;
+        if (Object.prototype.hasOwnProperty.call(body, 'duplicateRule')) {
+            if (body.duplicateRule == null || body.duplicateRule === '') {
+                duplicateRule = 'off';
+            } else if (isValidCategoryDuplicateRule(body.duplicateRule)) {
+                duplicateRule = body.duplicateRule;
+            } else {
+                return NextResponse.json(
+                    { success: false, message: 'Некорректное правило запрета дублей' },
+                    { status: 400 },
+                );
+            }
+        }
         const source: string | null | undefined = Object.prototype.hasOwnProperty.call(body, 'source')
             ? body.source == null || body.source === ''
                 ? null
@@ -298,7 +316,13 @@ export async function PUT(request: NextRequest) {
         if (isAuto !== undefined) updateData.isAuto = isAuto;
         if (checkInOut !== undefined) updateData.checkInOut = checkInOut;
         if (reportingPeriod !== undefined) updateData.reportingPeriod = reportingPeriod;
-        if (forbidDuplicates !== undefined) updateData.forbidDuplicates = forbidDuplicates;
+        if (duplicateRule !== undefined) {
+            updateData.duplicateRule = duplicateRule;
+            updateData.forbidDuplicates = legacyForbidDuplicatesFromRule(duplicateRule);
+        } else if (forbidDuplicates !== undefined) {
+            updateData.forbidDuplicates = forbidDuplicates;
+            updateData.duplicateRule = forbidDuplicates ? 'per_period' : 'off';
+        }
         if (noBookingSubgroupId !== undefined) updateData.noBookingSubgroupId = noBookingSubgroupId;
         const unsetData: Record<string, ''> = {};
         if (source !== undefined) {

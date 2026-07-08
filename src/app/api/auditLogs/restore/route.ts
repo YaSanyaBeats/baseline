@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import { AuditLogEntity } from '@/lib/types';
+import { assertLedgerMonthOpen } from '@/lib/accountancyClosedMonth';
 
 function collectionForDeletedEntity(
     entity: AuditLogEntity,
@@ -136,6 +137,23 @@ export async function POST(request: NextRequest) {
         }
 
         const doc = { ...oldData, _id };
+
+        if (entity === 'expense' || entity === 'income') {
+            const ledgerCheck = await assertLedgerMonthOpen(
+                db,
+                oldData.date as Date | string | undefined,
+                typeof oldData.reportMonth === 'string' ? oldData.reportMonth : null,
+                typeof oldData.objectId === 'number' ? oldData.objectId : undefined,
+                oldData.roomName != null ? String(oldData.roomName) : null,
+            );
+            if (!ledgerCheck.ok) {
+                return NextResponse.json(
+                    { success: false, message: ledgerCheck.message, code: ledgerCheck.code },
+                    { status: 403 },
+                );
+            }
+        }
+
         await target.insertOne(doc as any);
 
         await auditLogsCollection.updateOne(

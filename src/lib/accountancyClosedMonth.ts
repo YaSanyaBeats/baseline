@@ -4,12 +4,18 @@ import { ownerRoomNameSet } from '@/lib/ownerObjectsFilter';
 
 export const ACCOUNTANCY_CLOSED_MONTHS_COLLECTION = 'accountancyClosedMonths';
 
+/** Минимальный допустимый месяц отчёта для транзакций (декабрь 2025 и позже). */
+export const MIN_LEDGER_REPORT_MONTH = '2025-12';
+
 export const REPORT_MONTH_CLOSED_MESSAGE =
     'Отчётный период зафиксирован. Добавление, изменение и удаление транзакций за этот месяц недоступно.';
 
+export const REPORT_MONTH_TOO_EARLY_MESSAGE =
+    'Нельзя создавать транзакции с месяцем отчёта ноябрь 2025 или раньше.';
+
 export type ClosedMonthCheckResult =
     | { ok: true }
-    | { ok: false; message: string; code: 'REPORT_MONTH_CLOSED' };
+    | { ok: false; message: string; code: 'REPORT_MONTH_CLOSED' | 'REPORT_MONTH_TOO_EARLY' };
 
 export type ClosedRoomPeriod = {
     reportMonth: string;
@@ -42,6 +48,13 @@ export function resolveLedgerMonth(
 
 export function isValidReportMonthKey(value: string): boolean {
     return /^\d{4}-(0[1-9]|1[0-2])$/.test(value.trim());
+}
+
+/** true, если месяц отчёта раньше MIN_LEDGER_REPORT_MONTH (ноябрь 2025 и раньше). */
+export function isLedgerMonthBeforeMinimum(month: string): boolean {
+    const m = month.trim();
+    if (!isValidReportMonthKey(m)) return false;
+    return m < MIN_LEDGER_REPORT_MONTH;
 }
 
 export function normalizeRoomKeyForLock(roomName: string | null | undefined): string {
@@ -147,6 +160,10 @@ export async function assertLedgerMonthOpen(
 ): Promise<ClosedMonthCheckResult> {
     const month = resolveLedgerMonth(date, reportMonth);
     if (!month) return { ok: true };
+
+    if (isLedgerMonthBeforeMinimum(month)) {
+        return { ok: false, message: REPORT_MONTH_TOO_EARLY_MESSAGE, code: 'REPORT_MONTH_TOO_EARLY' };
+    }
 
     const closed = closedCache ?? (await getClosedPeriodsCache(db));
     if (isLedgerPeriodClosed(closed, month, objectId, roomName)) {

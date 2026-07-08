@@ -2,13 +2,8 @@
  * Подгруппы операций «Без брони» по полю noBookingSubgroupId категории (accountancyCategories).
  */
 
+import { isExcludedFromAccountancyRoomStatsSumByCategoryId } from '@/lib/accountancyCategoryIds';
 import { getNoBookingSubgroupCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
-import {
-    OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME,
-    OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
-    OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME,
-    OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
-} from '@/lib/ownerBalanceCategories';
 import type { AccountancyCategory, NoBookingSubgroupId } from '@/lib/types';
 
 export type { NoBookingSubgroupId };
@@ -73,28 +68,20 @@ export function resolveNoBookingSubgroupForTransaction(
         const subgroup = cat.noBookingSubgroupId ?? 'other';
         if (subgroup !== 'other') return subgroup;
     }
-    const fromOrder = resolveSubgroupFromCategoryOrder((categoryName ?? '').trim());
-    if (fromOrder) return fromOrder;
+    if (cat?.name) {
+        const fromOrder = resolveSubgroupFromCategoryOrder(cat.name);
+        if (fromOrder) return fromOrder;
+    }
     return 'other';
 }
-
-/** Не входят в общий баланс комнаты (ни в период, ни в накопление «остатка на начало»). */
-const ACCOUNTANCY_ROOM_STATS_ALWAYS_EXCLUDED_CATEGORIES = new Set([
-    OWNER_OPENING_BALANCE_POSITIVE_CATEGORY_NAME,
-    OWNER_OPENING_BALANCE_NEGATIVE_CATEGORY_NAME,
-    OWNER_PAYOUT_TO_OWNER_CATEGORY_NAME,
-    OWNER_TARGETED_INCOME_FROM_OWNER_CATEGORY_NAME,
-]);
 
 /**
  * Исключение из суммы баланса по комнате (взаиморасчёты владельца, остатки на начало).
  * @param ledgerMonth зарезервирован для совместимости вызовов
  */
 export function isExcludedFromAccountancyRoomStatsSum(
-    categoryName: string | null | undefined,
+    categoryId: string | null | undefined,
     _ledgerMonth?: string | null,
 ): boolean {
-    const n = (categoryName ?? '').trim();
-    if (n === '') return false;
-    return ACCOUNTANCY_ROOM_STATS_ALWAYS_EXCLUDED_CATEGORIES.has(n);
+    return isExcludedFromAccountancyRoomStatsSumByCategoryId(categoryId);
 }

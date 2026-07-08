@@ -1,5 +1,5 @@
+import { isExcludedCommissionCalcExpenseCategoryId } from '@/lib/accountancyCategoryIds';
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
-import { BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY } from '@/lib/accountancyOperationGroupCategoryOrder';
 import {
     buildOwnerViewIncomeGroupsForRoom,
     ensureHolyCowIncomeLineInGroups,
@@ -290,7 +290,7 @@ function buildRoomSectionsFromObjectReports(
         if (!objectReport) continue;
 
         const categoryName = resolveCategoryName(expense, categoryNameById);
-        if (isExcludedOwnerViewExpenseCategory(categoryName)) continue;
+        if (isExcludedOwnerViewExpenseCategory(categoryName, expense.categoryId)) continue;
 
         const subgroup = resolveNoBookingSubgroupForTransaction(
             expense.categoryId,
@@ -500,14 +500,7 @@ export function collectOwnerViewExtraBookingIds(
         if (expense.bookingId == null) continue;
         if (!ownerObjectIds.has(expense.objectId)) continue;
         if (!incomeInReportMonth(expense, monthKey)) continue;
-        const categoryName = resolveCategoryName(expense, categoryNameById);
-        if (
-            categoryName === BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY ||
-            categoryName === 'Доля расходов Holy Cow Phuket' ||
-            categoryName === 'Доля Расходов Holy Cow Phuket'
-        ) {
-            continue;
-        }
+        if (isExcludedCommissionCalcExpenseCategoryId(expense.categoryId)) continue;
         const line = (expense.quantity ?? 1) * (expense.amount ?? 0);
         if (line === 0) continue;
         if (!existing.has(expense.bookingId)) needed.add(expense.bookingId);

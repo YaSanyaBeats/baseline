@@ -19,12 +19,18 @@ import {
     type NoBookingSubgroupId,
 } from '@/lib/noBookingCategorySubgroups';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import {
+    isCoAgentCommissionCategoryId,
+    isExcludedCommissionCalcExpenseCategoryId,
+    isOtaCommissionCategoryId,
+    MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID,
+} from '@/lib/accountancyCategoryIds';
 import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
 
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
 
 export const MANAGEMENT_COMMISSION_EXPENSE_CATEGORY = 'Комиссия за управление';
-export const MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID = '6978b639aef81bcff93d2dfa';
+export { MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID } from '@/lib/accountancyCategoryIds';
 
 const EXCLUDED_EXPENSE_CATEGORIES = new Set([
     BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
@@ -32,11 +38,23 @@ const EXCLUDED_EXPENSE_CATEGORIES = new Set([
     'Доля расходов Holy Cow Phuket',
 ]);
 
+function isExcludedExpenseCategory(categoryName: string, categoryId?: string | null): boolean {
+    if (isExcludedCommissionCalcExpenseCategoryId(categoryId)) return true;
+    return EXCLUDED_EXPENSE_CATEGORIES.has(categoryName.trim());
+}
+
+export function isExcludedOwnerViewExpenseCategory(
+    categoryName: string,
+    categoryId?: string | null,
+): boolean {
+    return isExcludedExpenseCategory(categoryName, categoryId);
+}
+
 export function isManagementCommissionExpenseCategory(
     categoryName: string,
     categoryId?: string | null,
 ): boolean {
-    if (normalizeMongoId(categoryId) === MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID) return true;
+    if (normalizeMongoIdString(categoryId).trim() === MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID) return true;
     return categoryName.trim() === MANAGEMENT_COMMISSION_EXPENSE_CATEGORY;
 }
 
@@ -86,14 +104,6 @@ type BookingMeta = {
 
 function transactionLineTotal(record: { quantity?: number; amount?: number }): number {
     return (record.quantity ?? 1) * (record.amount ?? 0);
-}
-
-function isExcludedExpenseCategory(categoryName: string): boolean {
-    return EXCLUDED_EXPENSE_CATEGORIES.has(categoryName.trim());
-}
-
-export function isExcludedOwnerViewExpenseCategory(categoryName: string): boolean {
-    return isExcludedExpenseCategory(categoryName);
 }
 
 export function isOwnerViewRoomExpenseSubgroup(subgroup: NoBookingSubgroupId): boolean {
@@ -245,7 +255,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
         if (!parentId) continue;
 
         const categoryName = resolveCategoryName(child, categoryNameById);
-        if (isExcludedExpenseCategory(categoryName)) continue;
+        if (isExcludedExpenseCategory(categoryName, child.categoryId)) continue;
         if (
             !transactionMatchesRoomForOwnerView(
                 child,
@@ -294,7 +304,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
         const includeInCommissionShare = expense.includeInSynthetic !== false;
 
         const categoryName = resolveCategoryName(expense, categoryNameById);
-        if (isExcludedExpenseCategory(categoryName)) continue;
+        if (isExcludedExpenseCategory(categoryName, expense.categoryId)) continue;
 
         const lineTotal = transactionLineTotal(expense);
         if (lineTotal === 0) continue;
@@ -307,7 +317,11 @@ export function buildOwnerViewExpenseGroupsForRoom(
             : 0;
         const commissionSubtransactionTotal = childExpenseTotal + childIncomeSubtransactionTotal;
 
-        const isAgency = isOtaCommission(categoryName) || isCoAgentCommission(categoryName);
+        const isAgency =
+            isOtaCommissionCategoryId(expense.categoryId) ||
+            isCoAgentCommissionCategoryId(expense.categoryId) ||
+            isOtaCommission(expense.categoryId ?? '', categoryName) ||
+            isCoAgentCommission(expense.categoryId ?? '', categoryName);
 
         const isManagementCommission = isManagementCommissionExpenseCategory(
             categoryName,

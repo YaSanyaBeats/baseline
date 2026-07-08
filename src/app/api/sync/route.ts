@@ -140,18 +140,4 @@ async function syncData(type: string) {
         },
         { upsert: true }
     );
-
-    // После синхронизации бронирований запускаем автоучёт для новых броней
-    if (type === 'bookings') {
-        try {
-            const { getUnprocessedBookingIds } = await import('@/lib/autoAccountingEngine');
-            const { runRulesForBookings } = await import('@/lib/autoAccountingEngine');
-            const unprocessedIds = await getUnprocessedBookingIds();
-            if (unprocessedIds.length > 0) {
-                await runRulesForBookings(unprocessedIds, null);
-            }
-        } catch (err) {
-            console.error('Auto-accounting after bookings sync failed:', err);
-        }
-    }
 }

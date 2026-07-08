@@ -5,7 +5,11 @@ import { getDB } from '@/lib/db/getDB';
 import { Income, IncomeStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
-import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import {
+    duplicateRuleBlockedMessage,
+    getCategoryDuplicateRule,
+    hasDuplicateForForbidCategory,
+} from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
 import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
@@ -123,20 +127,27 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const duplicateRule = await getCategoryDuplicateRule(
+            db,
+            incomeData.category,
+            'income',
+            incomeData.categoryId,
+        );
         if (
             await hasDuplicateForForbidCategory(db, 'incomes', 'income', {
                 objectId: incomeData.objectId,
                 category: incomeData.category,
+                categoryId: incomeData.categoryId ?? null,
                 roomName: incomeData.roomName ?? null,
                 reportMonth: incomeData.reportMonth,
+                bookingId: incomeData.bookingId ?? null,
                 excludeObjectId: new ObjectId(incomeData._id),
             })
         ) {
             return NextResponse.json(
                 {
                     success: false,
-                    message:
-                        'Для этой категории включён запрет дублей: уже есть запись с тем же объектом, комнатой, категорией и отчётным месяцем.',
+                    message: duplicateRuleBlockedMessage(duplicateRule),
                 },
                 { status: 400 },
             );

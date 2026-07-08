@@ -27,6 +27,7 @@ import {
     DialogContent,
     DialogContentText,
     DialogActions,
+    CircularProgress,
 } from "@mui/material";
 import { Add as AddIcon, Remove as RemoveIcon, Warning as WarningIcon,
     ExpandMore as ExpandMoreIcon,
@@ -58,6 +59,7 @@ import {
 import {
     buildClosedPeriodsCache,
     isLedgerPeriodClosed,
+    MIN_LEDGER_REPORT_MONTH,
     type ClosedPeriodsData,
 } from "@/lib/accountancyClosedMonth";
 import { addExpense, getExpenses, updateExpense, deleteExpense } from "@/lib/expenses";
@@ -67,6 +69,11 @@ import { getCounterparties } from "@/lib/counterparties";
 import { getCashflows } from "@/lib/cashflows";
 import { getUsersWithCashflow } from "@/lib/users";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
+import {
+    getProcessedBookingIds,
+    runAutoAccountingForBookings,
+} from "@/lib/autoAccounting";
+import { getApiErrorMessage } from "@/lib/axiosResponseMessage";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import {
     buildCategoryNameByIdMap,
@@ -86,6 +93,7 @@ import { AccountancyOverviewOperationTableRow, type AccountancyOverviewOperation
 import {
     BookingGroupContextMenu,
     type BookingGroupContextMenuState,
+    type BookingGroupMoveRoomTarget,
 } from "@/components/accountancy/BookingGroupContextMenu";
 import { BookingGroupLineText } from "@/components/accountancy/BookingGroupLineText";
 import { AccountancyObjectTreeTable } from "@/components/accountancy/AccountancyObjectTreeTable";
@@ -111,6 +119,7 @@ import {
     commissionSubtransactionTotalForParent,
     holyCowShareFromLineTotal,
 } from "@/lib/holyCowExpenseShareCalculation";
+import { isManagementCommissionExpenseCategory } from "@/lib/ownerViewExpenses";
 import {
     NO_BOOKING_SUBGROUP_ORDER,
     isExcludedFromAccountancyRoomStatsSum,
@@ -635,6 +644,13 @@ export default function Page() {
     const [pendingDrafts, setPendingDrafts] = useState<PendingOperationDraft[]>([]);
     const [pendingDraftSavingId, setPendingDraftSavingId] = useState<string | null>(null);
     const [roomBalanceSettlingKey, setRoomBalanceSettlingKey] = useState<string | null>(null);
+    const [processedAutoAccountingBookingIds, setProcessedAutoAccountingBookingIds] = useState<
+        Set<number>
+    >(() => new Set());
+    const [autoAccountingRunningBookingId, setAutoAccountingRunningBookingId] = useState<
+        number | null
+    >(null);
+    const [transactionsRefreshKey, setTransactionsRefreshKey] = useState(0);
     const [syntheticFillUpdatingId, setSyntheticFillUpdatingId] = useState<string | null>(null);
     const [closedPeriodsData, setClosedPeriodsData] = useState<ClosedPeriodsData>({
         globalMonths: [],
@@ -804,7 +820,15 @@ export default function Page() {
         return () => {
             cancelled = true;
         };
-    }, [hasAccess, filtersHydrated, objects, effectiveDateRange.from, effectiveDateRange.to, selectedMonth]);
+    }, [
+        hasAccess,
+        filtersHydrated,
+        objects,
+        effectiveDateRange.from,
+        effectiveDateRange.to,
+        selectedMonth,
+        transactionsRefreshKey,
+    ]);
 
     const loading = !filtersHydrated || referenceLoading || transactionsLoading;
 
@@ -1033,7 +1057,7 @@ export default function Page() {
             if (!recordObjectMatchesAccountancySelection(e.objectId, selectedObject, objects)) continue;
             const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
             if (!lm) continue;
-            if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(e, categoryNameById), lm)) continue;
+            if (isExcludedFromAccountancyRoomStatsSum(e.categoryId, lm)) continue;
             const rid = expenseRoomName(e);
             const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_KEY : rid;
             bumpAgg(lm, key, 'exp', getExpenseSum(e));
@@ -1042,7 +1066,7 @@ export default function Page() {
             if (!recordObjectMatchesAccountancySelection(i.objectId, selectedObject, objects)) continue;
             const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
             if (!lm) continue;
-            if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(i, categoryNameById), lm)) continue;
+            if (isExcludedFromAccountancyRoomStatsSum(i.categoryId, lm)) continue;
             const rid = incomeRoomName(i);
             const key = rid === null ? ACCOUNTANCY_UNALLOCATED_ROOM_KEY : rid;
             bumpAgg(lm, key, 'inc', getIncomeSum(i));
@@ -1068,12 +1092,12 @@ export default function Page() {
             let incSum = 0;
             filteredByReportPeriod.expenses.forEach((e) => {
                 const lm = ledgerMonthFromRecord(e.date, e.reportMonth);
-                if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(e, categoryNameById), lm)) return;
+                if (isExcludedFromAccountancyRoomStatsSum(e.categoryId, lm)) return;
                 if (expenseRoomName(e) === roomKey) expSum += getExpenseSum(e);
             });
             filteredByReportPeriod.incomes.forEach((i) => {
                 const lm = ledgerMonthFromRecord(i.date, i.reportMonth);
-                if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(i, categoryNameById), lm)) return;
+                if (isExcludedFromAccountancyRoomStatsSum(i.categoryId, lm)) return;
                 if (incomeRoomName(i) === roomKey) incSum += getIncomeSum(i);
             });
             return {
@@ -1090,13 +1114,13 @@ export default function Page() {
         filteredByReportPeriod.expenses.forEach((e) => {
             if (!recordObjectMatchesAccountancySelection(e.objectId, selectedObject, objects)) return;
             const lmExp = ledgerMonthFromRecord(e.date, e.reportMonth);
-            if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(e, categoryNameById), lmExp)) return;
+            if (isExcludedFromAccountancyRoomStatsSum(e.categoryId, lmExp)) return;
             if (expenseRoomName(e) === null) orphanExp += getExpenseSum(e);
         });
         filteredByReportPeriod.incomes.forEach((i) => {
             if (!recordObjectMatchesAccountancySelection(i.objectId, selectedObject, objects)) return;
             const lmInc = ledgerMonthFromRecord(i.date, i.reportMonth);
-            if (isExcludedFromAccountancyRoomStatsSum(resolveCategoryName(i, categoryNameById), lmInc)) return;
+            if (isExcludedFromAccountancyRoomStatsSum(i.categoryId, lmInc)) return;
             if (incomeRoomName(i) === null) orphanInc += getIncomeSum(i);
         });
 
@@ -1160,7 +1184,7 @@ export default function Page() {
         [incomes, expenses],
     );
 
-    // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца)
+    // Варианты месяцев для поля «Месяц отчёта» (последние 24 месяца, не раньше дек. 2025)
     const reportMonthOptions = useMemo(() => {
         const options: { value: string; label: string }[] = [];
         const now = new Date();
@@ -1169,6 +1193,7 @@ export default function Page() {
             const y = d.getFullYear();
             const m = d.getMonth() + 1;
             const value = `${y}-${String(m).padStart(2, '0')}`;
+            if (value < MIN_LEDGER_REPORT_MONTH) continue;
             options.push({ value, label: `${m}.${y}` });
         }
         return options;
@@ -1621,8 +1646,8 @@ export default function Page() {
                     row.bookingId != null &&
                     !row.parentTransaction &&
                     row.includeInSynthetic !== false &&
-                    row.category !== 'Комиссия за управление' &&
-                    row.category !== BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
+                    !isManagementCommissionExpenseCategory(row.category, row.categoryId) &&
+                    !row.readOnlySynthetic,
             );
             const noBookingHolyCowRows = noneRows.filter((row) => {
                 if (row.type !== 'expense' || row.parentTransaction) return false;
@@ -1779,6 +1804,94 @@ export default function Page() {
         reportMonthsInFilter,
         isDateInRange,
     ]);
+
+    const visibleBookingIdsKey = useMemo(() => {
+        const ids = operationGroups
+            .filter((g) => g.key.startsWith('b-'))
+            .map((g) => Number(g.key.slice(2)))
+            .filter((id) => Number.isFinite(id) && id > 0);
+        return ids.length > 0 ? ids.slice().sort((a, b) => a - b).join(',') : '';
+    }, [operationGroups]);
+
+    useEffect(() => {
+        if (!visibleBookingIdsKey) {
+            setProcessedAutoAccountingBookingIds((prev) =>
+                prev.size === 0 ? prev : new Set(),
+            );
+            return;
+        }
+
+        const bookingIds = visibleBookingIdsKey
+            .split(',')
+            .map((s) => Number(s))
+            .filter((id) => Number.isFinite(id) && id > 0);
+
+        let cancelled = false;
+        void (async () => {
+            try {
+                const processed = await getProcessedBookingIds(bookingIds);
+                if (cancelled) return;
+                setProcessedAutoAccountingBookingIds((prev) => {
+                    const next = new Set(processed);
+                    if (
+                        prev.size === next.size &&
+                        [...prev].every((id) => next.has(id))
+                    ) {
+                        return prev;
+                    }
+                    return next;
+                });
+            } catch (error) {
+                console.error('accountancy: processed auto-accounting bookings load failed', error);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [visibleBookingIdsKey]);
+
+    const handleRunAutoTransactionsForBooking = useCallback(
+        async (bookingId: number) => {
+            if (autoAccountingRunningBookingId != null) return;
+            setAutoAccountingRunningBookingId(bookingId);
+            try {
+                const res = await runAutoAccountingForBookings([bookingId]);
+                setProcessedAutoAccountingBookingIds((prev) => new Set([...prev, bookingId]));
+                setTransactionsRefreshKey((k) => k + 1);
+                if (res.success) {
+                    const created = res.created;
+                    const message =
+                        created != null
+                            ? t('accountancy.autoAccounting.createdCount')
+                                  .replace('{{expenses}}', String(created.expenses))
+                                  .replace('{{incomes}}', String(created.incomes))
+                            : res.message || t('common.success');
+                    setSnackbar({
+                        open: true,
+                        message,
+                        severity: 'success',
+                    });
+                } else {
+                    setSnackbar({
+                        open: true,
+                        message: res.message || t('common.serverError'),
+                        severity: res.created ? 'warning' : 'error',
+                    });
+                }
+            } catch (error) {
+                console.error('accountancy: run auto-transactions failed', error);
+                setSnackbar({
+                    open: true,
+                    message: getApiErrorMessage(error, t('common.serverError')),
+                    severity: 'error',
+                });
+            } finally {
+                setAutoAccountingRunningBookingId(null);
+            }
+        },
+        [autoAccountingRunningBookingId, setSnackbar, t],
+    );
 
     const toggleOperationGroupCollapsed = (groupKey: string) => {
         setCollapsedOperationGroups((prev) => {
@@ -2329,6 +2442,23 @@ export default function Page() {
         return '—';
     }, [selectedMonth, reportMonthsInFilter, reportMonthOptions]);
 
+    const bookingGroupObjectRoomOptions = useMemo(
+        () =>
+            objects
+                .map((obj) => ({
+                    objectId: obj.id,
+                    objectName: obj.propertyName ?? obj.name,
+                    rooms: (obj.roomTypes ?? []).map((room) => ({
+                        roomName: stableAccountancyRoomLabel(room),
+                    })),
+                }))
+                .filter((o) => o.rooms.length > 0)
+                .sort((a, b) =>
+                    a.objectName.localeCompare(b.objectName, language === 'en' ? 'en' : 'ru'),
+                ),
+        [objects, language],
+    );
+
     const resolveOperationRowLedgerContext = useCallback(
         (row: OperationRow) => {
             if (row.type === 'expense') {
@@ -2354,6 +2484,43 @@ export default function Page() {
             });
         },
         [bookingGroupMenu, closedPeriodsCache, resolveOperationRowLedgerContext],
+    );
+
+    const isRoomMoveTargetDisabled = useCallback(
+        (target: BookingGroupMoveRoomTarget) => {
+            if (!bookingGroupMenu) return true;
+            const movable = bookingGroupMenu.rows.filter(
+                (r) => !r.readOnlySynthetic && !r.isPendingDraft && !!r.entityId,
+            );
+            const unlocked = movable.filter((row) => !isOperationRowPeriodLocked(row));
+            if (unlocked.length === 0) return true;
+
+            const needsMove = unlocked.filter((row) => {
+                const { objectId, roomName } = resolveOperationRowLedgerContext(row);
+                return !(
+                    objectId === target.objectId &&
+                    (roomName ?? '').trim() === target.roomName
+                );
+            });
+            if (needsMove.length === 0) return true;
+
+            return needsMove.every((row) => {
+                const reportMonth = (row.reportMonth ?? '').trim();
+                if (!/^\d{4}-\d{2}$/.test(reportMonth)) return false;
+                return isLedgerPeriodClosed(
+                    closedPeriodsCache,
+                    reportMonth,
+                    target.objectId,
+                    target.roomName,
+                );
+            });
+        },
+        [
+            bookingGroupMenu,
+            closedPeriodsCache,
+            isOperationRowPeriodLocked,
+            resolveOperationRowLedgerContext,
+        ],
     );
 
     const handleMoveBookingTransactions = useCallback(
@@ -2434,6 +2601,179 @@ export default function Page() {
                     }
                 } catch (error) {
                     console.error('Error moving booking transactions:', error);
+                    fail++;
+                }
+            }
+            if (ok === 0 && fail === 0) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.moveBookingTransactionsNothing'),
+                    severity: 'info',
+                });
+            } else if (fail === 0) {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.moveBookingTransactionsSuccess').replace(
+                        '{{count}}',
+                        String(ok),
+                    ),
+                    severity: 'success',
+                });
+            } else {
+                setSnackbar({
+                    open: true,
+                    message: t('accountancy.moveBookingTransactionsPartial')
+                        .replace('{{ok}}', String(ok))
+                        .replace('{{fail}}', String(fail)),
+                    severity: ok > 0 ? 'warning' : 'error',
+                });
+            }
+        },
+        [
+            expenses,
+            incomes,
+            closedPeriodsCache,
+            isOperationRowPeriodLocked,
+            resolveOperationRowLedgerContext,
+            setSnackbar,
+            t,
+        ],
+    );
+
+    const getRowsToMoveToRoom = useCallback(
+        (rows: OperationRow[], target: BookingGroupMoveRoomTarget) =>
+            rows
+                .filter(
+                    (r) => !r.readOnlySynthetic && !r.isPendingDraft && !!r.entityId,
+                )
+                .filter((row) => !isOperationRowPeriodLocked(row))
+                .filter((row) => {
+                    const { objectId, roomName } = resolveOperationRowLedgerContext(row);
+                    return !(
+                        objectId === target.objectId &&
+                        (roomName ?? '').trim() === target.roomName
+                    );
+                })
+                .filter((row) => {
+                    const reportMonth = (row.reportMonth ?? '').trim();
+                    if (!/^\d{4}-\d{2}$/.test(reportMonth)) return true;
+                    return !isLedgerPeriodClosed(
+                        closedPeriodsCache,
+                        reportMonth,
+                        target.objectId,
+                        target.roomName,
+                    );
+                }),
+        [
+            closedPeriodsCache,
+            isOperationRowPeriodLocked,
+            resolveOperationRowLedgerContext,
+        ],
+    );
+
+    const handleMoveBookingTransactionsToRoom = useCallback(
+        async (rows: OperationRow[], target: BookingGroupMoveRoomTarget) => {
+            let ok = 0;
+            let fail = 0;
+            for (const row of rows) {
+                if (isOperationRowPeriodLocked(row)) {
+                    fail++;
+                    continue;
+                }
+                const { objectId, roomName } = resolveOperationRowLedgerContext(row);
+                if (
+                    objectId === target.objectId &&
+                    (roomName ?? '').trim() === target.roomName
+                ) {
+                    continue;
+                }
+                const reportMonth = (row.reportMonth ?? '').trim();
+                if (
+                    /^\d{4}-\d{2}$/.test(reportMonth) &&
+                    isLedgerPeriodClosed(
+                        closedPeriodsCache,
+                        reportMonth,
+                        target.objectId,
+                        target.roomName,
+                    )
+                ) {
+                    fail++;
+                    continue;
+                }
+                if (!row.entityId) {
+                    fail++;
+                    continue;
+                }
+                try {
+                    if (row.type === 'expense') {
+                        const expense = expenses.find((e) => e._id === row.entityId);
+                        if (!expense) {
+                            fail++;
+                            continue;
+                        }
+                        const payload: Expense = {
+                            ...expense,
+                            objectId: target.objectId,
+                            roomName: target.roomName,
+                            date: expense.date
+                                ? typeof expense.date === 'string'
+                                    ? new Date(expense.date)
+                                    : expense.date
+                                : new Date(),
+                        };
+                        const res = await updateExpense(payload);
+                        if (res.success) {
+                            setExpenses((prev) =>
+                                prev.map((e) =>
+                                    e._id === row.entityId
+                                        ? {
+                                              ...e,
+                                              objectId: target.objectId,
+                                              roomName: target.roomName,
+                                          }
+                                        : e,
+                                ),
+                            );
+                            ok++;
+                        } else {
+                            fail++;
+                        }
+                    } else {
+                        const income = incomes.find((i) => i._id === row.entityId);
+                        if (!income) {
+                            fail++;
+                            continue;
+                        }
+                        const payload: Income = {
+                            ...income,
+                            objectId: target.objectId,
+                            roomName: target.roomName,
+                            date: income.date
+                                ? typeof income.date === 'string'
+                                    ? new Date(income.date)
+                                    : income.date
+                                : new Date(),
+                        };
+                        const res = await updateIncome(payload);
+                        if (res.success) {
+                            setIncomes((prev) =>
+                                prev.map((i) =>
+                                    i._id === row.entityId
+                                        ? {
+                                              ...i,
+                                              objectId: target.objectId,
+                                              roomName: target.roomName,
+                                          }
+                                        : i,
+                                ),
+                            );
+                            ok++;
+                        } else {
+                            fail++;
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error moving booking transactions to room:', error);
                     fail++;
                 }
             }
@@ -3854,6 +4194,15 @@ export default function Page() {
                                                     const collapsed = collapsedOperationGroups.has(group.key);
                                                     const groupIsEmpty = group.rows.length === 0;
                                                     const line = group.bookingGroupLine;
+                                                    const bookingId = group.key.startsWith('b-')
+                                                        ? Number(group.key.slice(2))
+                                                        : null;
+                                                    const showRunAutoTransactionsButton =
+                                                        bookingId != null &&
+                                                        Number.isFinite(bookingId) &&
+                                                        !processedAutoAccountingBookingIds.has(bookingId);
+                                                    const isRunningAutoTransactions =
+                                                        autoAccountingRunningBookingId === bookingId;
                                                     return (
                                                     <Fragment key={group.key}>
                                                         <TableRow
@@ -3913,7 +4262,12 @@ export default function Page() {
                                                                     borderBottomColor: 'divider',
                                                                 }}
                                                             >
-                                                                <Stack direction="row" alignItems="center" spacing={0.5} sx={{ minWidth: 0 }}>
+                                                                <Stack
+                                                                    direction="row"
+                                                                    alignItems="center"
+                                                                    spacing={0.5}
+                                                                    sx={{ minWidth: 0, width: '100%' }}
+                                                                >
                                                                     <ExpandMoreIcon
                                                                         fontSize="small"
                                                                         sx={{
@@ -3928,68 +4282,120 @@ export default function Page() {
                                                                                 }),
                                                                         }}
                                                                     />
-                                                                    {line != null ? (
-                                                                        <BookingGroupLineText
-                                                                            line={line}
-                                                                            typographySx={{
-                                                                                fontSize: '0.7rem',
-                                                                                fontWeight: groupIsEmpty ? 500 : 600,
-                                                                                overflow: 'hidden',
-                                                                                textOverflow: 'ellipsis',
-                                                                                whiteSpace: 'nowrap',
-                                                                                minWidth: 0,
-                                                                                color: 'inherit',
-                                                                            }}
-                                                                        />
-                                                                    ) : (
-                                                                        <Typography
-                                                                            component="span"
-                                                                            sx={{
-                                                                                fontSize: '0.7rem',
-                                                                                fontWeight: groupIsEmpty ? 500 : 600,
-                                                                                overflow: 'hidden',
-                                                                                textOverflow: 'ellipsis',
-                                                                                whiteSpace: 'nowrap',
-                                                                                minWidth: 0,
-                                                                                color: 'inherit',
-                                                                            }}
-                                                                        >
-                                                                            {group.label}
-                                                                        </Typography>
-                                                                    )}
-                                                                    {group.bookingRoomMismatch ? (
-                                                                        <Tooltip
-                                                                            title={t(
-                                                                                'accountancy.bookingRoomFilterMismatch',
-                                                                            )
-                                                                                .replace(
-                                                                                    '{{roomId}}',
-                                                                                    String(
-                                                                                        selectedRoomId === 'all'
-                                                                                            ? '—'
-                                                                                            : selectedRoomId,
-                                                                                    ),
-                                                                                )
-                                                                                .replace(
-                                                                                    '{{bookingId}}',
-                                                                                    String(
-                                                                                        Number(
-                                                                                            group.key.slice(2),
-                                                                                        ),
-                                                                                    ),
-                                                                                )
-                                                                                .replace(
-                                                                                    '{{bookingUnitRoomName}}',
-                                                                                    group.bookingUnitRoomName ?? '—',
-                                                                                )}
-                                                                            arrow
-                                                                        >
-                                                                            <WarningIcon
-                                                                                fontSize="small"
-                                                                                color="warning"
-                                                                                sx={{ flexShrink: 0, ml: 0.25 }}
+                                                                    <Box
+                                                                        sx={{
+                                                                            flex: 1,
+                                                                            minWidth: 0,
+                                                                            display: 'flex',
+                                                                            alignItems: 'center',
+                                                                            gap: 0.5,
+                                                                            overflow: 'hidden',
+                                                                        }}
+                                                                    >
+                                                                        {line != null ? (
+                                                                            <BookingGroupLineText
+                                                                                line={line}
+                                                                                typographySx={{
+                                                                                    fontSize: '0.7rem',
+                                                                                    fontWeight: groupIsEmpty ? 500 : 600,
+                                                                                    overflow: 'hidden',
+                                                                                    textOverflow: 'ellipsis',
+                                                                                    whiteSpace: 'nowrap',
+                                                                                    minWidth: 0,
+                                                                                    color: 'inherit',
+                                                                                }}
                                                                             />
-                                                                        </Tooltip>
+                                                                        ) : (
+                                                                            <Typography
+                                                                                component="span"
+                                                                                sx={{
+                                                                                    fontSize: '0.7rem',
+                                                                                    fontWeight: groupIsEmpty ? 500 : 600,
+                                                                                    overflow: 'hidden',
+                                                                                    textOverflow: 'ellipsis',
+                                                                                    whiteSpace: 'nowrap',
+                                                                                    minWidth: 0,
+                                                                                    color: 'inherit',
+                                                                                }}
+                                                                            >
+                                                                                {group.label}
+                                                                            </Typography>
+                                                                        )}
+                                                                        {group.bookingRoomMismatch ? (
+                                                                            <Tooltip
+                                                                                title={t(
+                                                                                    'accountancy.bookingRoomFilterMismatch',
+                                                                                )
+                                                                                    .replace(
+                                                                                        '{{roomId}}',
+                                                                                        String(
+                                                                                            selectedRoomId === 'all'
+                                                                                                ? '—'
+                                                                                                : selectedRoomId,
+                                                                                        ),
+                                                                                    )
+                                                                                    .replace(
+                                                                                        '{{bookingId}}',
+                                                                                        String(
+                                                                                            Number(
+                                                                                                group.key.slice(2),
+                                                                                            ),
+                                                                                        ),
+                                                                                    )
+                                                                                    .replace(
+                                                                                        '{{bookingUnitRoomName}}',
+                                                                                        group.bookingUnitRoomName ?? '—',
+                                                                                    )}
+                                                                                arrow
+                                                                            >
+                                                                                <WarningIcon
+                                                                                    fontSize="small"
+                                                                                    color="warning"
+                                                                                    sx={{ flexShrink: 0, ml: 0.25 }}
+                                                                                />
+                                                                            </Tooltip>
+                                                                        ) : null}
+                                                                    </Box>
+                                                                    {showRunAutoTransactionsButton ? (
+                                                                        <Button
+                                                                            size="small"
+                                                                            variant="outlined"
+                                                                            disabled={isRunningAutoTransactions}
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                if (bookingId == null) return;
+                                                                                void handleRunAutoTransactionsForBooking(
+                                                                                    bookingId,
+                                                                                );
+                                                                            }}
+                                                                            sx={{
+                                                                                flexShrink: 0,
+                                                                                ml: 'auto',
+                                                                                fontSize: '0.65rem',
+                                                                                lineHeight: 1.2,
+                                                                                py: 0.125,
+                                                                                px: 0.75,
+                                                                                minWidth: 0,
+                                                                                whiteSpace: 'nowrap',
+                                                                            }}
+                                                                        >
+                                                                            {isRunningAutoTransactions ? (
+                                                                                <Stack
+                                                                                    direction="row"
+                                                                                    spacing={0.5}
+                                                                                    alignItems="center"
+                                                                                >
+                                                                                    <CircularProgress size={12} />
+                                                                                    <span>
+                                                                                        {t(
+                                                                                            'accountancy.runAutoTransactionsInProgress',
+                                                                                        )}
+                                                                                    </span>
+                                                                                </Stack>
+                                                                            ) : (
+                                                                                t('accountancy.runAutoTransactionsButton')
+                                                                            )}
+                                                                        </Button>
                                                                     ) : null}
                                                                 </Stack>
                                                             </TableCell>
@@ -4108,6 +4514,29 @@ export default function Page() {
                               .every((row) => isOperationRowPeriodLocked(row))
                 }
                 onMove={handleMoveBookingTransactions}
+                objectRoomOptions={bookingGroupObjectRoomOptions}
+                isMoveToRoomDisabled={
+                    bookingGroupMenu == null
+                        ? true
+                        : isSelectedMonthClosed ||
+                          bookingGroupMenu.rows.filter(
+                              (r) =>
+                                  !r.readOnlySynthetic &&
+                                  !r.isPendingDraft &&
+                                  !!r.entityId,
+                          ).length === 0 ||
+                          bookingGroupMenu.rows
+                              .filter(
+                                  (r) =>
+                                      !r.readOnlySynthetic &&
+                                      !r.isPendingDraft &&
+                                      !!r.entityId,
+                              )
+                              .every((row) => isOperationRowPeriodLocked(row))
+                }
+                isRoomMoveTargetDisabled={isRoomMoveTargetDisabled}
+                onMoveToRoom={handleMoveBookingTransactionsToRoom}
+                getRowsToMoveToRoom={getRowsToMoveToRoom}
                 isConfirmAllDisabled={
                     bookingGroupMenu == null
                         ? true

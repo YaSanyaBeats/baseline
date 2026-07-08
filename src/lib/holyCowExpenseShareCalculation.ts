@@ -1,33 +1,31 @@
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import {
-    BOOKING_GROUP_MANAGEMENT_COMMISSION_AUTO_CATEGORY,
-    HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
-} from '@/lib/accountancyOperationGroupCategoryOrder';
+    HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID,
+    isExcludedCommissionCalcExpenseCategoryId,
+    isHolyCowExpenseShareIncomeCategoryId,
+} from '@/lib/accountancyCategoryIds';
+import { HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY } from '@/lib/accountancyOperationGroupCategoryOrder';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import type { Expense, Income } from '@/lib/types';
 
-export const HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID = '6989ec3782886b7142faa382';
-
-const HOLY_COW_EXPENSE_SHARE_CATEGORY_NAMES = new Set([
-    HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY,
-    'Доля расходов Holy Cow Phuket',
-    'Доля расходов HC',
-]);
-
-const EXCLUDED_EXPENSE_CATEGORY_NAMES = HOLY_COW_EXPENSE_SHARE_CATEGORY_NAMES;
-
-function isExcludedHolyCowSourceExpense(categoryName: string): boolean {
-    return EXCLUDED_EXPENSE_CATEGORY_NAMES.has(categoryName.trim());
-}
+export { HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID, isHolyCowExpenseShareIncomeCategoryId } from '@/lib/accountancyCategoryIds';
 
 export function isHolyCowExpenseShareIncomeCategory(
     categoryId: string | null | undefined,
     categoryName: string,
 ): boolean {
-    const id = normalizeMongoIdString(categoryId).trim();
-    if (id === HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID) return true;
-    return HOLY_COW_EXPENSE_SHARE_CATEGORY_NAMES.has(categoryName.trim());
+    if (isHolyCowExpenseShareIncomeCategoryId(categoryId)) return true;
+    const trimmed = categoryName.trim();
+    return (
+        trimmed === HOLY_COW_EXPENSE_SHARE_AUTO_CATEGORY ||
+        trimmed === 'Доля расходов Holy Cow Phuket' ||
+        trimmed === 'Доля расходов HC'
+    );
+}
+
+function isExcludedHolyCowSourceExpense(categoryId: string | null | undefined): boolean {
+    return isExcludedCommissionCalcExpenseCategoryId(categoryId);
 }
 
 function addSubtransactionTotal(map: Map<string, number>, parentId: string, amount: number): void {
@@ -54,8 +52,7 @@ export function buildParentSubtransactionTotals(
         if (!matchesRecord(child)) continue;
         const parentId = normalizeMongoIdString(child.parentExpenseId).trim();
         if (!parentId) continue;
-        const categoryName = resolveCategoryName(child, categoryNameById);
-        if (isExcludedHolyCowSourceExpense(categoryName)) continue;
+        if (isExcludedHolyCowSourceExpense(child.categoryId)) continue;
         addSubtransactionTotal(childExpenseByParentId, parentId, getExpenseSum(child));
     }
 

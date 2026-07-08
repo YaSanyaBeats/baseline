@@ -25,9 +25,27 @@ export type BookingGroupContextMenuState = {
     rows: AccountancyOverviewOperationRowModel[];
 };
 
+export type BookingGroupMoveRoomTarget = {
+    objectId: number;
+    objectName: string;
+    roomName: string;
+};
+
+export type BookingGroupObjectRoomOption = {
+    objectId: number;
+    objectName: string;
+    rooms: { roomName: string }[];
+};
+
 type MoveConfirmState = {
     targetMonth: string;
     targetMonthLabel: string;
+    groupLabel: string;
+    rows: AccountancyOverviewOperationRowModel[];
+};
+
+type MoveToRoomConfirmState = {
+    target: BookingGroupMoveRoomTarget;
     groupLabel: string;
     rows: AccountancyOverviewOperationRowModel[];
 };
@@ -40,6 +58,17 @@ type BookingGroupContextMenuProps = {
     isTargetMonthDisabled: (targetMonth: string) => boolean;
     isMoveDisabled: boolean;
     onMove: (rows: AccountancyOverviewOperationRowModel[], targetMonth: string) => Promise<void>;
+    objectRoomOptions: BookingGroupObjectRoomOption[];
+    isMoveToRoomDisabled: boolean;
+    isRoomMoveTargetDisabled: (target: BookingGroupMoveRoomTarget) => boolean;
+    onMoveToRoom: (
+        rows: AccountancyOverviewOperationRowModel[],
+        target: BookingGroupMoveRoomTarget,
+    ) => Promise<void>;
+    getRowsToMoveToRoom: (
+        rows: AccountancyOverviewOperationRowModel[],
+        target: BookingGroupMoveRoomTarget,
+    ) => AccountancyOverviewOperationRowModel[];
     isConfirmAllDisabled: boolean;
     onConfirmAll: (rows: AccountancyOverviewOperationRowModel[]) => Promise<void>;
 };
@@ -83,6 +112,18 @@ const compactListItemTextProps = {
     },
 };
 
+const scrollableMenuListSx = {
+    maxHeight: 360,
+    overflow: 'auto',
+    py: 0.25,
+};
+
+const scrollableRoomMenuListSx = {
+    maxHeight: 280,
+    overflow: 'auto',
+    py: 0.25,
+};
+
 export function BookingGroupContextMenu({
     menuState,
     onCloseMenu,
@@ -91,13 +132,23 @@ export function BookingGroupContextMenu({
     isTargetMonthDisabled,
     isMoveDisabled,
     onMove,
+    objectRoomOptions,
+    isMoveToRoomDisabled,
+    isRoomMoveTargetDisabled,
+    onMoveToRoom,
+    getRowsToMoveToRoom,
     isConfirmAllDisabled,
     onConfirmAll,
 }: BookingGroupContextMenuProps) {
     const { t } = useTranslation();
-    const [submenuAnchor, setSubmenuAnchor] = useState<HTMLElement | null>(null);
+    const [monthSubmenuAnchor, setMonthSubmenuAnchor] = useState<HTMLElement | null>(null);
+    const [roomObjectSubmenuAnchor, setRoomObjectSubmenuAnchor] = useState<HTMLElement | null>(null);
+    const [roomListSubmenuAnchor, setRoomListSubmenuAnchor] = useState<HTMLElement | null>(null);
+    const [hoveredObjectId, setHoveredObjectId] = useState<number | null>(null);
     const [moveConfirm, setMoveConfirm] = useState<MoveConfirmState | null>(null);
+    const [moveToRoomConfirm, setMoveToRoomConfirm] = useState<MoveToRoomConfirmState | null>(null);
     const [moving, setMoving] = useState(false);
+    const [movingToRoom, setMovingToRoom] = useState(false);
     const [confirmingAll, setConfirmingAll] = useState(false);
 
     const isBookingGroup = menuState?.bookingId != null;
@@ -117,6 +168,11 @@ export function BookingGroupContextMenu({
         [moveConfirm],
     );
 
+    const confirmRoomMovableRows = useMemo(() => {
+        if (!moveToRoomConfirm) return [];
+        return getRowsToMoveToRoom(moveToRoomConfirm.rows, moveToRoomConfirm.target);
+    }, [moveToRoomConfirm, getRowsToMoveToRoom]);
+
     const rowsToMoveCount = useMemo(() => {
         if (!moveConfirm) return 0;
         return confirmMovableRows.filter(
@@ -124,14 +180,31 @@ export function BookingGroupContextMenu({
         ).length;
     }, [moveConfirm, confirmMovableRows]);
 
+    const rowsToMoveToRoomCount = useMemo(() => {
+        if (!moveToRoomConfirm) return 0;
+        return confirmRoomMovableRows.length;
+    }, [moveToRoomConfirm, confirmRoomMovableRows]);
+
+    const hoveredObject = useMemo(
+        () => objectRoomOptions.find((o) => o.objectId === hoveredObjectId) ?? null,
+        [objectRoomOptions, hoveredObjectId],
+    );
+
+    const closeSubmenus = useCallback(() => {
+        setMonthSubmenuAnchor(null);
+        setRoomObjectSubmenuAnchor(null);
+        setRoomListSubmenuAnchor(null);
+        setHoveredObjectId(null);
+    }, []);
+
     const handleCloseAll = useCallback(() => {
-        setSubmenuAnchor(null);
+        closeSubmenus();
         onCloseMenu();
-    }, [onCloseMenu]);
+    }, [closeSubmenus, onCloseMenu]);
 
     const handleSelectTargetMonth = (targetMonth: string, targetMonthLabel: string) => {
         if (!menuState) return;
-        setSubmenuAnchor(null);
+        closeSubmenus();
         onCloseMenu();
         setMoveConfirm({
             targetMonth,
@@ -141,9 +214,25 @@ export function BookingGroupContextMenu({
         });
     };
 
+    const handleSelectRoomTarget = (target: BookingGroupMoveRoomTarget) => {
+        if (!menuState) return;
+        closeSubmenus();
+        onCloseMenu();
+        setMoveToRoomConfirm({
+            target,
+            groupLabel: menuState.groupLabel,
+            rows: menuState.rows,
+        });
+    };
+
     const handleConfirmCancel = () => {
         if (moving) return;
         setMoveConfirm(null);
+    };
+
+    const handleMoveToRoomConfirmCancel = () => {
+        if (movingToRoom) return;
+        setMoveToRoomConfirm(null);
     };
 
     const handleConfirmMove = async () => {
@@ -161,6 +250,21 @@ export function BookingGroupContextMenu({
         } finally {
             setMoving(false);
             setMoveConfirm(null);
+        }
+    };
+
+    const handleConfirmMoveToRoom = async () => {
+        if (!moveToRoomConfirm || movingToRoom) return;
+        if (confirmRoomMovableRows.length === 0) {
+            setMoveToRoomConfirm(null);
+            return;
+        }
+        setMovingToRoom(true);
+        try {
+            await onMoveToRoom(confirmRoomMovableRows, moveToRoomConfirm.target);
+        } finally {
+            setMovingToRoom(false);
+            setMoveToRoomConfirm(null);
         }
     };
 
@@ -190,7 +294,7 @@ export function BookingGroupContextMenu({
                     paper: {
                         sx: {
                             ...compactMenuPaperSx,
-                            maxWidth: 200,
+                            maxWidth: 240,
                         },
                     },
                 }}
@@ -199,11 +303,35 @@ export function BookingGroupContextMenu({
                 {isBookingGroup && (
                     <MenuItem
                         disabled={isMoveDisabled || movableRows.length === 0}
-                        onMouseEnter={(e) => setSubmenuAnchor(e.currentTarget)}
+                        onMouseEnter={(e) => {
+                            setMonthSubmenuAnchor(e.currentTarget);
+                            setRoomObjectSubmenuAnchor(null);
+                            setRoomListSubmenuAnchor(null);
+                            setHoveredObjectId(null);
+                        }}
                         sx={{ ...compactMenuItemSx, pr: 0.25, gap: 0.25 }}
                     >
                         <ListItemText
                             primary={t('accountancy.moveBookingTransactionsMenu')}
+                            slotProps={{ primary: compactListItemTextProps.primaryTypographyProps }}
+                            sx={{ my: 0 }}
+                        />
+                        <ChevronRightIcon sx={{ fontSize: '0.875rem', opacity: 0.7, flexShrink: 0 }} />
+                    </MenuItem>
+                )}
+                {isBookingGroup && (
+                    <MenuItem
+                        disabled={isMoveToRoomDisabled || movableRows.length === 0}
+                        onMouseEnter={(e) => {
+                            setRoomObjectSubmenuAnchor(e.currentTarget);
+                            setMonthSubmenuAnchor(null);
+                            setRoomListSubmenuAnchor(null);
+                            setHoveredObjectId(null);
+                        }}
+                        sx={{ ...compactMenuItemSx, pr: 0.25, gap: 0.25 }}
+                    >
+                        <ListItemText
+                            primary={t('accountancy.moveBookingTransactionsToRoomMenu')}
                             slotProps={{ primary: compactListItemTextProps.primaryTypographyProps }}
                             sx={{ my: 0 }}
                         />
@@ -226,9 +354,9 @@ export function BookingGroupContextMenu({
             </Menu>
 
             <Menu
-                anchorEl={submenuAnchor}
-                open={Boolean(submenuAnchor) && menuState != null && isBookingGroup}
-                onClose={() => setSubmenuAnchor(null)}
+                anchorEl={monthSubmenuAnchor}
+                open={Boolean(monthSubmenuAnchor) && menuState != null && isBookingGroup}
+                onClose={() => setMonthSubmenuAnchor(null)}
                 anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
                 transformOrigin={{ vertical: 'top', horizontal: 'left' }}
                 slotProps={{
@@ -241,7 +369,7 @@ export function BookingGroupContextMenu({
                 }}
                 MenuListProps={{
                     dense: true,
-                    onMouseLeave: () => setSubmenuAnchor(null),
+                    onMouseLeave: () => setMonthSubmenuAnchor(null),
                     sx: { maxHeight: 220, overflow: 'auto', py: 0.25 },
                 }}
             >
@@ -255,6 +383,120 @@ export function BookingGroupContextMenu({
                         {o.label}
                     </MenuItem>
                 ))}
+            </Menu>
+
+            <Menu
+                anchorEl={roomObjectSubmenuAnchor}
+                open={Boolean(roomObjectSubmenuAnchor) && menuState != null && isBookingGroup}
+                onClose={() => {
+                    setRoomObjectSubmenuAnchor(null);
+                    setRoomListSubmenuAnchor(null);
+                    setHoveredObjectId(null);
+                }}
+                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                slotProps={{
+                    paper: {
+                        sx: {
+                            ...compactMenuPaperSx,
+                            minWidth: 140,
+                            maxWidth: 260,
+                        },
+                    },
+                }}
+                MenuListProps={{
+                    dense: true,
+                    sx: scrollableMenuListSx,
+                }}
+            >
+                {objectRoomOptions.map((objectOption) => (
+                    <MenuItem
+                        key={objectOption.objectId}
+                        onMouseEnter={(e) => {
+                            setRoomListSubmenuAnchor(e.currentTarget);
+                            setHoveredObjectId(objectOption.objectId);
+                        }}
+                        sx={{
+                            ...compactMenuItemSx,
+                            pr: 0.25,
+                            gap: 0.25,
+                            maxWidth: 248,
+                        }}
+                    >
+                        <ListItemText
+                            primary={objectOption.objectName}
+                            slotProps={{
+                                primary: {
+                                    ...compactListItemTextProps.primaryTypographyProps,
+                                    noWrap: true,
+                                    title: objectOption.objectName,
+                                },
+                            }}
+                            sx={{ my: 0, minWidth: 0 }}
+                        />
+                        <ChevronRightIcon sx={{ fontSize: '0.875rem', opacity: 0.7, flexShrink: 0 }} />
+                    </MenuItem>
+                ))}
+            </Menu>
+
+            <Menu
+                anchorEl={roomListSubmenuAnchor}
+                open={
+                    Boolean(roomListSubmenuAnchor) &&
+                    hoveredObject != null &&
+                    menuState != null &&
+                    isBookingGroup
+                }
+                onClose={() => {
+                    setRoomListSubmenuAnchor(null);
+                    setHoveredObjectId(null);
+                }}
+                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                slotProps={{
+                    paper: {
+                        sx: {
+                            ...compactMenuPaperSx,
+                            minWidth: 100,
+                            maxWidth: 200,
+                        },
+                    },
+                }}
+                MenuListProps={{
+                    dense: true,
+                    sx: scrollableRoomMenuListSx,
+                }}
+            >
+                {hoveredObject?.rooms.map((room) => {
+                    const target: BookingGroupMoveRoomTarget = {
+                        objectId: hoveredObject.objectId,
+                        objectName: hoveredObject.objectName,
+                        roomName: room.roomName,
+                    };
+                    return (
+                        <MenuItem
+                            key={`${hoveredObject.objectId}-${room.roomName}`}
+                            disabled={isRoomMoveTargetDisabled(target)}
+                            onClick={() => handleSelectRoomTarget(target)}
+                            sx={{
+                                ...compactMenuItemSx,
+                                maxWidth: 192,
+                            }}
+                        >
+                            <ListItemText
+                                primary={room.roomName}
+                                slotProps={{
+                                    primary: {
+                                        ...compactListItemTextProps.primaryTypographyProps,
+                                        noWrap: true,
+                                        title: room.roomName,
+                                    },
+                                }}
+                                sx={{ my: 0, minWidth: 0 }}
+                            />
+                        </MenuItem>
+                    );
+                })}
             </Menu>
 
             <Dialog
@@ -283,6 +525,38 @@ export function BookingGroupContextMenu({
                         disabled={moving || rowsToMoveCount === 0}
                     >
                         {moving
+                            ? t('accountancy.moveBookingTransactionsInProgress')
+                            : t('accountancy.moveBookingTransactionsConfirmAction')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={moveToRoomConfirm != null}
+                onClose={handleMoveToRoomConfirmCancel}
+                maxWidth="sm"
+                fullWidth
+            >
+                <DialogTitle>{t('accountancy.moveBookingTransactionsToRoomConfirmTitle')}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t('accountancy.moveBookingTransactionsToRoomConfirmMessage')
+                            .replace('{{count}}', String(rowsToMoveToRoomCount))
+                            .replace('{{booking}}', moveToRoomConfirm?.groupLabel ?? '')
+                            .replace('{{objectName}}', moveToRoomConfirm?.target.objectName ?? '')
+                            .replace('{{roomName}}', moveToRoomConfirm?.target.roomName ?? '')}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleMoveToRoomConfirmCancel} disabled={movingToRoom}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleConfirmMoveToRoom}
+                        disabled={movingToRoom || rowsToMoveToRoomCount === 0}
+                    >
+                        {movingToRoom
                             ? t('accountancy.moveBookingTransactionsInProgress')
                             : t('accountancy.moveBookingTransactionsConfirmAction')}
                     </Button>

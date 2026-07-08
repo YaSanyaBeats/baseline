@@ -5,7 +5,7 @@ import { getDB } from '@/lib/db/getDB';
 import { Expense, ExpenseStatus } from '@/lib/types';
 import { ObjectId } from 'mongodb';
 import { logAuditAction } from '@/lib/auditLog';
-import { resolveForbidDuplicateOnCreate } from '@/lib/accountancyDuplicateGuard';
+import { resolveForbidDuplicateOnCreate, duplicateRuleBlockedMessage } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import { mergeAccountancyListQuery } from '@/lib/accountancyListServerFilter';
@@ -240,8 +240,10 @@ export async function POST(request: NextRequest) {
             {
                 objectId: expenseData.objectId,
                 category: expenseData.category,
+                categoryId: expenseData.categoryId ?? null,
                 roomName: expenseData.roomName ?? null,
                 reportMonth: expenseData.reportMonth,
+                bookingId: expenseData.bookingId ?? null,
             },
             allowDuplicate,
         );
@@ -251,8 +253,7 @@ export async function POST(request: NextRequest) {
                 {
                     success: false,
                     code: 'FORBID_DUPLICATES',
-                    message:
-                        'Для этой категории включён запрет дублей: уже есть запись с тем же объектом, комнатой, категорией и отчётным месяцем.',
+                    message: duplicateRuleBlockedMessage(dupResolution.duplicateRule),
                     existingAmount: dupResolution.existingAmount,
                     existingLineTotal: dupResolution.existingLineTotal,
                 },

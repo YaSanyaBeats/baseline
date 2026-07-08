@@ -2,6 +2,7 @@ import axios from 'axios';
 import type { CommonResponse } from './types';
 
 export const REPORT_MONTH_CLOSED_CODE = 'REPORT_MONTH_CLOSED';
+export const REPORT_MONTH_TOO_EARLY_CODE = 'REPORT_MONTH_TOO_EARLY';
 
 /** Текст ошибки из тела ответа API (axios бросает исключение при 4xx/5xx). */
 export function getApiErrorMessage(error: unknown, fallback: string): string {
@@ -14,10 +15,20 @@ export function isReportMonthClosedApiError(error: unknown): boolean {
     return extractCommonResponseFromAxiosError(error)?.code === REPORT_MONTH_CLOSED_CODE;
 }
 
+export function isReportMonthTooEarlyApiError(error: unknown): boolean {
+    return extractCommonResponseFromAxiosError(error)?.code === REPORT_MONTH_TOO_EARLY_CODE;
+}
+
 export function isReportMonthClosedResponse(
     response: Pick<CommonResponse, 'code'> | null | undefined,
 ): boolean {
     return response?.code === REPORT_MONTH_CLOSED_CODE;
+}
+
+export function isReportMonthTooEarlyResponse(
+    response: Pick<CommonResponse, 'code'> | null | undefined,
+): boolean {
+    return response?.code === REPORT_MONTH_TOO_EARLY_CODE;
 }
 
 /** Сообщение snackbar при ошибке добавления/изменения/удаления транзакции. */
@@ -31,12 +42,18 @@ export function getAccountancyMutationErrorMessage(
         if (isReportMonthClosedResponse(res)) {
             return t('accountancy.reportPeriodLockedAlert');
         }
+        if (isReportMonthTooEarlyResponse(res)) {
+            return t('accountancy.reportMonthTooEarlyAlert');
+        }
         if ('success' in res && res.success === false && res.message?.trim()) {
             return res.message;
         }
     }
     if (isReportMonthClosedApiError(errorOrResponse)) {
         return t('accountancy.reportPeriodLockedAlert');
+    }
+    if (isReportMonthTooEarlyApiError(errorOrResponse)) {
+        return t('accountancy.reportMonthTooEarlyAlert');
     }
     return getApiErrorMessage(errorOrResponse, fallback);
 }

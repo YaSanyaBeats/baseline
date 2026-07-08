@@ -3,9 +3,7 @@
 import {
     Box,
     Button,
-    Checkbox,
     FormControl,
-    FormControlLabel,
     InputLabel,
     MenuItem,
     Select,
@@ -19,7 +17,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import SendIcon from '@mui/icons-material/Send';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { AccountancyCategory, CategoryDivisibility, NoBookingSubgroupId } from '@/lib/types';
+import { AccountancyCategory, CategoryDivisibility, NoBookingSubgroupId, type CategoryDuplicateRule } from '@/lib/types';
+import {
+    CATEGORY_DUPLICATE_RULES,
+    resolveCategoryDuplicateRule,
+} from '@/lib/accountancyCategoryDuplicateRule';
 import {
     getAccountancyCategories,
     getAccountancyCategoryById,
@@ -76,7 +78,10 @@ export default function Page() {
                 setCashflows(cfsRaw.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
                 if (found) {
-                    setCategory(found);
+                    setCategory({
+                        ...found,
+                        duplicateRule: resolveCategoryDuplicateRule(found),
+                    });
                 } else {
                     setSnackbar({
                         open: true,
@@ -133,7 +138,7 @@ export default function Page() {
                 unit: category.unit,
                 divisibility: category.divisibility,
                 pricePerUnit: category.pricePerUnit,
-                forbidDuplicates: Boolean(category.forbidDuplicates),
+                duplicateRule: resolveCategoryDuplicateRule(category),
                 source: category.source?.trim() ? category.source : null,
                 recipient: category.recipient?.trim() ? category.recipient : null,
             };
@@ -344,17 +349,25 @@ export default function Page() {
                     />
                 </Box>
 
-                <FormControlLabel
-                    control={
-                        <Checkbox
-                            checked={Boolean(category.forbidDuplicates)}
-                            onChange={(e) =>
-                                setCategory((p) => ({ ...p, forbidDuplicates: e.target.checked }))
-                            }
-                        />
-                    }
-                    label={t('accountancy.forbidDuplicates')}
-                />
+                <FormControl fullWidth>
+                    <InputLabel>{t('accountancy.duplicateRule')}</InputLabel>
+                    <Select
+                        value={category.duplicateRule ?? resolveCategoryDuplicateRule(category)}
+                        label={t('accountancy.duplicateRule')}
+                        onChange={(e) =>
+                            setCategory((p) => ({
+                                ...p,
+                                duplicateRule: e.target.value as CategoryDuplicateRule,
+                            }))
+                        }
+                    >
+                        {CATEGORY_DUPLICATE_RULES.map((rule) => (
+                            <MenuItem key={rule} value={rule}>
+                                {t(`accountancy.duplicateRuleMode.${rule}`)}
+                            </MenuItem>
+                        ))}
+                    </Select>
+                </FormControl>
 
                 <Stack direction="row" spacing={2} flexWrap="wrap" useFlexGap>
                     <Button

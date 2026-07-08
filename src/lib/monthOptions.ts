@@ -6,9 +6,18 @@ function monthOptionLabel(t: (key: string) => string, value: string): string {
     return `${monthName} ${y}`;
 }
 
+/** Оставляет только месяцы от minMonth включительно (формат YYYY-MM). */
+export function filterMonthOptionsFromMinimum<T extends { value: string }>(
+    options: T[],
+    minMonth: string,
+): T[] {
+    return options.filter((o) => o.value >= minMonth);
+}
+
 export function buildMonthOptions(
     t: (key: string) => string,
-    count = 24
+    count = 24,
+    minMonth?: string,
 ): { value: string; label: string }[] {
     const options: { value: string; label: string }[] = [];
     const now = new Date();
@@ -19,7 +28,7 @@ export function buildMonthOptions(
         const value = `${y}-${String(m).padStart(2, '0')}`;
         options.push({ value, label: monthOptionLabel(t, value) });
     }
-    return options;
+    return minMonth ? filterMonthOptionsFromMinimum(options, minMonth) : options;
 }
 
 export function buildMonthOptionsFromKeys(

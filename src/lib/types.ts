@@ -517,6 +517,9 @@ export interface AutoAccountingRule {
     createdAt?: Date;
 }
 
+/** Правило запрета дублей транзакций в категории */
+export type CategoryDuplicateRule = 'off' | 'per_period' | 'per_booking';
+
 export type AccountancyCategoryType = 'expense' | 'income';
 
 /** Делимость: "/2", "/3", "неделимый" */
@@ -547,8 +550,10 @@ export interface AccountancyCategory {
     isAuto?: boolean;                   // Авто / не авто
     checkInOut?: CategoryCheckInOut;    // Чекин / чекаут
     reportingPeriod?: string;           // Отчётный период (дата, ISO)
-    /** Не допускать вторую запись с тем же объектом, комнатой, категорией и отчётным месяцем (бронь не учитывается) */
+    /** @deprecated Используйте duplicateRule */
     forbidDuplicates?: boolean;
+    /** Правило запрета дублей транзакций в категории */
+    duplicateRule?: CategoryDuplicateRule;
     /** Привязка к группе «Без брони» на странице accountancy; null = явно «Прочее» */
     noBookingSubgroupId?: NoBookingSubgroupId | null;
     createdAt?: Date;
