@@ -21,7 +21,6 @@ import {
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import {
     isCoAgentCommissionCategoryId,
-    isExcludedCommissionCalcExpenseCategoryId,
     isOtaCommissionCategoryId,
     MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID,
 } from '@/lib/accountancyCategoryIds';
@@ -38,8 +37,7 @@ const EXCLUDED_EXPENSE_CATEGORIES = new Set([
     'Доля расходов Holy Cow Phuket',
 ]);
 
-function isExcludedExpenseCategory(categoryName: string, categoryId?: string | null): boolean {
-    if (isExcludedCommissionCalcExpenseCategoryId(categoryId)) return true;
+function isExcludedExpenseCategory(categoryName: string, _categoryId?: string | null): boolean {
     return EXCLUDED_EXPENSE_CATEGORIES.has(categoryName.trim());
 }
 

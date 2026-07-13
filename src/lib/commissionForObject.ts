@@ -1,5 +1,6 @@
 import {
     CommissionSchemeId,
+    incomeInReportMonth,
     prepareCommissionData,
     calculateBookingCommission,
 } from '@/lib/commissionCalculation';
@@ -71,11 +72,8 @@ export async function calculateCommissionForObject(
     const roomFilter: string | 'all' = 'all';
     const bookingPropertyId = obj.propertyId ?? obj.id;
 
-    const [y, m] = selectedMonth.split('-').map(Number);
-    const dateInMonth = (d: Date | string) => {
-        const date = new Date(d);
-        return date.getFullYear() === y && date.getMonth() === m - 1;
-    };
+    const inReportMonth = (record: { date: Date | string; reportMonth?: string | null }) =>
+        incomeInReportMonth(record, selectedMonth);
     const matchRoom = (roomName: string | null | undefined) =>
         transactionMatchesOwnerRooms(roomName, roomsForObject, roomFilter);
 
@@ -93,12 +91,12 @@ export async function calculateCommissionForObject(
 
     const txnBookingIds = new Set<number>();
     for (const i of incomes) {
-        if (i.objectId !== selectedObjectId || !dateInMonth(i.date) || !matchRoom(i.roomName ?? null))
+        if (i.objectId !== selectedObjectId || !inReportMonth(i) || !matchRoom(i.roomName ?? null))
             continue;
         if (i.bookingId != null) txnBookingIds.add(i.bookingId);
     }
     for (const e of expenses) {
-        if (e.objectId !== selectedObjectId || !dateInMonth(e.date) || !matchRoom(e.roomName ?? null))
+        if (e.objectId !== selectedObjectId || !inReportMonth(e) || !matchRoom(e.roomName ?? null))
             continue;
         if (e.bookingId != null) txnBookingIds.add(e.bookingId);
     }
@@ -145,14 +143,14 @@ export async function calculateCommissionForObject(
         (i) =>
             i.objectId === selectedObjectId &&
             i.bookingId == null &&
-            dateInMonth(i.date) &&
+            inReportMonth(i) &&
             matchRoom(i.roomName ?? null)
     );
     const unlinkedExpenses = expenses.filter(
         (e) =>
             e.objectId === selectedObjectId &&
             e.bookingId == null &&
-            dateInMonth(e.date) &&
+            inReportMonth(e) &&
             matchRoom(e.roomName ?? null)
     );
 
@@ -162,14 +160,14 @@ export async function calculateCommissionForObject(
             (i) =>
                 i.objectId === selectedObjectId &&
                 i.bookingId === booking.id &&
-                dateInMonth(i.date) &&
+                inReportMonth(i) &&
                 matchRoom(i.roomName ?? null)
         );
         const expensesRows = expenses.filter(
             (e) =>
                 e.objectId === selectedObjectId &&
                 e.bookingId === booking.id &&
-                dateInMonth(e.date) &&
+                inReportMonth(e) &&
                 matchRoom(e.roomName ?? null)
         );
         return { booking, calculation, incomes: incomesRows, expenses: expensesRows };

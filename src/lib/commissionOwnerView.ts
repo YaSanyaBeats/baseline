@@ -1,4 +1,3 @@
-import { isExcludedCommissionCalcExpenseCategoryId } from '@/lib/accountancyCategoryIds';
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import {
     buildOwnerViewIncomeGroupsForRoom,
@@ -292,13 +291,6 @@ function buildRoomSectionsFromObjectReports(
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (isExcludedOwnerViewExpenseCategory(categoryName, expense.categoryId)) continue;
 
-        const subgroup = resolveNoBookingSubgroupForTransaction(
-            expense.categoryId,
-            categoryName,
-            categories
-        );
-        if (!isOwnerViewRoomExpenseSubgroup(subgroup)) continue;
-
         if (expense.bookingId != null) {
             const meta = resolveBookingMetaForRecord(
                 expense,
@@ -312,6 +304,13 @@ function buildRoomSectionsFromObjectReports(
             getBucket(meta.objectId, meta.objectName, roomName);
             continue;
         }
+
+        const subgroup = resolveNoBookingSubgroupForTransaction(
+            expense.categoryId,
+            categoryName,
+            categories
+        );
+        if (!isOwnerViewRoomExpenseSubgroup(subgroup)) continue;
 
         if (!transactionMatchesOwnerRooms(expense.roomName, objectReport.roomsForObject)) continue;
         const roomName = (expense.roomName ?? '').trim() || '—';
@@ -500,7 +499,8 @@ export function collectOwnerViewExtraBookingIds(
         if (expense.bookingId == null) continue;
         if (!ownerObjectIds.has(expense.objectId)) continue;
         if (!incomeInReportMonth(expense, monthKey)) continue;
-        if (isExcludedCommissionCalcExpenseCategoryId(expense.categoryId)) continue;
+        const categoryName = resolveCategoryName(expense, categoryNameById);
+        if (isExcludedOwnerViewExpenseCategory(categoryName, expense.categoryId)) continue;
         const line = (expense.quantity ?? 1) * (expense.amount ?? 0);
         if (line === 0) continue;
         if (!existing.has(expense.bookingId)) needed.add(expense.bookingId);
