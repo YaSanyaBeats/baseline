@@ -6,8 +6,29 @@ import {
 import { isHolyCowExpenseShareIncomeCategory } from '@/lib/holyCowExpenseShareCalculation';
 import { isManagementCommissionExpenseCategory } from '@/lib/ownerViewExpenses';
 
+/** Округление до копеек (как в отображении сумм в бухгалтерии). */
+export function roundAccountancyAmount(value: number): number {
+    if (!Number.isFinite(value)) return 0;
+    return Math.round(value * 100) / 100;
+}
+
 export function isAccountancyBalanceZeroish(balance: number): boolean {
-    return Math.abs(balance) < 1e-6;
+    return roundAccountancyAmount(balance) === 0;
+}
+
+export function isAccountancyBalanceNegative(balance: number): boolean {
+    return roundAccountancyAmount(balance) < 0;
+}
+
+export function isAccountancyBalancePositive(balance: number): boolean {
+    return roundAccountancyAmount(balance) > 0;
+}
+
+export function accountancyBalanceMuiColor(
+    balance: number,
+    errorColor: 'error' | 'error.main' = 'error.main',
+): 'success.main' | 'error' | 'error.main' {
+    return isAccountancyBalanceNegative(balance) ? errorColor : 'success.main';
 }
 
 /** Сумма за единицу из синтетической строки сводки. */

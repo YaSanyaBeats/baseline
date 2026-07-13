@@ -1,5 +1,6 @@
 import type { Booking, Expense, Income, Object as Obj, Room } from '@/lib/types';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
+import { isAccountancyBalanceZeroish, roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { isExcludedFromAccountancyRoomStatsSum } from '@/lib/noBookingCategorySubgroups';
 import {
@@ -32,10 +33,6 @@ function ledgerMonthFromRecord(
     const parsed = new Date(date as string | Date);
     if (Number.isNaN(parsed.getTime())) return null;
     return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}`;
-}
-
-function isZeroish(n: number): boolean {
-    return !Number.isFinite(n) || Math.abs(n) < 1e-9;
 }
 
 type GroupBalanceContext = {
@@ -205,9 +202,9 @@ export function buildAccountancyRoomHighlightMap(params: {
             const roomKey = stableAccountancyRoomLabel(room);
             if (balanceByRoomKey.has(roomKey)) continue;
             const totals = roomMap?.get(roomKey);
-            const balance = totals
-                ? totals.opening - totals.expenses + totals.incomes
-                : 0;
+            const balance = roundAccountancyAmount(
+                totals ? totals.opening - totals.expenses + totals.incomes : 0,
+            );
             balanceByRoomKey.set(roomKey, balance);
         }
         for (const member of ctx.members) {
@@ -216,7 +213,7 @@ export function buildAccountancyRoomHighlightMap(params: {
                 const balance = balanceByRoomKey.get(roomKey) ?? 0;
                 result.set(
                     accountancyRoomHighlightKey(member.id, roomKey),
-                    isZeroish(balance) ? 'white' : 'red',
+                    isAccountancyBalanceZeroish(balance) ? 'white' : 'red',
                 );
             }
         }
@@ -286,7 +283,7 @@ export function getAccountancyRoomBalanceForMonth(params: {
         else if (lm === month) incomesSum += amount;
     }
 
-    return openingBalance - expensesSum + incomesSum;
+    return roundAccountancyAmount(openingBalance - expensesSum + incomesSum);
 }
 
 /** @deprecated Используйте buildAccountancyRoomHighlightMap */
@@ -301,5 +298,5 @@ export function resolveAccountancyObjectRoomRowHighlight(params: {
     categoryNameById: Map<string, string>;
 }): AccountancyObjectRoomRowHighlight {
     const balance = getAccountancyRoomBalanceForMonth({ ...params, roomKey: params.roomName });
-    return isZeroish(balance) ? 'white' : 'red';
+    return isAccountancyBalanceZeroish(balance) ? 'white' : 'red';
 }

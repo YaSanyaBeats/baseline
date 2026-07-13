@@ -151,10 +151,13 @@ import {
     OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
 } from '@/lib/ownerBalanceCategories';
 import {
+    accountancyBalanceMuiColor,
     findSyntheticFillTargetRow,
+    isAccountancyBalancePositive,
     isAccountancyBalanceZeroish,
     lastCalendarDayOfReportMonth,
     resolveSyntheticCalculatedUnitAmount,
+    roundAccountancyAmount,
 } from '@/lib/accountancyOverviewSyntheticFill';
 
 const OVERVIEW_FILTERS_KEY = 'accountancy-overview-filters';
@@ -578,7 +581,7 @@ export default function Page() {
     const { objects } = useObjects();
 
     const formatAmount = useCallback((value: number): string => {
-        return value.toLocaleString('ru-RU', {
+        return roundAccountancyAmount(value).toLocaleString('ru-RU', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         });
@@ -2136,8 +2139,9 @@ export default function Page() {
                 return;
             }
 
-            const absAmount = Math.abs(balance);
-            const isAccrue = balance > 0;
+            const roundedBalance = roundAccountancyAmount(balance);
+            const absAmount = Math.abs(roundedBalance);
+            const isAccrue = isAccountancyBalancePositive(balance);
             const type = isAccrue ? 'expense' : 'income';
             const categoryId = isAccrue
                 ? OWNER_ACCRUED_TO_OWNER_CATEGORY_ID
@@ -3881,7 +3885,7 @@ export default function Page() {
                     <Typography variant="subtitle2" color="text.secondary">
                         {t('accountancy.balance')}
                     </Typography>
-                    <Typography variant="h6" color={balance >= 0 ? 'success.main' : 'error'}>
+                    <Typography variant="h6" color={accountancyBalanceMuiColor(balance, 'error')}>
                         {formatAmount(balance)}
                     </Typography>
                 </Paper>
@@ -4035,7 +4039,9 @@ export default function Page() {
                                 </TableHead>
                                 <TableBody>
                                     {filteredRoomStats.map((row) => {
-                                        const balance = row.openingBalance - row.expenses + row.incomes;
+                                        const balance = roundAccountancyAmount(
+                                            row.openingBalance - row.expenses + row.incomes,
+                                        );
                                         const isUnallocatedRow = row.roomKey === ACCOUNTANCY_UNALLOCATED_ROOM_KEY;
                                         return (
                                             <TableRow
@@ -4059,7 +4065,7 @@ export default function Page() {
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.openingBalance)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.expenses)}</TableCell>
                                                 <TableCell sx={{ py: 0.5, px: 1 }}>{formatAmount(row.incomes)}</TableCell>
-                                                <TableCell sx={{ py: 0.5, px: 1, color: balance >= 0 ? 'success.main' : 'error.main' }}>
+                                                <TableCell sx={{ py: 0.5, px: 1, color: accountancyBalanceMuiColor(balance) }}>
                                                     <Stack direction="row" alignItems="center" spacing={0.25} justifyContent="flex-start">
                                                         <Box component="span">{formatAmount(balance)}</Box>
                                                         {!isUnallocatedRow ? (
@@ -4067,7 +4073,7 @@ export default function Page() {
                                                                 title={
                                                                     isSelectedMonthClosed
                                                                         ? t('accountancy.reportPeriodLockedAlert')
-                                                                        : balance > 0
+                                                                        : isAccountancyBalancePositive(balance)
                                                                           ? t('accountancy.roomBalanceSettleAccrue')
                                                                           : t('accountancy.roomBalanceSettleDebit')
                                                                 }
@@ -4075,7 +4081,7 @@ export default function Page() {
                                                                 <span>
                                                                     <IconButton
                                                                         size="small"
-                                                                        color={balance > 0 ? 'success' : 'error'}
+                                                                        color={isAccountancyBalancePositive(balance) ? 'success' : 'error'}
                                                                         disabled={
                                                                             isAccountancyBalanceZeroish(balance) ||
                                                                             isSelectedMonthClosed ||
@@ -4095,13 +4101,13 @@ export default function Page() {
                                                                             void handleRoomBalanceSettle(row.roomKey, balance);
                                                                         }}
                                                                         aria-label={
-                                                                            balance > 0
+                                                                            isAccountancyBalancePositive(balance)
                                                                                 ? t('accountancy.roomBalanceSettleAccrue')
                                                                                 : t('accountancy.roomBalanceSettleDebit')
                                                                         }
                                                                         sx={{ p: 0.25 }}
                                                                     >
-                                                                        {balance > 0 ? (
+                                                                        {isAccountancyBalancePositive(balance) ? (
                                                                             <AddIcon sx={{ fontSize: '0.95rem' }} />
                                                                         ) : (
                                                                             <RemoveIcon sx={{ fontSize: '0.95rem' }} />
