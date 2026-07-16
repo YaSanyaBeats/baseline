@@ -133,10 +133,10 @@ export function ownerSettlementSignedAmount(category: string, amount: number): n
     switch (ownerBalanceCategoryKind(category)) {
         case 'payout':
         case 'debited':
-        case 'targetedIncomeFromOwner':
         case 'openingNegative':
             return -abs;
         case 'accrued':
+        case 'targetedIncomeFromOwner':
         case 'openingPositive':
             return abs;
         default:
