@@ -26,13 +26,13 @@ import CommissionOwnerViewPanel from '@/components/accountancy/CommissionOwnerVi
 export default function ReportsPage() {
     const { t } = useTranslation();
     const { data: session } = useSession();
-    const { user, isOwner, isPremium } = useUser();
+    const { user, isOwner } = useUser();
     const { objects } = useObjects();
     const [selectedMonth, setSelectedMonth] = useState('');
     const [closedPeriodsLoading, setClosedPeriodsLoading] = useState(false);
     const [closedMonthKeys, setClosedMonthKeys] = useState<string[]>([]);
 
-    const canAccess = canAccessReports(session, { isOwner, isPremium });
+    const canAccess = canAccessReports(session, { isOwner });
     const ownerId = user?._id ?? '';
 
     const ownerObjects = useMemo(() => {

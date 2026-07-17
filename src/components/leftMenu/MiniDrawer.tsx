@@ -41,7 +41,7 @@ type MenuItem = {
     link: string;
     roles: UserRole[];
     showOnlyWhenHasCashflow?: boolean;
-    /** Только для владельца Premium или админа, вошедшего под владельцем. */
+    /** Только для владельца или админа, вошедшего под владельцем. */
     showOnlyWhenCanAccessReports?: boolean;
 };
 
@@ -133,9 +133,8 @@ function DrawerMenu(props: {
     user: User | null;
     session: Session | null;
     isOwner: boolean;
-    isPremium: boolean;
 }) {
-    const { open, setOpen, user, session, isOwner, isPremium } = props;
+    const { open, setOpen, user, session, isOwner } = props;
     const { t } = useTranslation();
     
     const menu: MenuItem[] = [
@@ -209,7 +208,7 @@ function DrawerMenu(props: {
 
         return menu.filter((menuElem) => {
             if (menuElem.showOnlyWhenCanAccessReports) {
-                return canAccessReports(session, { isOwner, isPremium });
+                return canAccessReports(session, { isOwner });
             }
             if (menuElem.showOnlyWhenHasCashflow) return Boolean(user.hasCashflow);
             if (menuElem.roles.length === 0) return false;
@@ -278,7 +277,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
     const [open, setOpen] = React.useState(false);
     const [stoppingImpersonation, setStoppingImpersonation] = React.useState(false);
     const isMobile = !useMediaQuery('(min-width:768px)');
-    const { user, isOwner, isPremium } = useUser();
+    const { user, isOwner } = useUser();
     const { data: session } = useSession();
     const { t } = useTranslation();
     const impersonatedBy = session?.impersonatedBy;
@@ -366,7 +365,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} isPremium={isPremium} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} />
                 </DesktopDrawer>
             ) : (
                 <Drawer
@@ -393,7 +392,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} isPremium={isPremium} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} />
                 </Drawer>
             )}
 

@@ -11,22 +11,20 @@ export function isAdminImpersonatingOwner(session: Session | null | undefined): 
 
 type ReportsAccessUser = {
     role?: string;
-    accountType?: string;
     isOwner?: boolean;
-    isPremium?: boolean;
 } | null | undefined;
 
-/** Доступ к /dashboard/reports: админ под владельцем или владелец с Premium. */
+/** Доступ к /dashboard/reports: админ под владельцем или любой владелец (basic/premium). */
 export function canAccessReports(
     session: Session | null | undefined,
     user?: ReportsAccessUser,
 ): boolean {
     if (isAdminImpersonatingOwner(session)) return true;
-    if (user?.isOwner != null && user?.isPremium != null) {
-        return user.isOwner && user.isPremium;
+    if (user?.isOwner != null) {
+        return user.isOwner;
     }
-    const sessionUser = session?.user as { role?: string; accountType?: string } | undefined;
-    return sessionUser?.role === 'owner' && sessionUser?.accountType === 'premium';
+    const sessionUser = session?.user as { role?: string } | undefined;
+    return sessionUser?.role === 'owner';
 }
 
 /** В отчётах доступны только зафиксированные месяцы (владелец / админ под владельцем). */
