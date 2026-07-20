@@ -20,6 +20,12 @@ interface Segment {
     booking: BusynessBookingInfo | null;
 }
 
+/** Визуальный диапазон: от половины дня заезда до половины дня выезда. */
+interface SegmentVisual extends Segment {
+    startHalf: boolean;
+    endHalf: boolean;
+}
+
 const getBookingFullName = (booking: BusynessBookingInfo | null): string => {
     if (!booking) {
         return '';
@@ -88,7 +94,59 @@ const getSegments = (busyness: BusynessItem[]): Segment[] => {
     return segments;
 };
 
-type WeekSegment = Segment & {
+const getSegmentVisual = (segment: Segment, days: BusynessItem[]): SegmentVisual => {
+    const { startIndex, endIndex, booking, type } = segment;
+    const lastDay = days[days.length - 1]?.date;
+
+    if (!booking) {
+        const canExtend = endIndex + 1 < days.length;
+        return {
+            startIndex,
+            endIndex: canExtend ? endIndex + 1 : endIndex,
+            type,
+            booking,
+            startHalf: true,
+            endHalf: canExtend,
+        };
+    }
+
+    const startHalf = days[startIndex]?.date === booking.arrival;
+    const departureIndex = days.findIndex((day) => day.date === booking.departure);
+
+    if (departureIndex >= 0) {
+        return {
+            startIndex,
+            endIndex: departureIndex,
+            type,
+            booking,
+            startHalf,
+            endHalf: true,
+        };
+    }
+
+    if (lastDay && booking.departure > lastDay) {
+        return {
+            startIndex,
+            endIndex,
+            type,
+            booking,
+            startHalf,
+            endHalf: false,
+        };
+    }
+
+    const canExtend = endIndex + 1 < days.length;
+    return {
+        startIndex,
+        endIndex: canExtend ? endIndex + 1 : endIndex,
+        type,
+        booking,
+        startHalf,
+        endHalf: canExtend,
+    };
+};
+
+type WeekSegment = SegmentVisual & {
     isStart: boolean;
     isEnd: boolean;
 };
@@ -148,31 +206,8 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                 
                 const days = [...emptyDays, ...row.busyness];
                 const daysCount = days.length;
-                console.log(currentMonth);
 
-                // Ограничиваем отображение блоков текущим месяцем (по первой дате ряда)
-                /*const firstDate = new Date(days[0].date);
-                const targetMonth = firstDate.getMonth();
-                const targetYear = firstDate.getFullYear();
-
-                const monthMask = days.map((day) => {
-                    const d = new Date(day.date);
-                    return d.getMonth() === targetMonth && d.getFullYear() === targetYear;
-                });
-
-                const visibleStart = monthMask.findIndex(Boolean);
-                const visibleEnd = monthMask.lastIndexOf(true);
-                
-
-                const segments =
-                    visibleStart === -1 || visibleEnd === -1
-                        ? []
-                        : getSegments(row, visibleStart, visibleEnd);*/
-
-                const segments = getSegments(days);
-
-                // const occupiedDays = days.filter(day => day.busyness !== 'free').length;
-                // const occupancy = Math.round((occupiedDays / days.length) * 100);
+                const segments = getSegments(days).map((segment) => getSegmentVisual(segment, days));
 
                 const weeksCount = Math.ceil(daysCount / 7);
 
@@ -188,13 +223,17 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                         const intersectEnd = Math.min(segment.endIndex, weekEnd);
 
                         if (intersectStart <= intersectEnd) {
+                            const isStart = intersectStart === segment.startIndex;
+                            const isEnd = intersectEnd === segment.endIndex;
                             segmentsByWeek[weekIndex].push({
                                 startIndex: intersectStart - weekStart,
                                 endIndex: intersectEnd - weekStart,
                                 type: segment.type,
                                 booking: segment.booking,
-                                isStart: intersectStart === segment.startIndex,
-                                isEnd: intersectEnd === segment.endIndex,
+                                startHalf: isStart && segment.startHalf,
+                                endHalf: isEnd && segment.endHalf,
+                                isStart,
+                                isEnd,
                             });
                         }
                     }
@@ -241,7 +280,10 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                     zIndex: 3,
                                                 }}
                                             >
-                                                {weekSegments.map((segment, segIndex) => (
+                                                {weekSegments.map((segment, segIndex) => {
+                                                    const spanDays = segment.endIndex - segment.startIndex + 1;
+                                                    const halfCellPercent = spanDays > 0 ? 50 / spanDays : 0;
+                                                    return (
                                                     <Box
                                                         key={segIndex}
                                                         onClick={() => handleBookingClick(segment.booking)}
@@ -250,7 +292,8 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                             alignSelf: "stretch",
                                                             // Размещаем блок заметно ниже даты
                                                             mt: "46px",
-                                                            mx: 0,
+                                                            ml: segment.startHalf ? `${halfCellPercent}%` : 0,
+                                                            mr: segment.endHalf ? `${halfCellPercent}%` : 0,
                                                             borderRadius: segment.isStart && segment.isEnd
                                                                 ? 10
                                                                 : segment.isStart
@@ -266,6 +309,7 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                             justifyContent: "center",
                                                             px: 0.5,
                                                             height: '38px',
+                                                            minWidth: 0,
                                                             pointerEvents: segment.booking ? "auto" : "none",
                                                             cursor: segment.booking ? 'pointer' : 'default',
                                                             '&:hover': segment.booking ? {
@@ -293,7 +337,8 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                             </Typography>
                                                         )}
                                                     </Box>
-                                                ))}
+                                                    );
+                                                })}
                                             </Box>
 
                                             {/* Сетка дней недели и дат поверх подсветки */}

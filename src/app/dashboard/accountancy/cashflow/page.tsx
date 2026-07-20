@@ -221,6 +221,12 @@ export default function Page() {
         return rows;
     };
 
+    const getOwnerRoomIncomes = (owner: User): Income[] =>
+        incomes.filter((i) => transactionMatchesOwnerAssignment(i, owner.objects ?? [], objects));
+
+    const getOwnerRoomExpenses = (owner: User): Expense[] =>
+        expenses.filter((e) => transactionMatchesOwnerAssignment(e, owner.objects ?? [], objects));
+
     const sortedOwners = [...owners].sort((a, b) => (a.name ?? '').localeCompare(b.name ?? '', 'ru'));
 
     const getRoomLinksLabel = (roomLinks: { id: number; rooms: (string | number)[] }[]) => {
@@ -666,6 +672,8 @@ export default function Page() {
                 onClose={() => setOwnerDialogOwner(null)}
                 owner={ownerDialogOwner}
                 transactions={ownerDialogOwner ? getOwnerLedgerRows(ownerDialogOwner) : []}
+                incomes={ownerDialogOwner ? getOwnerRoomIncomes(ownerDialogOwner) : []}
+                expenses={ownerDialogOwner ? getOwnerRoomExpenses(ownerDialogOwner) : []}
                 objects={objects}
                 t={t}
             />

@@ -18,8 +18,15 @@ interface Segment {
     booking: BusynessBookingInfo | null;
 }
 
+/** Визуальный диапазон: от половины дня заезда до половины дня выезда. */
+interface SegmentVisual {
+    startIndex: number;
+    endIndex: number;
+    startHalf: boolean;
+    endHalf: boolean;
+}
+
 const getSegments = (row: BusynessRow): Segment[] => {
-    console.log(row);
     const segments: Segment[] = [];
     let current: Segment | null = null;
     row.busyness.forEach((item, index) => {
@@ -59,6 +66,51 @@ const getSegments = (row: BusynessRow): Segment[] => {
     }
 
     return segments;
+};
+
+const getSegmentVisual = (segment: Segment, days: BusynessRow["busyness"]): SegmentVisual => {
+    const { startIndex, endIndex, booking } = segment;
+    const lastDay = days[days.length - 1]?.date;
+
+    if (!booking) {
+        const canExtend = endIndex + 1 < days.length;
+        return {
+            startIndex,
+            endIndex: canExtend ? endIndex + 1 : endIndex,
+            startHalf: true,
+            endHalf: canExtend,
+        };
+    }
+
+    const startHalf = days[startIndex]?.date === booking.arrival;
+    const departureIndex = days.findIndex((day) => day.date === booking.departure);
+
+    if (departureIndex >= 0) {
+        return {
+            startIndex,
+            endIndex: departureIndex,
+            startHalf,
+            endHalf: true,
+        };
+    }
+
+    // Выезд за пределами месяца — тянем до конца последней занятой ночи
+    if (lastDay && booking.departure > lastDay) {
+        return {
+            startIndex,
+            endIndex,
+            startHalf,
+            endHalf: false,
+        };
+    }
+
+    const canExtend = endIndex + 1 < days.length;
+    return {
+        startIndex,
+        endIndex: canExtend ? endIndex + 1 : endIndex,
+        startHalf,
+        endHalf: canExtend,
+    };
 };
 
 const formatDate = (dateString: string) => {
@@ -189,9 +241,12 @@ export default function BusynessCalendarTable(props: { busynessItems: BusynessRo
                                 />
                             ))}
 
-                            {/* Блоки бронирований */}
+                            {/* Блоки бронирований: половина ячейки заезда → половина ячейки выезда */}
                             {segments.map((segment, segIndex) => {
                                 const booking = segment.booking;
+                                const visual = getSegmentVisual(segment, days);
+                                const spanDays = visual.endIndex - visual.startIndex + 1;
+                                const halfCellPercent = spanDays > 0 ? 50 / spanDays : 0;
                                 const tooltipContent = booking ? (
                                     <Box>
                                         <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -224,10 +279,12 @@ export default function BusynessCalendarTable(props: { busynessItems: BusynessRo
                                     >
                                         <Box
                                             sx={{
-                                                gridColumn: `${segment.startIndex + 2} / ${segment.endIndex + 3}`,
+                                                gridColumn: `${visual.startIndex + 2} / ${visual.endIndex + 3}`,
                                                 gridRow: "1 / 2",
                                                 alignSelf: "stretch",
-                                                m: "4px 2px",
+                                                my: "4px",
+                                                ml: visual.startHalf ? `${halfCellPercent}%` : "2px",
+                                                mr: visual.endHalf ? `${halfCellPercent}%` : "2px",
                                                 borderRadius: 2,
                                                 bgcolor: segment.type === "black" ? "#000000" : "#1976D2",
                                                 opacity: 0.9,
@@ -237,6 +294,7 @@ export default function BusynessCalendarTable(props: { busynessItems: BusynessRo
                                                 justifyContent: "center",
                                                 px: 1,
                                                 cursor: booking ? "pointer" : "default",
+                                                minWidth: 0,
                                             }}
                                         >
                                             {booking && (
