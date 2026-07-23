@@ -8,6 +8,7 @@ import MiniDrawer from '@/components/leftMenu/MiniDrawer'
 import { SnackbarProvider } from '@/providers/SnackbarContext'
 import GlobalSnackbar from '@/components/globalSnackbar/GlobalSnackbar'
 import UserProvider from '@/providers/UserProvider'
+import Beds24DailySyncGuard from '@/components/beds24/Beds24DailySyncGuard'
 import { User } from '@/lib/types'
 
 
@@ -38,6 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
         <SnackbarProvider defaultState={defaultSnackbarState}>
             <UserProvider user={user}>
                 <ObjectsProvider serverObjects={objects} session={session}>
+                    <Beds24DailySyncGuard />
                     <MiniDrawer>
                         {children}
                     </MiniDrawer>
