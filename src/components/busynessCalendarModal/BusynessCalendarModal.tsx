@@ -172,7 +172,7 @@ export default function BusynessCalendarModal(props: {
                         <IconButton disabled={loading || page === 0} onClick={prevPage}>
                             <ArrowBackIcon/>
                         </IconButton>
-                        <IconButton disabled={loading || page === 15} onClick={nextPage}>
+                        <IconButton disabled={loading || page === 18} onClick={nextPage}>
                             <ArrowForwardIcon/>
                         </IconButton>
                     </Stack>

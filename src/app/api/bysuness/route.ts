@@ -14,9 +14,9 @@ async function getBusynessPerRoom(propertyId: number, room: any, roomTypeId: num
     const startDate = new Date(now);
     startDate.setMonth(now.getMonth() - 12);
 
-    // 3 месяца вперёд
+    // 6 месяцев вперёд
     const endDate = new Date(now);
-    endDate.setMonth(now.getMonth() + 4);
+    endDate.setMonth(now.getMonth() + 7);
     endDate.setDate(endDate.getDate() - 1);
 
     const neededBookings = await bookings.find({
