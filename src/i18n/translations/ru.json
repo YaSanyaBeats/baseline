@@ -438,7 +438,8 @@
       "per_booking": "1 на бронь"
     },
     "duplicateTransactionTitle": "Дубликат транзакции",
-    "duplicateTransactionMessage": "Транзакция с категорией «{category}» уже существует (сумма {amount}). Что сделать?",
+    "duplicateTransactionMessage": "Транзакции с категорией «{category}» уже существуют:",
+    "duplicateTransactionListItem": "{objectName}, {roomName} — {amount}",
     "duplicateTransactionSkip": "Пропустить",
     "duplicateTransactionAdd": "Добавить",
     "groupBinding": "Привязка к группе",

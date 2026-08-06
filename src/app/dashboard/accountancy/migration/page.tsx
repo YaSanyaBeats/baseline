@@ -10,6 +10,7 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 
 import type { MigrateRoomNamesStats } from '@/lib/migrations/migrateRoomIdsToNames';
+import type { MigrateMetadataPropertyIdsStats } from '@/lib/migrations/migrateMetadataPropertyIds';
 
 export default function Page() {
     const { t } = useTranslation();
@@ -26,6 +27,9 @@ export default function Page() {
         expensesUpdated: number;
         incomesUpdated: number;
     } | null>(null);
+    const [loadingMetaIds, setLoadingMetaIds] = useState(false);
+    const [metaIdsMessage, setMetaIdsMessage] = useState<string | null>(null);
+    const [metaIdsStats, setMetaIdsStats] = useState<MigrateMetadataPropertyIdsStats | null>(null);
 
     const hasAccess = isAdmin || isAccountant;
 
@@ -90,6 +94,39 @@ export default function Page() {
             setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleMigrateMetadataPropertyIds = async () => {
+        if (!hasAccess) return;
+        setLoadingMetaIds(true);
+        setMetaIdsMessage(null);
+        setMetaIdsStats(null);
+        try {
+            const res = await fetch('/api/objectRoomMetadata/migrate-property-ids', { method: 'POST' });
+            const data = (await res.json()) as {
+                success: boolean;
+                message?: string;
+                stats?: MigrateMetadataPropertyIdsStats;
+            };
+            if (data.success && data.stats) {
+                setMetaIdsMessage(data.message ?? '');
+                setMetaIdsStats(data.stats);
+                setSnackbar({
+                    open: true,
+                    message: data.message ?? t('common.success'),
+                    severity: data.stats.errors.length > 0 ? 'warning' : 'success',
+                });
+            } else {
+                setMetaIdsMessage(data.message || t('common.serverError'));
+                setSnackbar({ open: true, message: data.message || t('common.serverError'), severity: 'error' });
+            }
+        } catch (err) {
+            console.error(err);
+            setMetaIdsMessage(t('common.serverError'));
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setLoadingMetaIds(false);
         }
     };
 
@@ -206,6 +243,47 @@ export default function Page() {
             {roomNamesFailed && roomNamesMessage ? (
                 <Alert severity="error" sx={{ mt: 2, mb: 4 }}>
                     {roomNamesMessage}
+                </Alert>
+            ) : null}
+
+            <Typography variant="h4" sx={{ mb: 2, mt: 4 }}>
+                Миграция: метаданные (propertyId вместо roomType.id)
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                Приводит <strong>objectRoomMetadata_objects</strong> и <strong>objectRoomMetadata_rooms</strong> к
+                единому ключу <code>objectId = propertyId</code> (Beds24). Записи с roomType.id сливаются с
+                каноническими; дубликаты удаляются. Подробнее —{' '}
+                <Link href="/dashboard/options/migrate-metadata-ids">отдельная страница</Link>.
+            </Alert>
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap', mb: 1 }}>
+                <Button
+                    variant="contained"
+                    color="secondary"
+                    onClick={handleMigrateMetadataPropertyIds}
+                    disabled={loadingMetaIds || loadingRoomNames || loading || loadingRecordType}
+                    startIcon={loadingMetaIds ? <CircularProgress size={20} color="inherit" /> : null}
+                >
+                    {loadingMetaIds ? 'Выполняется…' : 'Запустить миграцию метаданных'}
+                </Button>
+            </Box>
+            {metaIdsMessage && metaIdsStats ? (
+                <Alert
+                    severity={metaIdsStats.errors.length > 0 ? 'warning' : 'success'}
+                    sx={{ mt: 2, mb: 4 }}
+                >
+                    <Typography variant="body2" component="div" sx={{ mb: 1 }}>
+                        {metaIdsMessage}
+                    </Typography>
+                    <Stack component="ul" sx={{ m: 0, pl: 2.5, typography: 'body2' }} spacing={0.5}>
+                        <li>
+                            objectRoomMetadata_objects: слито {metaIdsStats.objectMetadata.merged}, переключено{' '}
+                            {metaIdsStats.objectMetadata.rekeyed}
+                        </li>
+                        <li>
+                            objectRoomMetadata_rooms: слито {metaIdsStats.roomMetadata.merged}, переключено{' '}
+                            {metaIdsStats.roomMetadata.rekeyed}
+                        </li>
+                    </Stack>
                 </Alert>
             ) : null}
 

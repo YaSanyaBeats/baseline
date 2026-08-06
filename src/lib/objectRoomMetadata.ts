@@ -32,6 +32,11 @@ export interface ObjectRoomMetadataResponse {
     rooms: Record<string, RoomMetadata>; // key: roomMetadataMapKey(objectId, roomName)
 }
 
+/** Канонический propertyId для записи метаданных (Beds24 property, не roomType.id). */
+export function getMetadataPropertyId(obj: { propertyId?: number; id: number }): number {
+    return obj.propertyId ?? obj.id;
+}
+
 export async function getObjectRoomMetadata(): Promise<ObjectRoomMetadataResponse> {
     const res = await fetch('/api/objectRoomMetadata');
     if (!res.ok) {

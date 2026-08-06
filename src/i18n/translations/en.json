@@ -439,7 +439,8 @@
       "per_booking": "1 per booking"
     },
     "duplicateTransactionTitle": "Duplicate transaction",
-    "duplicateTransactionMessage": "A transaction with category «{category}» already exists (amount {amount}). What would you like to do?",
+    "duplicateTransactionMessage": "Transactions with category «{category}» already exist:",
+    "duplicateTransactionListItem": "{objectName}, {roomName} — {amount}",
     "duplicateTransactionSkip": "Skip",
     "duplicateTransactionAdd": "Add",
     "groupBinding": "Group binding",

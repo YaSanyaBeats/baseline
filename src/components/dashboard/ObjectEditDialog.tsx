@@ -16,6 +16,7 @@ import {
 import { useState, useEffect } from 'react';
 import { useTranslation } from '@/i18n/useTranslation';
 import type { Object as ObjectEntity, ObjectType } from '@/lib/types';
+import { getMetadataPropertyId } from '@/lib/objectRoomMetadata';
 
 interface ObjectEditDialogProps {
     open: boolean;
@@ -41,7 +42,7 @@ export default function ObjectEditDialog({ open, onClose, object, onSave }: Obje
         if (!object) return;
         setSaving(true);
         try {
-            await onSave(object.propertyId ?? object.id, {
+            await onSave(getMetadataPropertyId(object), {
                 district: district.trim() || undefined,
                 objectType: objectType || undefined,
             });

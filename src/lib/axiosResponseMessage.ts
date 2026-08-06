@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { CommonResponse } from './types';
+import type { CommonResponse, ExistingDuplicateRow } from './types';
 
 export const REPORT_MONTH_CLOSED_CODE = 'REPORT_MONTH_CLOSED';
 export const REPORT_MONTH_TOO_EARLY_CODE = 'REPORT_MONTH_TOO_EARLY';
@@ -72,6 +72,7 @@ export function extractCommonResponseFromAxiosError(error: unknown): CommonRespo
     const existingAmount = typeof body.existingAmount === 'number' ? body.existingAmount : undefined;
     const existingLineTotal =
         typeof body.existingLineTotal === 'number' ? body.existingLineTotal : undefined;
+    const existingDuplicates = parseExistingDuplicates(body.existingDuplicates);
 
     if (!message && !code && success !== false && id == null) return null;
 
@@ -82,5 +83,29 @@ export function extractCommonResponseFromAxiosError(error: unknown): CommonRespo
         id,
         existingAmount,
         existingLineTotal,
+        existingDuplicates,
     };
+}
+
+function parseExistingDuplicates(value: unknown): ExistingDuplicateRow[] | undefined {
+    if (!Array.isArray(value) || value.length === 0) return undefined;
+    const rows: ExistingDuplicateRow[] = [];
+    for (const item of value) {
+        if (!item || typeof item !== 'object') continue;
+        const row = item as Record<string, unknown>;
+        const objectId = typeof row.objectId === 'number' ? row.objectId : Number(row.objectId);
+        const objectName = typeof row.objectName === 'string' ? row.objectName : '';
+        const roomName = typeof row.roomName === 'string' ? row.roomName : '';
+        const amount = typeof row.amount === 'number' ? row.amount : Number(row.amount) || 0;
+        const lineTotal = typeof row.lineTotal === 'number' ? row.lineTotal : Number(row.lineTotal) || amount;
+        if (!Number.isFinite(objectId) || !roomName) continue;
+        rows.push({
+            objectId,
+            objectName: objectName || String(objectId),
+            roomName,
+            amount,
+            lineTotal,
+        });
+    }
+    return rows.length > 0 ? rows : undefined;
 }

@@ -1,11 +1,12 @@
 import { addExpense } from '@/lib/expenses';
 import { addIncome } from '@/lib/incomes';
-import type { CommonResponse, Expense, Income } from '@/lib/types';
+import type { CommonResponse, Expense, Income, ExistingDuplicateRow } from '@/lib/types';
 
 export type DuplicateConflictInfo = {
     category: string;
     existingAmount: number;
     existingLineTotal: number;
+    existingDuplicates: ExistingDuplicateRow[];
 };
 
 export type DuplicateConflictChoice = 'skip' | 'add';
@@ -24,10 +25,25 @@ function isForbidDuplicatesResponse(res: CommonResponse): boolean {
 }
 
 function toConflictInfo(res: CommonResponse, category: string): DuplicateConflictInfo {
+    const existingAmount = res.existingAmount ?? 0;
+    const existingLineTotal = res.existingLineTotal ?? res.existingAmount ?? 0;
+    const existingDuplicates =
+        res.existingDuplicates && res.existingDuplicates.length > 0
+            ? res.existingDuplicates
+            : [
+                  {
+                      objectId: 0,
+                      objectName: '',
+                      roomName: '—',
+                      amount: existingAmount,
+                      lineTotal: existingLineTotal,
+                  },
+              ];
     return {
         category,
-        existingAmount: res.existingAmount ?? 0,
-        existingLineTotal: res.existingLineTotal ?? res.existingAmount ?? 0,
+        existingAmount,
+        existingLineTotal,
+        existingDuplicates,
     };
 }
 

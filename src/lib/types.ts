@@ -181,7 +181,17 @@ export interface CommonResponse {
     existingAmount?: number;
     /** Сумма строки существующей записи (amount × quantity) при FORBID_DUPLICATES */
     existingLineTotal?: number;
+    /** Список дублирующих транзакций при FORBID_DUPLICATES */
+    existingDuplicates?: ExistingDuplicateRow[];
 }
+
+export type ExistingDuplicateRow = {
+    objectId: number;
+    objectName: string;
+    roomName: string;
+    amount: number;
+    lineTotal: number;
+};
 
 export interface BusynessRow {
     busyness: BusynessItem[],

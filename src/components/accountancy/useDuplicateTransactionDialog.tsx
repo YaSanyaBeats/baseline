@@ -7,6 +7,9 @@ import {
     DialogContent,
     DialogContentText,
     DialogTitle,
+    List,
+    ListItem,
+    ListItemText,
 } from '@mui/material';
 import { useCallback, useRef, useState } from 'react';
 import type { DuplicateConflictChoice, DuplicateConflictInfo } from '@/lib/accountancyDuplicateSubmit';
@@ -37,11 +40,21 @@ export function useDuplicateTransactionDialog() {
         <Dialog open={open} onClose={() => closeWith('skip')} maxWidth="sm" fullWidth>
             <DialogTitle>{t('accountancy.duplicateTransactionTitle')}</DialogTitle>
             <DialogContent>
-                <DialogContentText>
-                    {t('accountancy.duplicateTransactionMessage')
-                        .replace('{category}', info?.category ?? '')
-                        .replace('{amount}', String(info?.existingLineTotal ?? info?.existingAmount ?? 0))}
+                <DialogContentText sx={{ mb: 1 }}>
+                    {t('accountancy.duplicateTransactionMessage').replace('{category}', info?.category ?? '')}
                 </DialogContentText>
+                <List dense disablePadding>
+                    {(info?.existingDuplicates ?? []).map((dup, index) => (
+                        <ListItem key={`${dup.objectId}-${dup.roomName}-${index}`} disableGutters sx={{ py: 0.25 }}>
+                            <ListItemText
+                                primary={t('accountancy.duplicateTransactionListItem')
+                                    .replace('{objectName}', dup.objectName)
+                                    .replace('{roomName}', dup.roomName)
+                                    .replace('{amount}', String(dup.lineTotal))}
+                            />
+                        </ListItem>
+                    ))}
+                </List>
             </DialogContent>
             <DialogActions>
                 <Button onClick={() => closeWith('skip')}>{t('accountancy.duplicateTransactionSkip')}</Button>

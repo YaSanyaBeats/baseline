@@ -40,7 +40,6 @@ function collectUserAssignmentIdsForRawObject(object: any): number[] {
 
 function mapRoomsForProperty(
     propertyId: number,
-    logicalObjectIdForUsers: number,
     units: any[],
     users: any[],
     roomMetadataMap: Record<string, any>,
@@ -65,12 +64,7 @@ function mapRoomsForProperty(
             .map((user: any) => user.name || user.login);
 
         const metaKey = roomMetadataMapKey(propertyId, unitName);
-        const altKey =
-            logicalObjectIdForUsers !== propertyId
-                ? roomMetadataMapKey(logicalObjectIdForUsers, unitName)
-                : null;
-        const roomMeta =
-            roomMetadataMap[metaKey] ?? (altKey ? roomMetadataMap[altKey] : undefined);
+        const roomMeta = roomMetadataMap[metaKey];
         return {
             id: room?.id,
             name: room?.name,
@@ -124,7 +118,7 @@ export function buildClientObjectRows(
         if (!shouldExpandToRoomTypesPerRawObject(object)) {
             const userAssignmentIds = collectUserAssignmentIdsForRawObject(object);
             const rooms = object.roomTypes.flatMap((rt: any) =>
-                mapRoomsForProperty(propertyId, propertyId, rt?.units || [], users, roomMetadataMap, userAssignmentIds)
+                mapRoomsForProperty(propertyId, rt?.units || [], users, roomMetadataMap, userAssignmentIds)
             );
             return [
                 {
@@ -143,17 +137,15 @@ export function buildClientObjectRows(
 
         const userAssignmentIds = collectUserAssignmentIdsForRawObject(object);
         return object.roomTypes.map((roomType: any) => {
-            const logicalId = roomType.id;
             const rooms = mapRoomsForProperty(
                 propertyId,
-                logicalId,
                 roomType?.units || [],
                 users,
                 roomMetadataMap,
                 userAssignmentIds
             );
             return {
-                id: logicalId,
+                id: roomType.id,
                 name: propName || `Object ${propertyId}`,
                 propertyId,
                 propertyName: propName,

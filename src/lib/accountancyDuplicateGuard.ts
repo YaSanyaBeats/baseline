@@ -6,7 +6,7 @@ import {
     resolveCategoryDuplicateRule,
 } from '@/lib/accountancyCategoryDuplicateRule';
 import { normalizeMongoIdString } from '@/lib/mongoId';
-import type { AccountancyCategory, CategoryDuplicateRule } from '@/lib/types';
+import type { AccountancyCategory, CategoryDuplicateRule, ExistingDuplicateRow } from '@/lib/types';
 
 function normalizeReportMonth(rm: unknown): string {
     if (rm == null || rm === '') return '';
@@ -85,15 +85,45 @@ type DuplicateLookupParams = {
     excludeObjectId?: ObjectId;
 };
 
+async function buildObjectDisplayNameMap(db: Db): Promise<Map<number, string>> {
+    const map = new Map<number, string>();
+    const objects = await db.collection('objects').find({}).toArray();
+    for (const obj of objects) {
+        const name = String(obj.name ?? '').trim();
+        if (!name) continue;
+        if (typeof obj.id === 'number') map.set(obj.id, name);
+        for (const rt of obj.roomTypes || []) {
+            if (rt != null && typeof rt.id === 'number') map.set(rt.id, name);
+        }
+    }
+    return map;
+}
+
+function toExistingDuplicateRow(
+    doc: Record<string, unknown>,
+    objectNameMap: Map<number, string>,
+): ExistingDuplicateRow {
+    const objectId = typeof doc.objectId === 'number' ? doc.objectId : Number(doc.objectId) || 0;
+    const roomName = normalizeRoomName(doc.roomName) || '—';
+    const amount = typeof doc.amount === 'number' ? doc.amount : Number(doc.amount) || 0;
+    return {
+        objectId,
+        objectName: objectNameMap.get(objectId) ?? String(objectId),
+        roomName,
+        amount,
+        lineTotal: transactionLineTotal(doc),
+    };
+}
+
 /**
  * Дубль за период: тот же объект + та же комната + та же категория + тот же отчётный месяц.
  * bookingId не используется.
  */
-export async function findDuplicateCategoryObjectRoomMonthRow(
+export async function findAllDuplicateCategoryObjectRoomMonthRows(
     db: Db,
     collectionName: CollectionName,
     params: DuplicateLookupParams,
-): Promise<Record<string, unknown> | null> {
+): Promise<Record<string, unknown>[]> {
     const targetMonth = normalizeReportMonth(params.reportMonth);
     const targetRoom = normalizeRoomName(params.roomName);
     const targetObject = normalizeObjectId(params.objectId);
@@ -103,28 +133,39 @@ export async function findDuplicateCategoryObjectRoomMonthRow(
         ? { objectId: objectIdNum }
         : {};
     const candidates = await coll.find(filter).toArray();
+    const matches: Record<string, unknown>[] = [];
     for (const doc of candidates) {
         if (params.excludeObjectId && String(doc._id) === String(params.excludeObjectId)) continue;
         if (!categoryFieldMatches(doc as Record<string, unknown>, params)) continue;
         if (normalizeObjectId(doc.objectId) !== targetObject) continue;
         if (normalizeReportMonth(doc.reportMonth) !== targetMonth) continue;
         if (normalizeRoomName(doc.roomName) !== targetRoom) continue;
-        return doc as Record<string, unknown>;
+        matches.push(doc as Record<string, unknown>);
     }
-    return null;
+    return matches;
+}
+
+/** @deprecated Используйте findAllDuplicateCategoryObjectRoomMonthRows */
+export async function findDuplicateCategoryObjectRoomMonthRow(
+    db: Db,
+    collectionName: CollectionName,
+    params: DuplicateLookupParams,
+): Promise<Record<string, unknown> | null> {
+    const rows = await findAllDuplicateCategoryObjectRoomMonthRows(db, collectionName, params);
+    return rows[0] ?? null;
 }
 
 /**
  * Дубль на бронь: тот же объект + та же комната + та же категория + то же бронирование.
  * Отчётный месяц не используется.
  */
-export async function findDuplicateCategoryObjectRoomBookingRow(
+export async function findAllDuplicateCategoryObjectRoomBookingRows(
     db: Db,
     collectionName: CollectionName,
     params: DuplicateLookupParams,
-): Promise<Record<string, unknown> | null> {
+): Promise<Record<string, unknown>[]> {
     const targetBookingId = normalizeBookingId(params.bookingId);
-    if (targetBookingId == null) return null;
+    if (targetBookingId == null) return [];
 
     const targetRoom = normalizeRoomName(params.roomName);
     const targetObject = normalizeObjectId(params.objectId);
@@ -134,28 +175,39 @@ export async function findDuplicateCategoryObjectRoomBookingRow(
         ? { objectId: objectIdNum, bookingId: targetBookingId }
         : { bookingId: targetBookingId };
     const candidates = await coll.find(filter).toArray();
+    const matches: Record<string, unknown>[] = [];
     for (const doc of candidates) {
         if (params.excludeObjectId && String(doc._id) === String(params.excludeObjectId)) continue;
         if (!categoryFieldMatches(doc as Record<string, unknown>, params)) continue;
         if (normalizeObjectId(doc.objectId) !== targetObject) continue;
         if (normalizeBookingId(doc.bookingId) !== targetBookingId) continue;
         if (normalizeRoomName(doc.roomName) !== targetRoom) continue;
-        return doc as Record<string, unknown>;
+        matches.push(doc as Record<string, unknown>);
     }
-    return null;
+    return matches;
 }
 
-async function findDuplicateForRule(
+/** @deprecated Используйте findAllDuplicateCategoryObjectRoomBookingRows */
+export async function findDuplicateCategoryObjectRoomBookingRow(
+    db: Db,
+    collectionName: CollectionName,
+    params: DuplicateLookupParams,
+): Promise<Record<string, unknown> | null> {
+    const rows = await findAllDuplicateCategoryObjectRoomBookingRows(db, collectionName, params);
+    return rows[0] ?? null;
+}
+
+async function findAllDuplicatesForRule(
     db: Db,
     collectionName: CollectionName,
     rule: CategoryDuplicateRule,
     params: DuplicateLookupParams,
-): Promise<Record<string, unknown> | null> {
-    if (rule === 'off') return null;
+): Promise<Record<string, unknown>[]> {
+    if (rule === 'off') return [];
     if (rule === 'per_booking') {
-        return findDuplicateCategoryObjectRoomBookingRow(db, collectionName, params);
+        return findAllDuplicateCategoryObjectRoomBookingRows(db, collectionName, params);
     }
-    return findDuplicateCategoryObjectRoomMonthRow(db, collectionName, params);
+    return findAllDuplicateCategoryObjectRoomMonthRows(db, collectionName, params);
 }
 
 /** Сумма строки: amount × quantity. */
@@ -181,6 +233,7 @@ export type ForbidDuplicateCreateResolution =
           existingId: ObjectId;
           existingAmount: number;
           existingLineTotal: number;
+          existingDuplicates: ExistingDuplicateRow[];
           duplicateRule: CategoryDuplicateRule;
       };
 
@@ -201,21 +254,27 @@ export async function resolveForbidDuplicateOnCreate(
     const rule = await getCategoryDuplicateRule(db, params.category, categoryType, params.categoryId);
     if (rule === 'off') return { action: 'proceed' };
 
-    const dup = await findDuplicateForRule(db, collectionName, rule, params);
-    if (!dup) return { action: 'proceed' };
+    const dups = await findAllDuplicatesForRule(db, collectionName, rule, params);
+    if (!dups.length) return { action: 'proceed' };
 
+    const nonZeroDups = dups.filter((d) => !isZeroAmountTransaction(d));
+    const dup = nonZeroDups[0] ?? dups[0];
     const existingId = dup._id as ObjectId;
-    if (isZeroAmountTransaction(dup)) {
+
+    if (nonZeroDups.length === 0) {
         return { action: 'overwrite', existingId, existingDoc: dup as Record<string, unknown> };
     }
     if (allowDuplicate) return { action: 'proceed' };
 
+    const objectNameMap = await buildObjectDisplayNameMap(db);
+    const existingDuplicates = dups.map((d) => toExistingDuplicateRow(d, objectNameMap));
     const existingAmount = typeof dup.amount === 'number' ? dup.amount : Number(dup.amount) || 0;
     return {
         action: 'confirm',
         existingId,
         existingAmount,
         existingLineTotal: transactionLineTotal(dup),
+        existingDuplicates,
         duplicateRule: rule,
     };
 }

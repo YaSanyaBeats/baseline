@@ -18,6 +18,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import type { Object as ObjectType, Room, RoomLevel } from '@/lib/types';
 import type { CommissionSchemeId } from '@/lib/commissionCalculation';
 import { getCounterparties } from '@/lib/counterparties';
+import { getMetadataPropertyId } from '@/lib/objectRoomMetadata';
 
 const SCHEMES: { id: CommissionSchemeId; labelKey: string }[] = [
     { id: 1, labelKey: 'accountancy.commission.scheme1' },
@@ -95,7 +96,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
                 room.name != null && String(room.name).trim() !== ''
                     ? String(room.name).trim()
                     : `Unit ${room.id}`;
-            await onSave(object.id, roomName, {
+            await onSave(getMetadataPropertyId(object), roomName, {
                 bedrooms: bedrooms !== '' ? parseInt(bedrooms, 10) : undefined,
                 bathrooms: bathrooms !== '' ? parseInt(bathrooms, 10) : undefined,
                 livingRoomSofas: livingRoomSofas !== '' ? parseInt(livingRoomSofas, 10) : undefined,

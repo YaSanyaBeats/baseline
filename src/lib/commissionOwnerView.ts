@@ -1,8 +1,6 @@
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import {
     buildOwnerViewIncomeGroupsForRoom,
-    ensureHolyCowIncomeLineInGroups,
-    resolveHolyCowExpenseShareIncomeCategoryName,
     sumOwnerViewIncomeTableTotal,
     type CommissionOwnerViewIncomeGroup,
 } from '@/lib/ownerViewIncomes';
@@ -343,12 +341,6 @@ function buildRoomSectionsFromObjectReports(
             objectReports,
             bookingMeta,
             extraBookings
-        );
-        ensureHolyCowIncomeLineInGroups(
-            bucket.incomeGroups,
-            sumOwnerViewExpenseShares(bucket.expenseGroups),
-            resolveHolyCowExpenseShareIncomeCategoryName(categories, categoryNameById),
-            monthKey,
         );
     }
 

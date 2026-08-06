@@ -8,6 +8,7 @@ import { getDB } from '../db/getDB';
 import type { ObjectType, RoomLevel } from '../types';
 import type { CommissionSchemeId } from '../commissionCalculation';
 import { roomMetadataMapKey } from '../roomBinding';
+import { resolveMetadataPropertyId } from './resolveMetadataPropertyId';
 
 export interface ObjectMetadataDoc {
     objectId: number;
@@ -66,10 +67,11 @@ export async function upsertObjectMetadata(
     data: { district?: string; objectType?: ObjectType }
 ): Promise<void> {
     const db = await getDB();
+    const propertyId = await resolveMetadataPropertyId(db, objectId);
     const collection = db.collection<ObjectMetadataDoc>(OBJECTS_COLLECTION);
-    const toSet = filterUndefined({ objectId, ...data });
+    const toSet = filterUndefined({ objectId: propertyId, ...data });
     await collection.updateOne(
-        { objectId },
+        { objectId: propertyId },
         { $set: toSet },
         { upsert: true }
     );
@@ -82,13 +84,14 @@ export async function upsertRoomMetadata(
     options?: { unset?: (keyof RoomMetadataDoc)[] }
 ): Promise<void> {
     const db = await getDB();
+    const propertyId = await resolveMetadataPropertyId(db, objectId);
     const collection = db.collection<RoomMetadataDoc>(ROOMS_COLLECTION);
-    const toSet = filterUndefined({ objectId, roomName, ...data });
+    const toSet = filterUndefined({ objectId: propertyId, roomName, ...data });
     const update: Record<string, unknown> = {};
     if (Object.keys(toSet).length > 0) update.$set = toSet;
     if (options?.unset?.length) {
         update.$unset = Object.fromEntries(options.unset.map((k) => [String(k), '']));
     }
     if (Object.keys(update).length === 0) return;
-    await collection.updateOne({ objectId, roomName }, update, { upsert: true });
+    await collection.updateOne({ objectId: propertyId, roomName }, update, { upsert: true });
 }

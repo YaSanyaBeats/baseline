@@ -247,6 +247,8 @@ export default function BusynessCalendarTable(props: { busynessItems: BusynessRo
                                 const visual = getSegmentVisual(segment, days);
                                 const spanDays = visual.endIndex - visual.startIndex + 1;
                                 const halfCellPercent = spanDays > 0 ? 50 / spanDays : 0;
+                                const startPad = visual.startHalf ? halfCellPercent : 0;
+                                const endPad = visual.endHalf ? halfCellPercent : 0;
                                 const tooltipContent = booking ? (
                                     <Box>
                                         <Typography variant="body2" sx={{ fontWeight: 600, mb: 0.5 }}>
@@ -281,10 +283,11 @@ export default function BusynessCalendarTable(props: { busynessItems: BusynessRo
                                             sx={{
                                                 gridColumn: `${visual.startIndex + 2} / ${visual.endIndex + 3}`,
                                                 gridRow: "1 / 2",
+                                                justifySelf: "start",
                                                 alignSelf: "stretch",
                                                 my: "4px",
-                                                ml: visual.startHalf ? `${halfCellPercent}%` : "2px",
-                                                mr: visual.endHalf ? `${halfCellPercent}%` : "2px",
+                                                width: `calc(100% - ${startPad + endPad}%)`,
+                                                ml: startPad ? `${startPad}%` : "2px",
                                                 borderRadius: 2,
                                                 bgcolor: segment.type === "black" ? "#000000" : "#1976D2",
                                                 opacity: 0.9,
@@ -295,6 +298,7 @@ export default function BusynessCalendarTable(props: { busynessItems: BusynessRo
                                                 px: 1,
                                                 cursor: booking ? "pointer" : "default",
                                                 minWidth: 0,
+                                                boxSizing: "border-box",
                                             }}
                                         >
                                             {booking && (

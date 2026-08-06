@@ -256,6 +256,7 @@ export async function POST(request: NextRequest) {
                     message: duplicateRuleBlockedMessage(dupResolution.duplicateRule),
                     existingAmount: dupResolution.existingAmount,
                     existingLineTotal: dupResolution.existingLineTotal,
+                    existingDuplicates: dupResolution.existingDuplicates,
                 },
                 { status: 400 },
             );

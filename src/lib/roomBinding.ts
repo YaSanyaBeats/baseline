@@ -30,6 +30,25 @@ export function formatRoomSourceRecipient(objectId: number, roomName: string): s
     return `${PREFIX_ROOM}${objectId}:${encodeRoomNameSegment(roomName)}`;
 }
 
+/**
+ * Канонический propertyId (objects.id / Beds24) для метаданных.
+ * Если передан roomType.id — возвращает id родительского property.
+ */
+export function resolvePropertyIdForMetadata(
+    rawObjects: readonly RawBedsObjectForRoom[],
+    accountingObjectId: number,
+): number {
+    for (const doc of rawObjects) {
+        const pid = doc?.id;
+        if (typeof pid !== 'number') continue;
+        if (accountingObjectId === pid) return pid;
+        for (const rt of doc.roomTypes || []) {
+            if (rt?.id === accountingObjectId) return pid;
+        }
+    }
+    return accountingObjectId;
+}
+
 /** Найти имя юнита по accounting object id (property или roomType) и бывшему unit id. */
 export function resolveUnitNameForAccountingObject(
     rawObjects: readonly RawBedsObjectForRoom[],

@@ -152,7 +152,7 @@ type WeekSegment = SegmentVisual & {
 };
 
 const getWeekdayShort = (dateString: string, t: (key: string) => string) => {
-    const date = new Date(dateString);
+    const date = new Date(dateString + "T12:00:00");
     const day = date.getDay(); // 0 - Sunday
     const map = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
     return t(`calendar.weekdays.mobile.${map[day]}`);
@@ -190,18 +190,22 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
             <Box sx={{ display: "flex", flexDirection: "column", gap: 2 }}>
             {busynessItems.map((row, rowIndex) => {
                 const oridinalDays = row.busyness;
-                const firstDayDate = new Date(oridinalDays[0].date);
+                const firstDayDate = new Date(oridinalDays[0].date + "T12:00:00");
                 const currentMonth = firstDayDate.getMonth() + 1;
 
                 const daysBeforeMonday = firstDayDate.getDay() === 0 ? 6 : firstDayDate.getDay() - 1;
-                const emptyDays = [];
-                for (let i = 0; i < daysBeforeMonday; i++) {
-                    firstDayDate.setDate(firstDayDate.getDate() - 1);
-                    emptyDays.unshift({
-                        date: firstDayDate.toISOString().split('T')[0],
-                        busyness: 'free',
-                        bookng: null,
-                    } as BusynessItem);
+                const emptyDays: BusynessItem[] = [];
+                for (let i = daysBeforeMonday; i > 0; i--) {
+                    const pad = new Date(firstDayDate);
+                    pad.setDate(firstDayDate.getDate() - i);
+                    const y = pad.getFullYear();
+                    const m = String(pad.getMonth() + 1).padStart(2, "0");
+                    const d = String(pad.getDate()).padStart(2, "0");
+                    emptyDays.push({
+                        date: `${y}-${m}-${d}`,
+                        busyness: "free",
+                        booking: null,
+                    });
                 }
                 
                 const days = [...emptyDays, ...row.busyness];
@@ -267,33 +271,33 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                 position: "relative",
                                             }}
                                         >
-                                            {/* Блоки бронирований (подсветка, как на примере) */}
+                                            {/* Блоки бронирований: доли дня, без пересечения в CSS Grid */}
                                             <Box
                                                 sx={{
                                                     position: "absolute",
                                                     inset: 0,
-                                                    display: "grid",
-                                                    gridTemplateColumns: `40px repeat(6, minmax(0, 1fr))`,
-                                                    columnGap: 0.5,
-                                                    alignItems: "stretch",
                                                     pointerEvents: "none",
                                                     zIndex: 3,
+                                                    overflow: "hidden",
                                                 }}
                                             >
                                                 {weekSegments.map((segment, segIndex) => {
-                                                    const spanDays = segment.endIndex - segment.startIndex + 1;
-                                                    const halfCellPercent = spanDays > 0 ? 50 / spanDays : 0;
+                                                    const leftUnits =
+                                                        segment.startIndex + (segment.startHalf ? 0.5 : 0);
+                                                    const rightUnits =
+                                                        segment.endIndex + 1 - (segment.endHalf ? 0.5 : 0);
+                                                    const leftPct = (leftUnits / 7) * 100;
+                                                    const widthPct = Math.max(0, rightUnits - leftUnits) / 7 * 100;
                                                     return (
                                                     <Box
                                                         key={segIndex}
                                                         onClick={() => handleBookingClick(segment.booking)}
                                                         sx={{
-                                                            gridColumn: `${segment.startIndex + 1} / ${segment.endIndex + 2}`,
-                                                            alignSelf: "stretch",
-                                                            // Размещаем блок заметно ниже даты
-                                                            mt: "46px",
-                                                            ml: segment.startHalf ? `${halfCellPercent}%` : 0,
-                                                            mr: segment.endHalf ? `${halfCellPercent}%` : 0,
+                                                            position: "absolute",
+                                                            left: `${leftPct}%`,
+                                                            width: `${widthPct}%`,
+                                                            top: "46px",
+                                                            height: "38px",
                                                             borderRadius: segment.isStart && segment.isEnd
                                                                 ? 10
                                                                 : segment.isStart
@@ -303,20 +307,19 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                                         : 0,
                                                             bgcolor: segmentColors[segment.type],
                                                             opacity: 0.95,
-                                                            minHeight: 20,
                                                             display: "flex",
                                                             alignItems: "center",
                                                             justifyContent: "center",
                                                             px: 0.5,
-                                                            height: '38px',
                                                             minWidth: 0,
+                                                            boxSizing: "border-box",
                                                             pointerEvents: segment.booking ? "auto" : "none",
-                                                            cursor: segment.booking ? 'pointer' : 'default',
-                                                            '&:hover': segment.booking ? {
+                                                            cursor: segment.booking ? "pointer" : "default",
+                                                            "&:hover": segment.booking ? {
                                                                 opacity: 1,
-                                                                transform: 'scale(1.02)',
-                                                                transition: 'all 0.2s ease-in-out'
-                                                            } : {}
+                                                                transform: "scale(1.02)",
+                                                                transition: "all 0.2s ease-in-out",
+                                                            } : {},
                                                         }}
                                                     >
                                                         {segment.booking && (
@@ -346,7 +349,7 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                 sx={{
                                                     position: "relative",
                                                     display: "grid",
-                                                    gridTemplateColumns: `40px repeat(6, minmax(0, 1fr))`,
+                                                    gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
                                                     columnGap: 0,
                                                     zIndex: 2,
                                                 }}
@@ -375,7 +378,7 @@ export default function BusynessCalendarMobile(props: { busynessItems: BusynessR
                                                             {getWeekdayShort(day.date, t)}
                                                         </Box>
                                                         <Box>
-                                                            {getDoubleNumber(new Date(day.date).getDate())}
+                                                            {getDoubleNumber(new Date(day.date + "T12:00:00").getDate())}
                                                         </Box>
                                                     </Box>
                                                 ))}

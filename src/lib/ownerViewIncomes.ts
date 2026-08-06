@@ -1,8 +1,5 @@
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
-import {
-    HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID,
-    isHolyCowExpenseShareIncomeCategory,
-} from '@/lib/holyCowExpenseShareCalculation';
+import { isHolyCowExpenseShareIncomeCategory } from '@/lib/holyCowExpenseShareCalculation';
 import { joinBookingGroupSegments, buildBookingGroupLineModel } from '@/lib/bookingGroupLine';
 import { incomeInReportMonth } from '@/lib/commissionCalculation';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
@@ -84,62 +81,6 @@ function resolveBookingMeta(
 
 function bookingGroupLabel(booking: Booking): string {
     return joinBookingGroupSegments(buildBookingGroupLineModel(booking).segments);
-}
-
-export function ensureHolyCowIncomeLineInGroups(
-    incomeGroups: CommissionOwnerViewIncomeGroup[],
-    syntheticAmount: number,
-    categoryDisplayName: string,
-    monthKey: string,
-): void {
-    const hcGroup = incomeGroups.find((g) => g.kind === 'hc');
-    if (hcGroup && hcGroup.lines.length > 0) return;
-
-    const line: CommissionOwnerViewIncomeLine = {
-        key: `synthetic-hc-${monthKey}`,
-        description: categoryDisplayName,
-        quantity: 1,
-        unitPrice: syntheticAmount,
-        lineTotal: syntheticAmount,
-    };
-
-    if (hcGroup) {
-        hcGroup.lines.push(line);
-        return;
-    }
-
-    const newGroup: CommissionOwnerViewIncomeGroup = {
-        key: 'hc',
-        kind: 'hc',
-        label: '',
-        labelI18nKey: 'accountancy.noBookingSubgroup.hc',
-        lines: [line],
-    };
-
-    const noBookingOrder: NoBookingSubgroupId[] = ['common', 'guest', 'owner', 'hc', 'other'];
-    const hcOrderIndex = noBookingOrder.indexOf('hc');
-    let insertAt = incomeGroups.length;
-    for (let i = 0; i < incomeGroups.length; i++) {
-        const kind = incomeGroups[i].kind;
-        if (kind === 'booking') continue;
-        const kindIndex = noBookingOrder.indexOf(kind);
-        if (kindIndex >= 0 && kindIndex > hcOrderIndex) {
-            insertAt = i;
-            break;
-        }
-    }
-    incomeGroups.splice(insertAt, 0, newGroup);
-}
-
-export function resolveHolyCowExpenseShareIncomeCategoryName(
-    categories: AccountancyCategory[],
-    categoryNameById: Map<string, string>,
-): string {
-    const fromMap = categoryNameById.get(HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID);
-    if (fromMap) return fromMap;
-    const byId = categories.find((c) => c._id === HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID);
-    if (byId?.name) return byId.name;
-    return 'Доля расходов Holy Cow Phuket';
 }
 
 export function buildOwnerViewIncomeGroupsForRoom(

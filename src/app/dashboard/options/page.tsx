@@ -101,6 +101,13 @@ export default function Page() {
                 >
                     {t('options.renameRoomsMenu')}
                 </Button>
+                <Button
+                    component={Link}
+                    href="/dashboard/options/migrate-metadata-ids"
+                    variant="outlined"
+                >
+                    Миграция метаданных (propertyId)
+                </Button>
             </Stack>
             <Box>
                 <Typography variant="h5" gutterBottom>{t('options.ignoreSelectedObjects')}</Typography>
