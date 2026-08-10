@@ -3825,6 +3825,12 @@ export default function Page() {
                         </Button>
                     </Link>
 
+                    <Link href="/dashboard/accountancy/employees-cashflow">
+                        <Button size="small" variant="outlined">
+                            {t('accountancy.employeesCashflow.title')}
+                        </Button>
+                    </Link>
+
                     <Link href="/dashboard/accountancy/commission">
                         <Button size="small" variant="contained">
                             {t('accountancy.commission.title')}

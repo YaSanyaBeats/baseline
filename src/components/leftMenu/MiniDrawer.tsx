@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Description, Reply } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Description, Reply, Payments } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { User } from '@/lib/types';
@@ -167,6 +167,12 @@ function DrawerMenu(props: {
             text: t('menu.accountancy'), 
             icon: <MonetizationOn fontSize="small" />, 
             link: '/dashboard/accountancy',
+            roles: ['admin', 'accountant']
+        },
+        { 
+            text: t('menu.employeesCashflow'), 
+            icon: <Payments fontSize="small" />, 
+            link: '/dashboard/accountancy/employees-cashflow',
             roles: ['admin', 'accountant']
         },
         { 

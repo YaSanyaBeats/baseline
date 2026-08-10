@@ -48,6 +48,7 @@
     "users": "Пользователи",
     "accountancy": "Бухгалтерия",
     "cashflow": "Кешфлоу",
+    "employeesCashflow": "Кешфлоу сотрудников",
     "auditLogs": "Журнал изменений",
     "internalObjects": "Внутренние объекты",
     "options": "Параметры",
@@ -381,6 +382,15 @@
     "myCashflowTitle": "Мой кешфлоу",
     "myCashflowBalance": "Текущий баланс",
     "myCashflowNoRecords": "Нет расходов и доходов",
+    "employeesCashflow": {
+      "title": "Кешфлоу сотрудников",
+      "userName": "Сотрудник",
+      "details": "Подробнее",
+      "detailsTitle": "Кешфлоу",
+      "noUsers": "Нет пользователей с кешфлоу",
+      "noCashflowLinked": "У пользователя нет привязанного центра учёта кешфлоу",
+      "noMonth": "Без месяца"
+    },
     "attachedBookingColumn": "Прикреплённая бронь",
     "attachments": "Вложения",
     "attachmentsHint": "Изображения, документы, таблицы. Макс. 5 файлов, 20 МБ каждый.",

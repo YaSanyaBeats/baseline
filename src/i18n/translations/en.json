@@ -48,6 +48,7 @@
     "users": "Users",
     "accountancy": "Accountancy",
     "cashflow": "Cashflow",
+    "employeesCashflow": "Employees cashflow",
     "auditLogs": "Audit Logs",
     "internalObjects": "Internal Objects",
     "options": "Options",
@@ -382,6 +383,15 @@
     "myCashflowTitle": "My cashflow",
     "myCashflowBalance": "Current balance",
     "myCashflowNoRecords": "No expenses and incomes",
+    "employeesCashflow": {
+      "title": "Employees cashflow",
+      "userName": "Employee",
+      "details": "Details",
+      "detailsTitle": "Cashflow",
+      "noUsers": "No users with cashflow",
+      "noCashflowLinked": "This user has no linked cashflow center",
+      "noMonth": "No month"
+    },
     "attachedBookingColumn": "Attached booking",
     "attachments": "Attachments",
     "attachmentsHint": "Images, documents, spreadsheets. Max 5 files, 20 MB each.",
