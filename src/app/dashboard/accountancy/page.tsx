@@ -1449,7 +1449,10 @@ export default function Page() {
         let cancelled = false;
         (async () => {
             try {
-                const rates = await getBookingManagementCommissionRates(bookingIdsForCommissionRates);
+                const rates = await getBookingManagementCommissionRates(
+                    bookingIdsForCommissionRates,
+                    commissionCalculationMonthKey || undefined,
+                );
                 if (cancelled) return;
                 setCommissionRatesByBookingId(
                     Object.fromEntries(rates.map((rate) => [rate.bookingId, rate])),
@@ -1462,7 +1465,7 @@ export default function Page() {
         return () => {
             cancelled = true;
         };
-    }, [hasAccess, bookingIdsForCommissionRates]);
+    }, [hasAccess, bookingIdsForCommissionRates, commissionCalculationMonthKey]);
 
     const DEFAULT_COMMISSION_SCHEME_ID: CommissionSchemeId = 2;
 
@@ -1490,8 +1493,17 @@ export default function Page() {
                 : DEFAULT_COMMISSION_SCHEME_ID;
         };
         for (const input of inputs) {
-            const percentOverride = commissionRatesByBookingId[input.booking.id]?.percent;
-            const r = calculateBookingManagementCommission(input, getSchemeForBooking(input.booking), percentOverride);
+            const frozen = commissionRatesByBookingId[input.booking.id];
+            const percentOverride = frozen?.percent;
+            const inputForCalc =
+                frozen?.nights != null && frozen.nights > 0
+                    ? { ...input, totalNights: frozen.nights }
+                    : input;
+            const r = calculateBookingManagementCommission(
+                inputForCalc,
+                getSchemeForBooking(input.booking),
+                percentOverride,
+            );
             map.set(input.booking.id, r);
         }
         return map;

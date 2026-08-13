@@ -9,7 +9,7 @@ import {
     bookingMatchesOwnerRooms,
     transactionMatchesOwnerRooms,
 } from '@/lib/ownerObjectsFilter';
-import type { AccountancyCategory, Booking, Expense, Income, Object as AppObject } from '@/lib/types';
+import type { AccountancyCategory, Booking, BookingManagementCommissionRate, Expense, Income, Object as AppObject } from '@/lib/types';
 
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
 
@@ -63,7 +63,8 @@ export async function calculateCommissionForObject(
     incomes: Income[],
     expenses: Expense[],
     categories: AccountancyCategory[],
-    bookingFetchers?: BookingFetchers
+    bookingFetchers?: BookingFetchers,
+    ratesByBookingId?: Map<number, BookingManagementCommissionRate>,
 ): Promise<ObjectCommissionResult> {
     const search = bookingFetchers?.searchBookings ?? searchBookings;
     const getByIds = bookingFetchers?.getBookingsByIds ?? getBookingsByIds;
@@ -135,9 +136,18 @@ export async function calculateCommissionForObject(
         return (scheme && scheme >= 1 && scheme <= 4 ? scheme : DEFAULT_SCHEME_ID) as CommissionSchemeId;
     };
 
-    const results = inputs.map((input) =>
-        calculateBookingCommission(input, getSchemeForBooking(input.booking))
-    );
+    const results = inputs.map((input) => {
+        const frozen = ratesByBookingId?.get(input.booking.id);
+        const totalNights =
+            frozen?.nights != null && frozen.nights > 0 ? frozen.nights : input.totalNights;
+        const scheme = getSchemeForBooking(input.booking);
+        const result = calculateBookingCommission({ ...input, totalNights }, scheme);
+        result.nights = totalNights;
+        if (frozen?.percent === 15 || frozen?.percent === 20 || frozen?.percent === 25 || frozen?.percent === 30) {
+            result.commissionPercent = frozen.percent;
+        }
+        return result;
+    });
 
     const unlinkedIncomes = incomes.filter(
         (i) =>

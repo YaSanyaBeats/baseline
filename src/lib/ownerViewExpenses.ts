@@ -95,6 +95,7 @@ export type CommissionOwnerViewExpenseGroup = {
 type BookingMeta = {
     booking: Booking;
     nights: number;
+    commissionPercent?: number;
     objectId: number;
     objectName: string;
     roomsForObject: ObjectCommissionResult['roomsForObject'];
@@ -111,7 +112,7 @@ export function isOwnerViewRoomExpenseSubgroup(subgroup: NoBookingSubgroupId): b
 function getManagementPercentForBooking(
     booking: Booking,
     roomsForObject: { id: number; commissionSchemeId?: 1 | 2 | 3 | 4 }[],
-    nights: number
+    nights: number,
 ): number {
     const room = roomsForObject.find((r) => r.id === booking.unitId);
     const scheme = room?.commissionSchemeId;
@@ -342,7 +343,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
                 const percent = getManagementPercentForBooking(
                     meta.booking,
                     meta.roomsForObject,
-                    nights
+                    nights,
                 );
                 const commissionBase = Math.max(0, lineTotal - commissionSubtransactionTotal);
                 expenseShare = commissionBase * (percent / 100);

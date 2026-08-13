@@ -447,6 +447,11 @@ export interface BookingManagementCommissionRate {
     _id?: string;
     bookingId: number;
     percent: 15 | 20 | 25 | 30;
+    /** YYYY-MM: ставка, зафиксированная при закрытии периода. Без месяца — ручная. */
+    reportMonth?: string | null;
+    /** Число ночей на момент фиксации (для скобки схемы в закрытом месяце). */
+    nights?: number;
+    source?: 'manual' | 'period_lock';
     createdAt?: Date;
     updatedAt?: Date;
     updatedBy?: string;

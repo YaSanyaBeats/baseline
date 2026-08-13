@@ -88,6 +88,7 @@ export interface CommissionPageResultForOwner {
 type BookingMeta = {
     booking: Booking;
     nights: number;
+    commissionPercent?: number;
     objectId: number;
     objectName: string;
     roomsForObject: ObjectCommissionResult['roomsForObject'];
@@ -115,6 +116,7 @@ function buildBookingMetaMap(objectReports: ObjectCommissionResult[]): Map<numbe
             map.set(booking.id, {
                 booking,
                 nights: calculation.nights,
+                commissionPercent: calculation.commissionPercent,
                 objectId: objectReport.objectId,
                 objectName: objectReport.objectName,
                 roomsForObject: objectReport.roomsForObject,

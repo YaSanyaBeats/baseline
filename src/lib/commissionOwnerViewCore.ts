@@ -12,6 +12,7 @@ import {
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
 import type {
     AccountancyCategory,
+    BookingManagementCommissionRate,
     Expense,
     Income,
     Object as AppObject,
@@ -27,12 +28,13 @@ export type ComputeCommissionOwnerViewParams = {
     incomes: Income[];
     categories: AccountancyCategory[];
     bookingFetchers?: BookingFetchers;
+    ratesByBookingId?: Map<number, BookingManagementCommissionRate>;
 };
 
 export async function computeCommissionOwnerViewPayload(
     params: ComputeCommissionOwnerViewParams
 ): Promise<CommissionOwnerViewStoredPayload | null> {
-    const { owner, monthKey, locale, objects, expenses, incomes, categories, bookingFetchers } =
+    const { owner, monthKey, locale, objects, expenses, incomes, categories, bookingFetchers, ratesByBookingId } =
         params;
 
     const ownerObjects = filterObjectsForOwner(objects, owner.objects ?? []);
@@ -49,7 +51,8 @@ export async function computeCommissionOwnerViewPayload(
                 incomes,
                 expenses,
                 categories,
-                bookingFetchers
+                bookingFetchers,
+                ratesByBookingId,
             )
         )
     );

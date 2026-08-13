@@ -4,12 +4,16 @@ import { apiClient, getApiUrl } from './api-client';
 
 export async function getBookingManagementCommissionRates(
     bookingIds: number[],
+    reportMonth?: string,
 ): Promise<BookingManagementCommissionRate[]> {
     const ids = Array.from(new Set(bookingIds.filter((id) => Number.isInteger(id) && id > 0)));
     if (ids.length === 0) return [];
 
     const response = await apiClient.get(getApiUrl('bookingManagementCommissionRates'), {
-        params: { bookingIds: ids.join(',') },
+        params: {
+            bookingIds: ids.join(','),
+            ...(reportMonth ? { reportMonth } : {}),
+        },
     });
     return response.data;
 }

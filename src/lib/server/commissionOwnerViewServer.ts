@@ -10,6 +10,7 @@ import {
     isClosedReportMonthForOwnerObjects,
 } from '@/lib/accountancyClosedMonth';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
+import { loadAllCommissionRatesForMonth } from '@/lib/server/bookingManagementCommissionRates';
 import type { AccountancyCategory, Expense, Income, User } from '@/lib/types';
 
 function mapDbUser(doc: Record<string, unknown>): User {
@@ -84,6 +85,8 @@ export async function loadCommissionOwnerViewPayloadServer(
         getBookingsByIds: (ids: number[]) => getBookingsByIdsFromDb(db, ids),
     };
 
+    const ratesByBookingId = await loadAllCommissionRatesForMonth(db, monthKey);
+
     return computeCommissionOwnerViewPayload({
         owner,
         monthKey,
@@ -93,5 +96,6 @@ export async function loadCommissionOwnerViewPayloadServer(
         incomes,
         categories,
         bookingFetchers,
+        ratesByBookingId,
     });
 }

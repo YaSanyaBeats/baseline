@@ -1,16 +1,8 @@
 import {
-    buildClosedPeriodsCache,
-    getClosedPeriodsData,
-    isLedgerPeriodClosed,
-    type ClosedPeriodsCache,
-    type ClosedPeriodsData,
-} from '@/lib/accountancyClosedMonth';
-import {
     resolveUnitNameForAccountingObject,
     type RawBedsObjectForRoom,
 } from '@/lib/roomBinding';
 import { shouldExpandToRoomTypesPerRawObject } from '@/lib/server/getObjects';
-import type { Db } from 'mongodb';
 
 export type BookingSyncDoc = {
     id?: number;
@@ -34,33 +26,39 @@ export function getBookingUnitId(booking: BookingSyncDoc): number | null {
     return Number.isFinite(n) ? n : null;
 }
 
-/** Месяцы YYYY-MM, с которыми пересекается бронь (по arrival/departure). */
-export function getBookingOverlapMonths(arrival: string | undefined, departure: string | undefined): string[] {
-    if (!arrival || !departure) return [];
-    const arr = new Date(arrival);
-    const dep = new Date(departure);
-    if (Number.isNaN(arr.getTime()) || Number.isNaN(dep.getTime())) return [];
+/**
+ * Комната/объект уже записанной брони не переезжают при синке,
+ * даже если в Beds24 бронь перенесли на другой юнит.
+ */
+export function preserveBookingRoomAssignment(
+    existing: BookingSyncDoc | undefined,
+    incoming: Record<string, unknown>,
+): Record<string, unknown> {
+    if (!existing) return incoming;
 
-    const months: string[] = [];
-    const cur = new Date(arr.getFullYear(), arr.getMonth(), 1);
-    const last = new Date(dep.getFullYear(), dep.getMonth(), 1);
-    while (cur <= last) {
-        months.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`);
-        cur.setMonth(cur.getMonth() + 1);
+    const out = { ...incoming };
+
+    if (existing.propertyId != null && Number.isFinite(Number(existing.propertyId))) {
+        out.propertyId = Number(existing.propertyId);
     }
-    return months;
-}
 
-/** Самый поздний зафиксированный отчётный месяц по каждому objectId (комнате объекта). */
-export function buildLatestClosedMonthByObjectId(data: ClosedPeriodsData): Map<number, string> {
-    const map = new Map<number, string>();
-    for (const period of data.roomPeriods) {
-        const prev = map.get(period.objectId);
-        if (!prev || period.reportMonth > prev) {
-            map.set(period.objectId, period.reportMonth);
+    const existingUnit =
+        (existing.unitId != null && Number.isFinite(Number(existing.unitId)) ? Number(existing.unitId) : null) ??
+        (existing.roomId != null && Number.isFinite(Number(existing.roomId)) ? Number(existing.roomId) : null) ??
+        (existing.roomID != null && Number.isFinite(Number(existing.roomID)) ? Number(existing.roomID) : null);
+
+    if (existingUnit == null) return out;
+
+    for (const key of ['unitId', 'roomId', 'roomID'] as const) {
+        const raw = existing[key];
+        if (raw != null && Number.isFinite(Number(raw))) {
+            out[key] = Number(raw);
+        } else {
+            delete out[key];
         }
     }
-    return map;
+
+    return out;
 }
 
 export function resolveBookingRoomContexts(
@@ -101,90 +99,4 @@ export function resolveBookingRoomContexts(
     }
 
     return contexts;
-}
-
-export function isBookingProtectedFromSync(
-    booking: BookingSyncDoc,
-    closedCache: ClosedPeriodsCache,
-    latestClosedByObjectId: Map<number, string>,
-    rawObjects: readonly RawBedsObjectForRoom[],
-): boolean {
-    const months = getBookingOverlapMonths(booking.arrival, booking.departure);
-    if (months.length === 0) return false;
-
-    for (const month of months) {
-        if (closedCache.globalMonths.has(month)) return true;
-    }
-
-    const contexts = resolveBookingRoomContexts(
-        rawObjects,
-        booking.propertyId,
-        getBookingUnitId(booking),
-    );
-    if (contexts.length === 0) return false;
-
-    for (const ctx of contexts) {
-        const latestClosed = latestClosedByObjectId.get(ctx.objectId);
-        if (latestClosed) {
-            for (const month of months) {
-                if (month <= latestClosed) return true;
-            }
-        }
-
-        for (const month of months) {
-            if (isLedgerPeriodClosed(closedCache, month, ctx.objectId, ctx.roomKey)) {
-                return true;
-            }
-        }
-    }
-
-    return false;
-}
-
-export function shouldSyncBooking(
-    existing: BookingSyncDoc | undefined,
-    incoming: BookingSyncDoc,
-    closedCache: ClosedPeriodsCache,
-    latestClosedByObjectId: Map<number, string>,
-    rawObjects: readonly RawBedsObjectForRoom[],
-): boolean {
-    if (incoming.id == null) return false;
-
-    if (!existing) {
-        return !isBookingProtectedFromSync(incoming, closedCache, latestClosedByObjectId, rawObjects);
-    }
-
-    const existingProtected = isBookingProtectedFromSync(
-        existing,
-        closedCache,
-        latestClosedByObjectId,
-        rawObjects,
-    );
-    const incomingProtected = isBookingProtectedFromSync(
-        incoming,
-        closedCache,
-        latestClosedByObjectId,
-        rawObjects,
-    );
-
-    return !existingProtected && !incomingProtected;
-}
-
-export type BookingSyncGuardContext = {
-    closedCache: ClosedPeriodsCache;
-    latestClosedByObjectId: Map<number, string>;
-    rawObjects: RawBedsObjectForRoom[];
-};
-
-export async function createBookingSyncGuardContext(db: Db): Promise<BookingSyncGuardContext> {
-    const [closedData, rawObjects] = await Promise.all([
-        getClosedPeriodsData(db),
-        db.collection('objects').find({}).toArray() as Promise<RawBedsObjectForRoom[]>,
-    ]);
-
-    return {
-        closedCache: buildClosedPeriodsCache(closedData),
-        latestClosedByObjectId: buildLatestClosedMonthByObjectId(closedData),
-        rawObjects,
-    };
 }

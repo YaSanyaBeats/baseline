@@ -10,7 +10,12 @@ import {
     getClosedPeriodsData,
     isValidReportMonthKey,
     parseRoomPeriodInputs,
+    type RoomPeriodInput,
 } from '@/lib/accountancyClosedMonth';
+import {
+    freezeBookingCommissionRatesForRooms,
+    unfreezeBookingCommissionRatesForRooms,
+} from '@/lib/server/bookingManagementCommissionRates';
 
 function requireAccountantOrAdmin(session: Awaited<ReturnType<typeof getServerSession>>) {
     if (!session || !(session as { user?: unknown }).user) {
@@ -87,6 +92,7 @@ async function applyRoomPeriodAction(
     if (action === 'close') {
         const now = new Date();
         let inserted = 0;
+        const newlyClosed: RoomPeriodInput[] = [];
         for (const room of rooms) {
             const filter = { reportMonth, objectId: room.objectId, roomKey: room.roomKey };
             const existing = await collection.findOne(filter);
@@ -100,6 +106,7 @@ async function applyRoomPeriodAction(
             };
             await collection.insertOne(doc);
             inserted++;
+            newlyClosed.push(room);
 
             await logAuditAction({
                 entity: 'other',
@@ -113,6 +120,10 @@ async function applyRoomPeriodAction(
             });
         }
 
+        if (newlyClosed.length > 0) {
+            await freezeBookingCommissionRatesForRooms(db, reportMonth, newlyClosed, userId);
+        }
+
         return NextResponse.json({
             success: true,
             message: inserted > 0 ? 'Отчётный период зафиксирован' : 'Выбранные периоды уже были зафиксированы',
@@ -122,6 +133,7 @@ async function applyRoomPeriodAction(
     }
 
     let removed = 0;
+    const reopened: RoomPeriodInput[] = [];
     for (const room of rooms) {
         const filter = { reportMonth, objectId: room.objectId, roomKey: room.roomKey };
         const existing = await collection.findOne(filter);
@@ -129,6 +141,7 @@ async function applyRoomPeriodAction(
 
         await collection.deleteOne(filter);
         removed++;
+        reopened.push(room);
 
         await logAuditAction({
             entity: 'other',
@@ -145,6 +158,8 @@ async function applyRoomPeriodAction(
     if (removed === 0) {
         return NextResponse.json({ success: false, message: 'Выбранные периоды не были зафиксированы' }, { status: 404 });
     }
+
+    await unfreezeBookingCommissionRatesForRooms(db, reportMonth, reopened);
 
     return NextResponse.json({
         success: true,
