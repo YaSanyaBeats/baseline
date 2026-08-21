@@ -12,7 +12,7 @@ import {
 } from '@/lib/accountancyDuplicateGuard';
 import { normalizeTransactionCategoryFields } from '@/lib/accountancyCategoryServerResolve';
 import { assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
-import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
+import { isForbiddenZeroUnitAmountOnEdit, normalizeStoredReportAmount } from '@/lib/accountancyUtils';
 
 function normalizeCommissionPercent(value: unknown): 15 | 20 | 25 | 30 {
     const num = Number(value);
@@ -174,6 +174,11 @@ export async function POST(request: NextRequest) {
             date: new Date(expenseData.date),
             comment: expenseData.comment || '',
             reportMonth: expenseData.reportMonth || null,
+            reportAmount: isAdminOrAccountant
+                ? (expenseData.reportAmount !== undefined
+                    ? normalizeStoredReportAmount(expenseData.reportAmount)
+                    : (existingExpense.reportAmount ?? null))
+                : (existingExpense.reportAmount ?? null),
             status: expenseData.status,
             attachments: expenseData.attachments ?? [],
             autoCreated: null,

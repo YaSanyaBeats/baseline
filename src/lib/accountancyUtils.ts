@@ -84,6 +84,43 @@ export function getIncomeSum(i: Income): number {
     return (i.quantity ?? 1) * (i.amount ?? 0);
 }
 
+/** Сумма со знаком колонки «Сумма»: расход отрицательный, доход положительный. */
+export function getSignedRecordAmount(
+    type: 'expense' | 'income',
+    record: { amount?: number; quantity?: number },
+): number {
+    const sum = (record.quantity ?? 1) * (record.amount ?? 0);
+    return type === 'expense' ? -sum : sum;
+}
+
+/** Сумма для отчёта: сохранённое значение или сумма транзакции. */
+export function getEffectiveReportAmount(
+    signedAmount: number,
+    reportAmount?: number | null,
+): number {
+    if (reportAmount != null && Number.isFinite(Number(reportAmount))) {
+        return Number(reportAmount);
+    }
+    return signedAmount;
+}
+
+export function normalizeStoredReportAmount(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') return null;
+    const n =
+        typeof value === 'number' ? value : Number(String(value).replace(/\s/g, '').replace(',', '.'));
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100) / 100;
+}
+
+/** Парсинг суммы со знаком (пробелы, запятая или точка). */
+export function parseSignedLocalizedAmount(raw: string): number | null {
+    const trimmed = raw.trim().replace(/\s/g, '').replace(',', '.');
+    if (trimmed === '' || trimmed === '+' || trimmed === '-') return null;
+    const n = Number(trimmed);
+    if (!Number.isFinite(n)) return null;
+    return Math.round(n * 100) / 100;
+}
+
 /** Комната с метаданными для правил */
 export interface RoomWithMeta {
     id: number;

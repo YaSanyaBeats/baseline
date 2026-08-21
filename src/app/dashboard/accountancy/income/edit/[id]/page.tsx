@@ -37,7 +37,7 @@ import { getAccountancyCategories } from "@/lib/accountancyCategories";
 import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from "@/lib/accountancyCategoryResolve";
-import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
+import { isForbiddenZeroUnitAmountOnEdit, getEffectiveReportAmount, getSignedRecordAmount } from '@/lib/accountancyUtils';
 
 function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -66,6 +66,7 @@ export default function Page() {
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
+    const canEditReportAmount = isAdmin || isAccountant;
 
     useEffect(() => {
         if (hasAccess) {
@@ -106,6 +107,7 @@ export default function Page() {
                             category: found.category,
                             amount: found.amount,
                             quantity: found.quantity ?? 1,
+                            reportAmount: found.reportAmount ?? null,
                             dateString: found.date
                                 ? new Date(found.date as any).toISOString().slice(0, 10)
                                 : '',
@@ -214,6 +216,13 @@ export default function Page() {
         return income.amount ?? 0;
     };
 
+    const signedAmount = getSignedRecordAmount('income', {
+        amount: getEffectiveCost(),
+        quantity: income.quantity ?? 1,
+    });
+    const reportAmountValue = getEffectiveReportAmount(signedAmount, income.reportAmount);
+    const reportAmountDelta = signedAmount - reportAmountValue;
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -285,6 +294,7 @@ export default function Page() {
             category: income.category as string,
             amount: getEffectiveCost(),
             quantity: income.quantity ?? 1,
+            reportAmount: canEditReportAmount ? (income.reportAmount ?? null) : undefined,
             date: new Date(income.dateString as string),
             status: (income.status as IncomeStatus) || 'draft',
             reportMonth: income.reportMonth || undefined,
@@ -458,7 +468,33 @@ export default function Page() {
                     </Box>
                     <Box>
                         <Typography variant="body2" color="text.secondary">
-                            {t('accountancy.amountColumn')}: {((income.quantity ?? 1) * getEffectiveCost()).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            {t('accountancy.amountColumn')}: {signedAmount.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Typography>
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="reportAmount"
+                            label={t('accountancy.reportAmountColumn')}
+                            variant="outlined"
+                            sx={{ width: '100%' }}
+                            autoComplete="off"
+                            type="number"
+                            value={reportAmountValue}
+                            onChange={(event) => {
+                                const raw = event.target.value;
+                                const num = Number(raw);
+                                setIncome((prev) => ({
+                                    ...prev,
+                                    reportAmount: raw === '' || !Number.isFinite(num) ? null : num,
+                                }));
+                            }}
+                            disabled={!canEditReportAmount || loading}
+                            inputProps={{ step: 0.01 }}
+                        />
+                    </Box>
+                    <Box>
+                        <Typography variant="body2" color="text.secondary">
+                            {t('accountancy.deltaColumn')}: {reportAmountDelta.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Typography>
                     </Box>
                     <Box>

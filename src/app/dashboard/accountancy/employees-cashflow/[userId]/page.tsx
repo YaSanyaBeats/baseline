@@ -7,24 +7,31 @@ import {
     Alert,
     Box,
     Button,
+    Checkbox,
     Paper,
     Table,
     TableBody,
     TableCell,
     TableHead,
     TableRow,
+    Tooltip,
     Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Booking, Expense, Income } from '@/lib/types';
-import { getExpenses } from '@/lib/expenses';
-import { getIncomes } from '@/lib/incomes';
+import { Booking, Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
+import { getExpenses, updateExpense } from '@/lib/expenses';
+import { getIncomes, updateIncome } from '@/lib/incomes';
 import { getCashflows } from '@/lib/cashflows';
-import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
+import {
+    getExpenseSum,
+    getIncomeSum,
+    getEffectiveReportAmount,
+    parseSignedLocalizedAmount,
+} from '@/lib/accountancyUtils';
 import { getBookingsByIds } from '@/lib/bookings';
 import { getCounterparties } from '@/lib/counterparties';
 import { getUsersWithCashflow } from '@/lib/users';
@@ -33,6 +40,10 @@ import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
+import {
+    ReportAmountDeltaBodyCells,
+    ReportAmountDeltaHeaderCells,
+} from '@/components/accountancy/ReportAmountDeltaCells';
 
 type RecordRow = {
     _id: string;
@@ -44,6 +55,10 @@ type RecordRow = {
     source?: string;
     recipient?: string;
     recipientLabel: string;
+    objectId: number;
+    roomName?: string | null;
+    status: ExpenseStatus | IncomeStatus;
+    reportAmount?: number | null;
     monthKey: string;
     monthLabel: string;
 };
@@ -87,8 +102,13 @@ export default function Page() {
     const [allCashflows, setAllCashflows] = useState<{ _id: string; name: string }[]>([]);
     const [loading, setLoading] = useState(true);
     const [noCashflow, setNoCashflow] = useState(false);
+    const [reportAmountEditingId, setReportAmountEditingId] = useState<string | null>(null);
+    const [reportAmountDraft, setReportAmountDraft] = useState('');
+    const [reportAmountUpdatingId, setReportAmountUpdatingId] = useState<string | null>(null);
+    const reportAmountEditEscapeRef = useRef(false);
 
     const hasAccess = isAdmin || isAccountant;
+    const canEditReportAmount = isAdmin || isAccountant;
 
     useEffect(() => {
         if (!hasAccess || !userId) {
@@ -211,6 +231,10 @@ export default function Page() {
                     source: e.source,
                     recipient: e.recipient,
                     recipientLabel: recipient ? labelSource(e.recipient) : '—',
+                    objectId: e.objectId,
+                    roomName: e.roomName,
+                    status: e.status,
+                    reportAmount: e.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
                 };
@@ -228,6 +252,10 @@ export default function Page() {
                     source: i.source,
                     recipient: i.recipient,
                     recipientLabel: recipient ? labelSource(i.recipient) : '—',
+                    objectId: i.objectId,
+                    roomName: i.roomName,
+                    status: i.status,
+                    reportAmount: i.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
                 };
@@ -285,11 +313,102 @@ export default function Page() {
         return parts.length > 0 ? parts.join(' · ') : `#${bookingId}`;
     };
 
+    const formatRoomLabel = (objectId: number, roomName?: string | null): string => {
+        const obj = objects.find((o) => o.id === objectId);
+        const objectLabel = (obj?.name ?? '').trim();
+        const roomLabel = (roomName ?? '').trim();
+        const parts = [objectLabel, roomLabel].filter((p) => p.length > 0);
+        return parts.length > 0 ? parts.join(' — ') : '—';
+    };
+
     const formatAmount = (value: number): string => {
         const fixed = Number(value).toFixed(2);
         const [intPart, decPart] = fixed.split('.');
         const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
         return `${value >= 0 ? '+' : ''}${withSpaces}.${decPart ?? '00'}`;
+    };
+
+    const formatReportAmountDraft = (value: number): string =>
+        value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const rowKey = (row: RecordRow) => `${row.type}-${row._id}`;
+
+    const handleReportAmountCommit = async (row: RecordRow, draft: string) => {
+        if (reportAmountEditEscapeRef.current) {
+            reportAmountEditEscapeRef.current = false;
+            return;
+        }
+        const parsed = parseSignedLocalizedAmount(draft);
+        if (parsed === null) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.invalidReportAmount'),
+                severity: 'error',
+            });
+            return;
+        }
+        const current = getEffectiveReportAmount(row.amount, row.reportAmount);
+        if (Math.abs(parsed - current) < 1e-6) {
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+            return;
+        }
+
+        setReportAmountUpdatingId(rowKey(row));
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row._id);
+                if (!expense) return;
+                const res = await updateExpense({
+                    ...expense,
+                    date: expense.date
+                        ? typeof expense.date === 'string'
+                            ? new Date(expense.date)
+                            : expense.date
+                        : new Date(),
+                    reportAmount: parsed,
+                });
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row._id ? { ...e, reportAmount: parsed } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row._id);
+                if (!income) return;
+                const res = await updateIncome({
+                    ...income,
+                    date: income.date
+                        ? typeof income.date === 'string'
+                            ? new Date(income.date)
+                            : income.date
+                        : new Date(),
+                    reportAmount: parsed,
+                });
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row._id ? { ...i, reportAmount: parsed } : i)),
+                    );
+                }
+            }
+        } catch (err) {
+            console.error(err);
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setReportAmountUpdatingId(null);
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+        }
     };
 
     if (!hasAccess) {
@@ -382,12 +501,15 @@ export default function Page() {
                                                 <TableCell sx={{ minWidth: 220 }}>
                                                     {t('accountancy.attachedBookingColumn')}
                                                 </TableCell>
+                                                <TableCell>{t('common.room')}</TableCell>
                                                 <TableCell>{t('accountancy.categoryColumn')}</TableCell>
                                                 <TableCell>{t('accountancy.source')}</TableCell>
                                                 <TableCell>{t('accountancy.recipient')}</TableCell>
-                                                <TableCell align="right">
+                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
                                                     {t('accountancy.amountColumn')}
                                                 </TableCell>
+                                                <ReportAmountDeltaHeaderCells t={t} />
+                                                <TableCell align="center">{t('accountancy.statusColumn')}</TableCell>
                                             </TableRow>
                                         </TableHead>
                                         <TableBody>
@@ -402,6 +524,15 @@ export default function Page() {
                                                         }}
                                                     >
                                                         {formatAttachedBooking(row.bookingId)}
+                                                    </TableCell>
+                                                    <TableCell
+                                                        sx={{
+                                                            whiteSpace: 'normal',
+                                                            wordBreak: 'break-word',
+                                                            maxWidth: 240,
+                                                        }}
+                                                    >
+                                                        {formatRoomLabel(row.objectId, row.roomName)}
                                                     </TableCell>
                                                     <TableCell>{row.category}</TableCell>
                                                     <TableCell
@@ -430,9 +561,65 @@ export default function Page() {
                                                                     ? 'success.main'
                                                                     : 'error.main',
                                                             fontWeight: 500,
+                                                            whiteSpace: 'nowrap',
+                                                            minWidth: 112,
                                                         }}
                                                     >
                                                         {formatAmount(row.amount)}
+                                                    </TableCell>
+                                                    <ReportAmountDeltaBodyCells
+                                                        signedAmount={row.amount}
+                                                        reportAmount={row.reportAmount}
+                                                        formatAmount={formatAmount}
+                                                        t={t}
+                                                        editable={canEditReportAmount}
+                                                        editing={reportAmountEditingId === rowKey(row)}
+                                                        draft={reportAmountDraft}
+                                                        updating={reportAmountUpdatingId === rowKey(row)}
+                                                        onStartEdit={() => {
+                                                            setReportAmountEditingId(rowKey(row));
+                                                            setReportAmountDraft(
+                                                                formatReportAmountDraft(
+                                                                    getEffectiveReportAmount(
+                                                                        row.amount,
+                                                                        row.reportAmount,
+                                                                    ),
+                                                                ),
+                                                            );
+                                                        }}
+                                                        onDraftChange={setReportAmountDraft}
+                                                        onCommit={(raw) => void handleReportAmountCommit(row, raw)}
+                                                        onEscape={() => {
+                                                            reportAmountEditEscapeRef.current = true;
+                                                            setReportAmountEditingId(null);
+                                                            setReportAmountDraft('');
+                                                        }}
+                                                    />
+                                                    <TableCell align="center" sx={{ py: 0 }}>
+                                                        <Tooltip
+                                                            title={
+                                                                row.status === 'confirmed'
+                                                                    ? t('accountancy.statusVerified')
+                                                                    : t('accountancy.statusDraft')
+                                                            }
+                                                        >
+                                                            <span>
+                                                                <Checkbox
+                                                                    checked={row.status === 'confirmed'}
+                                                                    size="small"
+                                                                    disableRipple
+                                                                    tabIndex={-1}
+                                                                    inputProps={{
+                                                                        'aria-label':
+                                                                            row.status === 'confirmed'
+                                                                                ? t('accountancy.statusVerified')
+                                                                                : t('accountancy.statusDraft'),
+                                                                        readOnly: true,
+                                                                    }}
+                                                                    sx={{ pointerEvents: 'none' }}
+                                                                />
+                                                            </span>
+                                                        </Tooltip>
                                                     </TableCell>
                                                 </TableRow>
                                             ))}

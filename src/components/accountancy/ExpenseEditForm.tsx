@@ -37,7 +37,7 @@ import { getAccountancyCategories } from '@/lib/accountancyCategories';
 import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from '@/lib/accountancyCategoryResolve';
-import { isForbiddenZeroUnitAmountOnEdit } from '@/lib/accountancyUtils';
+import { isForbiddenZeroUnitAmountOnEdit, getEffectiveReportAmount, getSignedRecordAmount } from '@/lib/accountancyUtils';
 
 function stableExpenseRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -81,6 +81,7 @@ export default function ExpenseEditForm({
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
+    const canEditReportAmount = isAdmin || isAccountant;
 
     useEffect(() => {
         if (!hasAccess || !expenseId) {
@@ -149,6 +150,7 @@ export default function ExpenseEditForm({
                     category: found.category,
                     amount: found.amount,
                     quantity: found.quantity ?? 1,
+                    reportAmount: found.reportAmount ?? null,
                     comment: found.comment,
                     status: found.status,
                     date: found.date
@@ -260,6 +262,13 @@ export default function ExpenseEditForm({
         return expense.amount ?? 0;
     };
 
+    const signedAmount = getSignedRecordAmount('expense', {
+        amount: getEffectiveCost(),
+        quantity: expense.quantity ?? 1,
+    });
+    const reportAmountValue = getEffectiveReportAmount(signedAmount, expense.reportAmount);
+    const reportAmountDelta = signedAmount - reportAmountValue;
+
     const validate = (): boolean => {
         const validationErrors: Record<string, string> = {};
 
@@ -337,6 +346,7 @@ export default function ExpenseEditForm({
             category: expense.category as string,
             amount: getEffectiveCost(),
             quantity: expense.quantity ?? 1,
+            reportAmount: canEditReportAmount ? (expense.reportAmount ?? null) : undefined,
             date: new Date(expense.date as string),
             comment: expense.comment || '',
             status: (expense.status as ExpenseStatus) || 'draft',
@@ -563,7 +573,37 @@ export default function ExpenseEditForm({
                     <Box>
                         <Typography variant="body2" color="text.secondary">
                             {t('accountancy.amountColumn')}:{' '}
-                            {((expense.quantity ?? 1) * getEffectiveCost()).toLocaleString('ru-RU', {
+                            {signedAmount.toLocaleString('ru-RU', {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                            })}
+                        </Typography>
+                    </Box>
+                    <Box>
+                        <TextField
+                            id="reportAmount"
+                            label={t('accountancy.reportAmountColumn')}
+                            variant="outlined"
+                            sx={{ width: '100%' }}
+                            autoComplete="off"
+                            type="number"
+                            value={reportAmountValue}
+                            onChange={(event) => {
+                                const raw = event.target.value;
+                                const num = Number(raw);
+                                setExpense((prev) => ({
+                                    ...prev,
+                                    reportAmount: raw === '' || !Number.isFinite(num) ? null : num,
+                                }));
+                            }}
+                            disabled={!canEditReportAmount || loading}
+                            inputProps={{ step: 0.01 }}
+                        />
+                    </Box>
+                    <Box>
+                        <Typography variant="body2" color="text.secondary">
+                            {t('accountancy.deltaColumn')}:{' '}
+                            {reportAmountDelta.toLocaleString('ru-RU', {
                                 minimumFractionDigits: 2,
                                 maximumFractionDigits: 2,
                             })}

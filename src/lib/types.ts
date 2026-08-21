@@ -379,6 +379,11 @@ export interface Expense {
     category: string;              // Название категории (денormalized / legacy)
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
+    /**
+     * Сумма для отчёта (со знаком как в колонке «Сумма»: расход отрицательный).
+     * Если не задана — считается равной сумме транзакции.
+     */
+    reportAmount?: number | null;
     date: Date;                    // Дата расхода
     comment?: string;              // Комментарий
     status: ExpenseStatus;         // Черновик / Подтверждён
@@ -416,6 +421,11 @@ export interface Income {
     date: Date;                    // Дата дохода
     amount: number;                // Стоимость за единицу
     quantity?: number;            // Количество (по умолчанию 1 для старых записей)
+    /**
+     * Сумма для отчёта (со знаком как в колонке «Сумма»: доход положительный).
+     * Если не задана — считается равной сумме транзакции.
+     */
+    reportAmount?: number | null;
     /** ID категории из accountancyCategories */
     categoryId?: string | null;
     category: string;              // Название категории (денormalized / legacy)

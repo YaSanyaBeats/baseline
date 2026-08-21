@@ -12,12 +12,14 @@ import {
     Typography,
     Alert,
     IconButton,
+    Checkbox,
+    Tooltip,
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import { useEffect, useMemo, useState } from 'react';
-import { Booking, Expense, Income } from '@/lib/types';
+import { Booking, Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
 import { getExpenses, deleteExpense } from '@/lib/expenses';
 import { getIncomes, deleteIncome } from '@/lib/incomes';
 import { getCashflows } from '@/lib/cashflows';
@@ -31,6 +33,10 @@ import { getCounterparties } from '@/lib/counterparties';
 import { getUsersWithCashflow } from '@/lib/users';
 import { formatSourceRecipientLabel } from '@/components/accountancy/SourceRecipientSelect';
 import { useObjects } from '@/providers/ObjectsProvider';
+import {
+    ReportAmountDeltaBodyCells,
+    ReportAmountDeltaHeaderCells,
+} from '@/components/accountancy/ReportAmountDeltaCells';
 
 type RecordRow = {
     _id: string;
@@ -42,6 +48,10 @@ type RecordRow = {
     bookingId?: number;
     source?: string;
     recipient?: string;
+    objectId: number;
+    roomName?: string | null;
+    status: ExpenseStatus | IncomeStatus;
+    reportAmount?: number | null;
 };
 
 export default function Page() {
@@ -157,6 +167,10 @@ export default function Page() {
             bookingId: e.bookingId,
             source: e.source,
             recipient: e.recipient,
+            objectId: e.objectId,
+            roomName: e.roomName,
+            status: e.status,
+            reportAmount: e.reportAmount ?? null,
         })),
         ...incomes.map((i) => ({
             _id: i._id!,
@@ -168,6 +182,10 @@ export default function Page() {
             bookingId: i.bookingId,
             source: i.source,
             recipient: i.recipient,
+            objectId: i.objectId,
+            roomName: i.roomName,
+            status: i.status,
+            reportAmount: i.reportAmount ?? null,
         })),
     ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -192,6 +210,14 @@ export default function Page() {
             b.departure ? formatDate(b.departure) : '',
         ].filter((p) => p.length > 0);
         return parts.length > 0 ? parts.join(' · ') : `#${bookingId}`;
+    };
+
+    const formatRoomLabel = (objectId: number, roomName?: string | null): string => {
+        const obj = objects.find((o) => o.id === objectId);
+        const objectLabel = (obj?.name ?? '').trim();
+        const roomLabel = (roomName ?? '').trim();
+        const parts = [objectLabel, roomLabel].filter((p) => p.length > 0);
+        return parts.length > 0 ? parts.join(' — ') : '—';
     };
 
     const roomFromBookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
@@ -302,10 +328,15 @@ export default function Page() {
                             <TableRow>
                                 <TableCell>{t('accountancy.dateColumn')}</TableCell>
                                 <TableCell sx={{ minWidth: 220 }}>{t('accountancy.attachedBookingColumn')}</TableCell>
+                                <TableCell>{t('common.room')}</TableCell>
                                 <TableCell>{t('accountancy.categoryColumn')}</TableCell>
                                 <TableCell>{t('accountancy.source')}</TableCell>
                                 <TableCell>{t('accountancy.recipient')}</TableCell>
-                                <TableCell align="right">{t('accountancy.amountColumn')}</TableCell>
+                                <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
+                                    {t('accountancy.amountColumn')}
+                                </TableCell>
+                                <ReportAmountDeltaHeaderCells t={t} />
+                                <TableCell align="center">{t('accountancy.statusColumn')}</TableCell>
                                 <TableCell width={100} align="right">
                                     {t('accountancy.actions')}
                                 </TableCell>
@@ -324,6 +355,15 @@ export default function Page() {
                                     >
                                         {formatAttachedBooking(row.bookingId)}
                                     </TableCell>
+                                    <TableCell
+                                        sx={{
+                                            whiteSpace: 'normal',
+                                            wordBreak: 'break-word',
+                                            maxWidth: 240,
+                                        }}
+                                    >
+                                        {formatRoomLabel(row.objectId, row.roomName)}
+                                    </TableCell>
                                     <TableCell>{row.category}</TableCell>
                                     <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                                         {labelSource(row.source)}
@@ -336,9 +376,43 @@ export default function Page() {
                                         sx={{
                                             color: row.amount >= 0 ? 'success.main' : 'error.main',
                                             fontWeight: 500,
+                                            whiteSpace: 'nowrap',
+                                            minWidth: 112,
                                         }}
                                     >
                                         {formatAmount(row.amount)}
+                                    </TableCell>
+                                    <ReportAmountDeltaBodyCells
+                                        signedAmount={row.amount}
+                                        reportAmount={row.reportAmount}
+                                        formatAmount={formatAmount}
+                                        t={t}
+                                    />
+                                    <TableCell align="center" sx={{ py: 0 }}>
+                                        <Tooltip
+                                            title={
+                                                row.status === 'confirmed'
+                                                    ? t('accountancy.statusVerified')
+                                                    : t('accountancy.statusDraft')
+                                            }
+                                        >
+                                            <span>
+                                                <Checkbox
+                                                    checked={row.status === 'confirmed'}
+                                                    size="small"
+                                                    disableRipple
+                                                    tabIndex={-1}
+                                                    inputProps={{
+                                                        'aria-label':
+                                                            row.status === 'confirmed'
+                                                                ? t('accountancy.statusVerified')
+                                                                : t('accountancy.statusDraft'),
+                                                        readOnly: true,
+                                                    }}
+                                                    sx={{ pointerEvents: 'none' }}
+                                                />
+                                            </span>
+                                        </Tooltip>
                                     </TableCell>
                                     <TableCell align="right">
                                         {row.canEdit && (
