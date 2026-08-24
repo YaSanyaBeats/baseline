@@ -181,7 +181,7 @@ function defaultAnalysisPeriod(): { from: string; to: string } {
 }
 
 function clampPeriodFrom(from: string, to: string): { from: string; to: string } {
-    let f = clampMonthToBounds(from);
+    const f = clampMonthToBounds(from);
     let t = clampMonthToBounds(to);
     if (t < f) t = f;
     if (monthsInclusive(f, t) > ANALYSIS_MAX_MONTHS) {
