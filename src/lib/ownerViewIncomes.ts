@@ -2,6 +2,7 @@ import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { isHolyCowExpenseShareIncomeCategory } from '@/lib/holyCowExpenseShareCalculation';
 import { joinBookingGroupSegments, buildBookingGroupLineModel } from '@/lib/bookingGroupLine';
 import { incomeInReportMonth } from '@/lib/commissionCalculation';
+import { getReportLineTotal, getReportUnitPrice } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
@@ -32,10 +33,6 @@ type BookingMeta = {
     objectName: string;
     roomsForObject: ObjectCommissionResult['roomsForObject'];
 };
-
-function transactionLineTotal(record: { quantity?: number; amount?: number }): number {
-    return (record.quantity ?? 1) * (record.amount ?? 0);
-}
 
 function incomeLineKey(i: Income, line: number): string {
     return i._id ?? `inc-${i.bookingId ?? 'u'}-${String(i.date)}-${i.category}-${line}`;
@@ -111,7 +108,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
         if (!incomeInReportMonth(income, monthKey)) continue;
 
         const categoryName = resolveCategoryName(income, categoryNameById);
-        const lineTotal = transactionLineTotal(income);
+        const lineTotal = getReportLineTotal(income);
         if (lineTotal === 0 && !isHolyCowExpenseShareIncomeCategory(income.categoryId, categoryName)) {
             continue;
         }
@@ -126,7 +123,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
                 key: incomeLineKey(income, lineTotal),
                 description: transactionDescription(income, categoryName),
                 quantity: income.quantity ?? 1,
-                unitPrice: income.amount ?? 0,
+                unitPrice: getReportUnitPrice(income),
                 lineTotal,
                 bookingId: income.bookingId,
                 sortDate: String(income.date),
@@ -149,7 +146,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
             key: incomeLineKey(income, lineTotal),
             description: transactionDescription(income, categoryName),
             quantity: income.quantity ?? 1,
-            unitPrice: income.amount ?? 0,
+            unitPrice: getReportUnitPrice(income),
             lineTotal,
             bookingId: null,
             sortDate: String(income.date),

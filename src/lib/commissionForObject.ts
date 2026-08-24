@@ -9,6 +9,7 @@ import {
     bookingMatchesOwnerRooms,
     transactionMatchesOwnerRooms,
 } from '@/lib/ownerObjectsFilter';
+import { getReportLineTotal } from '@/lib/accountancyUtils';
 import type { AccountancyCategory, Booking, BookingManagementCommissionRate, Expense, Income, Object as AppObject } from '@/lib/types';
 
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
@@ -23,10 +24,6 @@ function monthOverlapIsoRange(monthKey: string): { overlapFrom: string; overlapT
         overlapFrom: `${y}-${String(m).padStart(2, '0')}-01`,
         overlapTo: `${y}-${String(m).padStart(2, '0')}-${String(last).padStart(2, '0')}`,
     };
-}
-
-function lineTotal(quantity: number | undefined, amount: number | undefined): number {
-    return (quantity ?? 1) * (amount ?? 0);
 }
 
 export type BookingFetchers = {
@@ -184,11 +181,11 @@ export async function calculateCommissionForObject(
     });
 
     const commissionFromBookings = results.reduce((s, r) => s + r.commission, 0);
-    const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + lineTotal(e.quantity, e.amount), 0);
+    const unlinkedExpensesAmount = unlinkedExpenses.reduce((s, e) => s + getReportLineTotal(e), 0);
     const totalCommission = commissionFromBookings;
     const totalWithUnlinkedExpenses = totalCommission + unlinkedExpensesAmount;
 
-    const totalUnlinkedIncome = unlinkedIncomes.reduce((s, i) => s + lineTotal(i.quantity, i.amount), 0);
+    const totalUnlinkedIncome = unlinkedIncomes.reduce((s, i) => s + getReportLineTotal(i), 0);
     const totalUnlinkedExpense = unlinkedExpensesAmount;
 
     const totalLinkedIncome = results.reduce((s, r) => s + r.income, 0);

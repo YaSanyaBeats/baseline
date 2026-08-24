@@ -50,7 +50,9 @@ import {
 import {
     getExpenseSum,
     getIncomeSum,
+    getEffectiveReportAmount,
     isForbiddenZeroUnitAmountOnEdit,
+    parseSignedLocalizedAmount,
     resolveAccountancyParentTransactionRef,
 } from "@/lib/accountancyUtils";
 import {
@@ -212,6 +214,11 @@ const OP_TABLE_QTY_COL_WIDTH_PX = 58;
 const OP_TABLE_COMMENT_COL_WIDTH_PX = 240;
 /** Колонка «Делимость» (чекбокс + % комиссии для no-booking) */
 const OP_TABLE_DIVISIBILITY_COL_WIDTH_PX = 80;
+/** Колонки «Сумма для отчёта» и «Дельта» */
+const OP_TABLE_REPORT_AMOUNT_COL_WIDTH_PX = 128;
+const OP_TABLE_DELTA_COL_WIDTH_PX = 96;
+/** Число колонок таблицы операций (для group header colSpan) */
+const OP_TABLE_COL_COUNT = 13;
 /** Минимальная ширина таблицы (сумма колонок), чтобы колонки не схлопывались до нуля */
 const OP_TABLE_MIN_WIDTH_PX =
     44 +
@@ -221,6 +228,8 @@ const OP_TABLE_MIN_WIDTH_PX =
     OP_TABLE_COMMENT_COL_WIDTH_PX +
     OP_TABLE_QTY_COL_WIDTH_PX +
     80 +
+    OP_TABLE_REPORT_AMOUNT_COL_WIDTH_PX +
+    OP_TABLE_DELTA_COL_WIDTH_PX +
     OP_TABLE_DIVISIBILITY_COL_WIDTH_PX +
     OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX * 2 +
     OP_TABLE_ACTIONS_COL_WIDTH_PX;
@@ -628,6 +637,10 @@ export default function Page() {
     const [amountDraft, setAmountDraft] = useState('');
     const [amountUpdatingId, setAmountUpdatingId] = useState<string | null>(null);
     const amountEditEscapeRef = useRef(false);
+    const [reportAmountEditingId, setReportAmountEditingId] = useState<string | null>(null);
+    const [reportAmountDraft, setReportAmountDraft] = useState('');
+    const [reportAmountUpdatingId, setReportAmountUpdatingId] = useState<string | null>(null);
+    const reportAmountEditEscapeRef = useRef(false);
     const [inlinePatchUpdatingId, setInlinePatchUpdatingId] = useState<string | null>(null);
     const [commissionRatesByBookingId, setCommissionRatesByBookingId] = useState<Record<number, BookingManagementCommissionRate>>({});
     const [commissionPercentUpdatingBookingId, setCommissionPercentUpdatingBookingId] = useState<number | null>(null);
@@ -1337,6 +1350,7 @@ export default function Page() {
                     autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(e, bookingsForAutoLabels, objects),
                     includeInSynthetic: e.includeInSynthetic,
                     commissionPercent: e.commissionPercent ?? 30,
+                    reportAmount: e.reportAmount ?? null,
                     resolvedRoomKey,
                     periodLocked:
                         lm != null
@@ -1382,6 +1396,7 @@ export default function Page() {
                     autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(i, bookingsForAutoLabels, objects),
                     includeInSynthetic: i.includeInSynthetic,
                     commissionPercent: i.commissionPercent ?? 30,
+                    reportAmount: i.reportAmount ?? null,
                     resolvedRoomKey,
                     periodLocked:
                         lm != null
@@ -3430,6 +3445,90 @@ export default function Page() {
         }
     };
 
+    const handleReportAmountCommit = async (row: OperationRow, draft: string) => {
+        if (row.readOnlySynthetic || row.isPendingDraft || !row.entityId) {
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+            return;
+        }
+        if (reportAmountEditEscapeRef.current) {
+            reportAmountEditEscapeRef.current = false;
+            return;
+        }
+        const parsed = parseSignedLocalizedAmount(draft);
+        if (parsed === null) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.invalidReportAmount'),
+                severity: 'error',
+            });
+            return;
+        }
+        const current = getEffectiveReportAmount(row.amount, row.reportAmount);
+        if (Math.abs(parsed - current) < 1e-6) {
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+            return;
+        }
+        setReportAmountUpdatingId(row.id);
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row.entityId);
+                if (!expense) return;
+                const payload: Expense = {
+                    ...expense,
+                    date: expense.date
+                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                        : new Date(),
+                    reportAmount: parsed,
+                };
+                const res = await updateExpense(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row.entityId ? { ...e, reportAmount: parsed } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row.entityId);
+                if (!income) return;
+                const payload: Income = {
+                    ...income,
+                    date: income.date
+                        ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                        : new Date(),
+                    reportAmount: parsed,
+                };
+                const res = await updateIncome(payload);
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row.entityId ? { ...i, reportAmount: parsed } : i)),
+                    );
+                }
+            }
+        } catch (error) {
+            console.error('Error updating report amount:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setReportAmountUpdatingId(null);
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+        }
+    };
+
     const handleOperationDeleteClick = (row: OperationRow) => {
         if (row.readOnlySynthetic) return;
         setOperationToDelete(row);
@@ -3688,6 +3787,13 @@ export default function Page() {
             amountEditEscapeRef,
             handleOperationAmountCommit,
             amountUpdatingId,
+            reportAmountEditingId,
+            reportAmountDraft,
+            setReportAmountDraft,
+            setReportAmountEditingId,
+            reportAmountEditEscapeRef,
+            handleReportAmountCommit,
+            reportAmountUpdatingId,
             formatAmount,
             handleSourceChange,
             handleRecipientChange,
@@ -3731,6 +3837,10 @@ export default function Page() {
             amountDraft,
             handleOperationAmountCommit,
             amountUpdatingId,
+            reportAmountEditingId,
+            reportAmountDraft,
+            handleReportAmountCommit,
+            reportAmountUpdatingId,
             handleSourceChange,
             handleRecipientChange,
             counterparties,
@@ -4198,6 +4308,24 @@ export default function Page() {
                                                     </TableCell>
                                                     <TableCell sx={{ width: OP_TABLE_QTY_COL_WIDTH_PX }}>{t('accountancy.quantity')}</TableCell>
                                                     <TableCell sx={{ width: 80 }}>{t('accountancy.amountColumn')}</TableCell>
+                                                    <TableCell
+                                                        align="right"
+                                                        sx={{
+                                                            width: OP_TABLE_REPORT_AMOUNT_COL_WIDTH_PX,
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {t('accountancy.reportAmountColumn')}
+                                                    </TableCell>
+                                                    <TableCell
+                                                        align="right"
+                                                        sx={{
+                                                            width: OP_TABLE_DELTA_COL_WIDTH_PX,
+                                                            whiteSpace: 'nowrap',
+                                                        }}
+                                                    >
+                                                        {t('accountancy.deltaColumn')}
+                                                    </TableCell>
                                                     <TableCell align="center" sx={{ width: OP_TABLE_DIVISIBILITY_COL_WIDTH_PX }}>
                                                         {t('accountancy.divisibility')}
                                                     </TableCell>
@@ -4259,7 +4387,7 @@ export default function Page() {
                                                             aria-disabled={groupIsEmpty}
                                                         >
                                                             <TableCell
-                                                                colSpan={11}
+                                                                colSpan={OP_TABLE_COL_COUNT}
                                                                 sx={{
                                                                     py: 0.75,
                                                                     px: 1,

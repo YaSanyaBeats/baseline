@@ -13,6 +13,7 @@ import {
     normalizeAccountancyCategoryId,
 } from '@/lib/accountancyCategoryIds';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import { getReportLineTotal } from '@/lib/accountancyUtils';
 
 export type CommissionSchemeId = 1 | 2 | 3 | 4;
 export type ManagementCommissionPercent = 15 | 20 | 25 | 30;
@@ -220,7 +221,7 @@ function mapIncomeLineItems(incomes: Income[]): CommissionStepLineItem[] {
         id: i._id,
         date: toIsoDate(i.date as Date | string),
         category: i.category,
-        amount: (i.quantity ?? 1) * (i.amount ?? 0),
+        amount: getReportLineTotal(i),
         comment: i.comment,
     }));
 }
@@ -231,7 +232,7 @@ function mapExpenseLineItems(expenses: Expense[]): CommissionStepLineItem[] {
         id: e._id,
         date: toIsoDate(e.date as Date | string),
         category: e.category,
-        amount: (e.quantity ?? 1) * (e.amount ?? 0),
+        amount: getReportLineTotal(e),
         comment: e.comment,
     }));
 }
@@ -447,7 +448,7 @@ export function calculateBookingManagementCommission(
     const baseIncomes = input.bookingIncomes.filter((i) =>
         isManagementCommissionBaseIncomeCategoryId(i.categoryId),
     );
-    const baseIncome = baseIncomes.reduce((s, i) => s + (i.quantity ?? 1) * (i.amount ?? 0), 0);
+    const baseIncome = baseIncomes.reduce((s, i) => s + getReportLineTotal(i), 0);
     const commission = baseIncome * (percent / 100);
     const steps: CommissionStep[] = [
         {
@@ -627,14 +628,12 @@ export function prepareCommissionData(
                       recordInReportMonth(e.date, e.reportMonth, monthKey),
               );
 
-        const getExpenseSum = (e: { amount?: number; quantity?: number }) => (e.quantity ?? 1) * (e.amount ?? 0);
-        const getIncomeSum = (i: { amount?: number; quantity?: number }) => (i.quantity ?? 1) * (i.amount ?? 0);
-        const incomesInMonth = bookingIncomes.reduce((s, i) => s + getIncomeSum(i), 0);
-        const expensesInMonth = bookingExpenses.reduce((s, e) => s + getExpenseSum(e), 0);
+        const incomesInMonth = bookingIncomes.reduce((s, i) => s + getReportLineTotal(i), 0);
+        const expensesInMonth = bookingExpenses.reduce((s, e) => s + getReportLineTotal(e), 0);
 
         const expensesByCategory = bookingExpenses.reduce(
             (acc, e) => {
-                const sum = getExpenseSum(e);
+                const sum = getReportLineTotal(e);
                 const categoryId = recordCategoryId(e);
                 const existing = acc.find((x) => x.categoryId === categoryId);
                 if (existing) {

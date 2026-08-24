@@ -5,13 +5,33 @@ import { getEffectiveReportAmount } from '@/lib/accountancyUtils';
 
 type Translate = (key: string) => string;
 
-export function ReportAmountDeltaHeaderCells({ t }: { t: Translate }) {
+export function ReportAmountDeltaHeaderCells({
+    t,
+    compact = false,
+}: {
+    t: Translate;
+    compact?: boolean;
+}) {
     return (
         <>
-            <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 148 }}>
+            <TableCell
+                align="right"
+                sx={{
+                    whiteSpace: 'nowrap',
+                    minWidth: compact ? 128 : 148,
+                    width: compact ? 128 : undefined,
+                }}
+            >
                 {t('accountancy.reportAmountColumn')}
             </TableCell>
-            <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
+            <TableCell
+                align="right"
+                sx={{
+                    whiteSpace: 'nowrap',
+                    minWidth: compact ? 96 : 112,
+                    width: compact ? 96 : undefined,
+                }}
+            >
                 {t('accountancy.deltaColumn')}
             </TableCell>
         </>
@@ -31,6 +51,7 @@ type ReportAmountDeltaBodyCellsProps = {
     onDraftChange?: (value: string) => void;
     onCommit?: (raw: string) => void;
     onEscape?: () => void;
+    compact?: boolean;
 };
 
 export function ReportAmountDeltaBodyCells({
@@ -46,6 +67,7 @@ export function ReportAmountDeltaBodyCells({
     onDraftChange,
     onCommit,
     onEscape,
+    compact = false,
 }: ReportAmountDeltaBodyCellsProps) {
     const reportValue = getEffectiveReportAmount(signedAmount, reportAmount);
     const delta = signedAmount - reportValue;
@@ -58,8 +80,10 @@ export function ReportAmountDeltaBodyCells({
                     color: reportValue >= 0 ? 'success.main' : 'error.main',
                     fontWeight: 500,
                     whiteSpace: 'nowrap',
-                    minWidth: 148,
-                    py: editing ? 0.5 : undefined,
+                    minWidth: compact ? 128 : 148,
+                    width: compact ? 128 : undefined,
+                    py: editing ? (compact ? 0.25 : 0.5) : undefined,
+                    fontSize: compact ? '0.6875rem' : undefined,
                 }}
             >
                 {editable && editing ? (
@@ -86,10 +110,10 @@ export function ReportAmountDeltaBodyCells({
                             },
                         }}
                         sx={{
-                            width: 110,
+                            width: compact ? 100 : 110,
                             '& .MuiInputBase-input': {
-                                fontSize: '0.8125rem',
-                                py: '4px',
+                                fontSize: compact ? '0.6875rem' : '0.8125rem',
+                                py: compact ? '3px' : '4px',
                                 textAlign: 'right',
                             },
                         }}
@@ -121,7 +145,9 @@ export function ReportAmountDeltaBodyCells({
                     color: delta === 0 ? 'text.secondary' : delta >= 0 ? 'success.main' : 'error.main',
                     fontWeight: 500,
                     whiteSpace: 'nowrap',
-                    minWidth: 112,
+                    minWidth: compact ? 96 : 112,
+                    width: compact ? 96 : undefined,
+                    fontSize: compact ? '0.6875rem' : undefined,
                 }}
             >
                 {formatAmount(delta)}

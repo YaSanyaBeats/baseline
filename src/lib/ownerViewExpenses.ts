@@ -19,6 +19,7 @@ import {
     type NoBookingSubgroupId,
 } from '@/lib/noBookingCategorySubgroups';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import { getReportLineTotal, getReportUnitPrice } from '@/lib/accountancyUtils';
 import {
     isCoAgentCommissionCategoryId,
     isOtaCommissionCategoryId,
@@ -100,10 +101,6 @@ type BookingMeta = {
     objectName: string;
     roomsForObject: ObjectCommissionResult['roomsForObject'];
 };
-
-function transactionLineTotal(record: { quantity?: number; amount?: number }): number {
-    return (record.quantity ?? 1) * (record.amount ?? 0);
-}
 
 export function isOwnerViewRoomExpenseSubgroup(subgroup: NoBookingSubgroupId): boolean {
     return subgroup === 'common' || subgroup === 'guest' || subgroup === 'owner';
@@ -268,7 +265,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
             continue;
         }
 
-        addSubtransactionTotal(childExpenseTotalsByParentId, parentId, transactionLineTotal(child));
+        addSubtransactionTotal(childExpenseTotalsByParentId, parentId, getReportLineTotal(child));
     }
 
     for (const child of allIncomes) {
@@ -292,7 +289,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
         addSubtransactionTotal(
             childIncomeSubtransactionTotalsByParentId,
             parentId,
-            transactionLineTotal(child)
+            getReportLineTotal(child)
         );
     }
 
@@ -305,7 +302,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (isExcludedExpenseCategory(categoryName, expense.categoryId)) continue;
 
-        const lineTotal = transactionLineTotal(expense);
+        const lineTotal = getReportLineTotal(expense);
         if (lineTotal === 0) continue;
 
         const isChildExpense = normalizeMongoId(expense.parentExpenseId) !== '';
@@ -353,7 +350,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
                 key: expenseLineKey(expense, lineTotal),
                 description: transactionDescription(expense, categoryName),
                 quantity: expense.quantity ?? 1,
-                unitPrice: expense.amount ?? 0,
+                unitPrice: getReportUnitPrice(expense),
                 lineTotal,
                 childExpenseTotal,
                 childIncomeSubtransactionTotal,
@@ -391,7 +388,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
             key: expenseLineKey(expense, lineTotal),
             description: transactionDescription(expense, categoryName),
             quantity: expense.quantity ?? 1,
-            unitPrice: expense.amount ?? 0,
+            unitPrice: getReportUnitPrice(expense),
             lineTotal,
             expenseShare: hasCommissionDeduction
                 ? Math.max(0, lineTotal - commissionSubtransactionTotal) *

@@ -5,6 +5,7 @@ import {
     type CommissionOwnerViewIncomeGroup,
 } from '@/lib/ownerViewIncomes';
 import { incomeInReportMonth } from '@/lib/commissionCalculation';
+import { getReportLineTotal } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
@@ -165,11 +166,11 @@ function sectionTitle(objectName: string, roomName: string, multiObject: boolean
 }
 
 function incomeLineTotal(i: Income): number {
-    return (i.quantity ?? 1) * (i.amount ?? 0);
+    return getReportLineTotal(i);
 }
 
 function expenseLineTotal(e: Expense): number {
-    return (e.quantity ?? 1) * (e.amount ?? 0);
+    return getReportLineTotal(e);
 }
 
 function resolveBookingMetaForRecord(
@@ -495,7 +496,7 @@ export function collectOwnerViewExtraBookingIds(
         if (!incomeInReportMonth(expense, monthKey)) continue;
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (isExcludedOwnerViewExpenseCategory(categoryName, expense.categoryId)) continue;
-        const line = (expense.quantity ?? 1) * (expense.amount ?? 0);
+        const line = getReportLineTotal(expense);
         if (line === 0) continue;
         if (!existing.has(expense.bookingId)) needed.add(expense.bookingId);
     }

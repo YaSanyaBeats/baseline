@@ -93,6 +93,32 @@ export function getSignedRecordAmount(
     return type === 'expense' ? -sum : sum;
 }
 
+type ReportAmountRecord = {
+    amount?: number;
+    quantity?: number;
+    reportAmount?: number | null;
+};
+
+/**
+ * Сумма строки для отчётов: |сумма для отчёта|, если задана, иначе количество × цена.
+ */
+export function getReportLineTotal(record: ReportAmountRecord): number {
+    if (record.reportAmount != null && Number.isFinite(Number(record.reportAmount))) {
+        return Math.abs(Number(record.reportAmount));
+    }
+    return (record.quantity ?? 1) * (record.amount ?? 0);
+}
+
+/** Цена за единицу в отчёте, согласованная с {@link getReportLineTotal}. */
+export function getReportUnitPrice(record: ReportAmountRecord): number {
+    const qty = record.quantity ?? 1;
+    if (record.reportAmount != null && Number.isFinite(Number(record.reportAmount))) {
+        const line = Math.abs(Number(record.reportAmount));
+        return qty === 0 ? line : line / qty;
+    }
+    return record.amount ?? 0;
+}
+
 /** Сумма для отчёта: сохранённое значение или сумма транзакции. */
 export function getEffectiveReportAmount(
     signedAmount: number,

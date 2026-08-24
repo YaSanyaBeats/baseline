@@ -21,6 +21,10 @@ import {
     Tab,
     ToggleButton,
     ToggleButtonGroup,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
 } from '@mui/material';
 import ShowChartIcon from '@mui/icons-material/ShowChart';
 import BarChartIcon from '@mui/icons-material/BarChart';
@@ -28,7 +32,7 @@ import StackedBarChartIcon from '@mui/icons-material/StackedBarChart';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { ownerBalanceSignedLineAmount } from '@/lib/ownerViewSettlements';
-import { ownerBalanceCategoryKind } from '@/lib/ownerBalanceCategories';
+import { isOwnerBalanceCategory, ownerBalanceCategoryKind } from '@/lib/ownerBalanceCategories';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import { isExcludedFromAccountancyRoomStatsSum } from '@/lib/noBookingCategorySubgroups';
@@ -67,10 +71,21 @@ interface OwnerBalanceDialogProps {
     t: (key: string) => string;
 }
 
+const EMPTY_CATEGORY_NAMES = new Map<string, string>();
+const ANALYSIS_MIN_MONTH = '2025-12';
+const ANALYSIS_MAX_MONTHS = 18;
+
 function formatAmount(value: number): string {
     return value.toLocaleString('ru-RU', {
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
+    });
+}
+
+function formatAxisAmount(value: number | null): string {
+    if (value == null) return '';
+    return value.toLocaleString('ru-RU', {
+        maximumFractionDigits: 0,
     });
 }
 
@@ -102,6 +117,104 @@ function ledgerMonthFromRecord(
 function formatMonthLabel(monthKey: string): string {
     const [y, m] = monthKey.split('-');
     return `${m}.${y}`;
+}
+
+function parseMonthKey(key: string): { year: number; month: number } {
+    const [yearStr, monthStr] = key.split('-');
+    return { year: Number(yearStr), month: Number(monthStr) };
+}
+
+function formatMonthKey(year: number, month: number): string {
+    return `${year}-${String(month).padStart(2, '0')}`;
+}
+
+function currentMonthKey(): string {
+    const d = new Date();
+    return formatMonthKey(d.getFullYear(), d.getMonth() + 1);
+}
+
+function addMonthsToKey(key: string, delta: number): string {
+    const { year, month } = parseMonthKey(key);
+    const idx = year * 12 + (month - 1) + delta;
+    const y = Math.floor(idx / 12);
+    const m = (idx % 12) + 1;
+    return formatMonthKey(y, m);
+}
+
+function monthsInclusive(from: string, to: string): number {
+    const a = parseMonthKey(from);
+    const b = parseMonthKey(to);
+    return (b.year - a.year) * 12 + (b.month - a.month) + 1;
+}
+
+function monthKeysInRange(from: string, to: string): string[] {
+    if (!from || !to || from > to) return [];
+    const keys: string[] = [];
+    let key = from;
+    while (key <= to) {
+        keys.push(key);
+        key = addMonthsToKey(key, 1);
+    }
+    return keys;
+}
+
+function maxAnalysisMonth(): string {
+    const now = currentMonthKey();
+    return now < ANALYSIS_MIN_MONTH ? ANALYSIS_MIN_MONTH : now;
+}
+
+function clampMonthToBounds(key: string): string {
+    const maxTo = maxAnalysisMonth();
+    if (key < ANALYSIS_MIN_MONTH) return ANALYSIS_MIN_MONTH;
+    if (key > maxTo) return maxTo;
+    return key;
+}
+
+function defaultAnalysisPeriod(): { from: string; to: string } {
+    const to = maxAnalysisMonth();
+    let from = ANALYSIS_MIN_MONTH;
+    if (monthsInclusive(from, to) > ANALYSIS_MAX_MONTHS) {
+        from = addMonthsToKey(to, -(ANALYSIS_MAX_MONTHS - 1));
+        if (from < ANALYSIS_MIN_MONTH) from = ANALYSIS_MIN_MONTH;
+    }
+    return { from, to };
+}
+
+function clampPeriodFrom(from: string, to: string): { from: string; to: string } {
+    let f = clampMonthToBounds(from);
+    let t = clampMonthToBounds(to);
+    if (t < f) t = f;
+    if (monthsInclusive(f, t) > ANALYSIS_MAX_MONTHS) {
+        t = addMonthsToKey(f, ANALYSIS_MAX_MONTHS - 1);
+        t = clampMonthToBounds(t);
+    }
+    return { from: f, to: t };
+}
+
+function clampPeriodTo(from: string, to: string): { from: string; to: string } {
+    let f = clampMonthToBounds(from);
+    let t = clampMonthToBounds(to);
+    if (t < f) f = t;
+    if (monthsInclusive(f, t) > ANALYSIS_MAX_MONTHS) {
+        f = addMonthsToKey(t, -(ANALYSIS_MAX_MONTHS - 1));
+        if (f < ANALYSIS_MIN_MONTH) {
+            f = ANALYSIS_MIN_MONTH;
+            t = addMonthsToKey(f, ANALYSIS_MAX_MONTHS - 1);
+            t = clampMonthToBounds(t);
+        }
+    }
+    return { from: f, to: t };
+}
+
+function monthInPeriod(month: string | null, from: string, to: string): boolean {
+    return month != null && month >= from && month <= to;
+}
+
+function isOwnerSettlementRecord(record: {
+    categoryId?: string | null;
+    category?: string | null;
+}): boolean {
+    return isOwnerBalanceCategory(record, EMPTY_CATEGORY_NAMES);
 }
 
 function signedLineAmount(row: OwnerBalanceLedgerRow): number {
@@ -149,34 +262,12 @@ function recordMatchesRoom(
     return record.objectId === obj.id || record.objectId === obj.propertyId;
 }
 
-function expandMonthKeys(monthKeys: string[]): string[] {
-    if (monthKeys.length === 0) return [];
-    const sorted = [...monthKeys].sort();
-    const first = sorted[0];
-    const last = sorted[sorted.length - 1];
-    const [firstYearStr, firstMonthStr] = first.split('-');
-    const [lastYearStr, lastMonthStr] = last.split('-');
-    const firstYear = Number(firstYearStr);
-    const firstMonth = Number(firstMonthStr);
-    const lastYear = Number(lastYearStr);
-    const lastMonth = Number(lastMonthStr);
-
-    const keys: string[] = [];
-    let y = firstYear;
-    let m = firstMonth;
-    while (y < lastYear || (y === lastYear && m <= lastMonth)) {
-        keys.push(`${y}-${String(m).padStart(2, '0')}`);
-        m += 1;
-        if (m > 12) {
-            m = 1;
-            y += 1;
-        }
-    }
-    return keys;
-}
-
 function amountFormatter(v: number | null): string {
     return v == null ? '' : formatAmount(v);
+}
+
+function round2(v: number): number {
+    return Number(v.toFixed(2));
 }
 
 function RoomMetricChart({
@@ -193,6 +284,34 @@ function RoomMetricChart({
     emptyLabel: string;
 }) {
     const hasData = labels.length > 0 && series.some((s) => s.data.some((v) => v !== 0));
+    const rotateTicks = labels.length > 6;
+    const xAxis = [
+        {
+            data: labels,
+            scaleType: (viewMode === 'columns' ? 'band' : 'point') as 'band' | 'point',
+            tickLabelMinGap: 0,
+            height: 'auto' as const,
+            tickLabelStyle: {
+                fontSize: 12,
+                angle: rotateTicks ? -45 : 0,
+                textAnchor: rotateTicks ? ('end' as const) : ('middle' as const),
+            },
+        },
+    ];
+    const yAxis = [
+        {
+            width: 'auto' as const,
+            valueFormatter: formatAxisAmount,
+            tickLabelStyle: { fontSize: 12 },
+        },
+    ];
+    const mappedSeries = series.map((s) => ({
+        id: s.id,
+        label: s.label,
+        data: s.data,
+        color: s.color,
+        valueFormatter: amountFormatter,
+    }));
 
     return (
         <Box>
@@ -204,51 +323,37 @@ function RoomMetricChart({
                     <Typography color="text.secondary">{emptyLabel}</Typography>
                 </Paper>
             ) : (
-                <Box sx={{ width: '100%', overflow: 'auto' }}>
+                <Box sx={{ width: '100%', overflow: 'visible' }}>
                     {viewMode === 'line' ? (
                         <LineChart
-                            xAxis={[{ data: labels, scaleType: 'point' }]}
-                            series={series.map((s) => ({
-                                id: s.id,
-                                label: s.label,
-                                data: s.data,
-                                color: s.color,
-                                valueFormatter: amountFormatter,
-                                showMark: true,
-                            }))}
-                            height={260}
-                            margin={{ left: 80, right: 30, top: 30, bottom: 50 }}
+                            xAxis={xAxis}
+                            yAxis={yAxis}
+                            series={mappedSeries.map((s) => ({ ...s, showMark: true }))}
+                            height={280}
+                            margin={{ left: 8, right: 24, top: 24, bottom: 8 }}
                             grid={{ horizontal: true }}
                         />
                     ) : viewMode === 'histogram' ? (
                         <LineChart
-                            xAxis={[{ data: labels, scaleType: 'point' }]}
-                            series={series.map((s) => ({
-                                id: s.id,
-                                label: s.label,
-                                data: s.data,
-                                color: s.color,
-                                valueFormatter: amountFormatter,
+                            xAxis={xAxis}
+                            yAxis={yAxis}
+                            series={mappedSeries.map((s) => ({
+                                ...s,
                                 area: true,
                                 showMark: false,
                                 curve: 'step',
                             }))}
-                            height={260}
-                            margin={{ left: 80, right: 30, top: 30, bottom: 50 }}
+                            height={280}
+                            margin={{ left: 8, right: 24, top: 24, bottom: 8 }}
                             grid={{ horizontal: true }}
                         />
                     ) : (
                         <BarChart
-                            xAxis={[{ data: labels, scaleType: 'band' }]}
-                            series={series.map((s) => ({
-                                id: s.id,
-                                label: s.label,
-                                data: s.data,
-                                color: s.color,
-                                valueFormatter: amountFormatter,
-                            }))}
-                            height={260}
-                            margin={{ left: 80, right: 30, top: 30, bottom: 50 }}
+                            xAxis={xAxis}
+                            yAxis={yAxis}
+                            series={mappedSeries}
+                            height={280}
+                            margin={{ left: 8, right: 24, top: 24, bottom: 8 }}
                             grid={{ horizontal: true }}
                         />
                     )}
@@ -268,14 +373,22 @@ export default function OwnerBalanceDialog({
     objects,
     t,
 }: OwnerBalanceDialogProps) {
+    const defaultPeriod = defaultAnalysisPeriod();
     const [selectedRoomKey, setSelectedRoomKey] = useState('');
     const [chartViewMode, setChartViewMode] = useState<ChartViewMode>('columns');
+    const [periodFrom, setPeriodFrom] = useState(defaultPeriod.from);
+    const [periodTo, setPeriodTo] = useState(defaultPeriod.to);
 
     const sortedTx = useMemo(() => {
         return [...transactions].sort(
             (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
         );
     }, [transactions]);
+
+    const selectableMonths = useMemo(
+        () => monthKeysInRange(ANALYSIS_MIN_MONTH, maxAnalysisMonth()),
+        []
+    );
 
     const roomTabs = useMemo((): OwnerRoomTab[] => {
         const map = new Map<string, OwnerRoomTab>();
@@ -311,9 +424,11 @@ export default function OwnerBalanceDialog({
             upsert(tx.objectId, (tx.roomName ?? '').trim() || '—');
         }
         for (const i of incomes) {
+            if (isOwnerSettlementRecord(i)) continue;
             upsert(i.objectId, (i.roomName ?? '').trim() || '—');
         }
         for (const e of expenses) {
+            if (isOwnerSettlementRecord(e)) continue;
             upsert(e.objectId, (e.roomName ?? '').trim() || '—');
         }
 
@@ -323,6 +438,13 @@ export default function OwnerBalanceDialog({
             return a.roomName.localeCompare(b.roomName, 'ru');
         });
     }, [owner, objects, sortedTx, incomes, expenses]);
+
+    useEffect(() => {
+        if (!open) return;
+        const period = defaultAnalysisPeriod();
+        setPeriodFrom(period.from);
+        setPeriodTo(period.to);
+    }, [open, owner?._id]);
 
     useEffect(() => {
         if (!open) return;
@@ -337,16 +459,22 @@ export default function OwnerBalanceDialog({
         [roomTabs, selectedRoomKey]
     );
 
+    const periodTx = useMemo(() => {
+        return sortedTx.filter((tx) =>
+            monthInPeriod(ledgerMonthFromRecord(tx.date, tx.reportMonth), periodFrom, periodTo)
+        );
+    }, [sortedTx, periodFrom, periodTo]);
+
     const roomChartData = useMemo(() => {
-        if (!selectedRoom) {
-            return {
-                labels: [] as string[],
-                revenue: [] as number[],
-                expenses: [] as number[],
-                accrued: [] as number[],
-                debited: [] as number[],
-            };
-        }
+        const keys = monthKeysInRange(periodFrom, periodTo);
+        const empty = {
+            labels: keys.map(formatMonthLabel),
+            revenue: keys.map(() => 0),
+            expenses: keys.map(() => 0),
+            accrued: keys.map(() => 0),
+            debited: keys.map(() => 0),
+        };
+        if (!selectedRoom || keys.length === 0) return empty;
 
         const revenueByMonth = new Map<string, number>();
         const expensesByMonth = new Map<string, number>();
@@ -355,21 +483,23 @@ export default function OwnerBalanceDialog({
 
         for (const i of incomes) {
             if (!recordMatchesRoom(i, selectedRoom, objects)) continue;
+            if (isOwnerSettlementRecord(i)) continue;
             const month = ledgerMonthFromRecord(i.date, i.reportMonth);
-            if (!month) continue;
+            if (!monthInPeriod(month, periodFrom, periodTo) || month == null) continue;
             if (isExcludedFromAccountancyRoomStatsSum(i.categoryId, month)) continue;
             revenueByMonth.set(month, (revenueByMonth.get(month) ?? 0) + getIncomeSum(i));
         }
 
         for (const e of expenses) {
             if (!recordMatchesRoom(e, selectedRoom, objects)) continue;
+            if (isOwnerSettlementRecord(e)) continue;
             const month = ledgerMonthFromRecord(e.date, e.reportMonth);
-            if (!month) continue;
+            if (!monthInPeriod(month, periodFrom, periodTo) || month == null) continue;
             if (isExcludedFromAccountancyRoomStatsSum(e.categoryId, month)) continue;
             expensesByMonth.set(month, (expensesByMonth.get(month) ?? 0) + getExpenseSum(e));
         }
 
-        for (const tx of sortedTx) {
+        for (const tx of periodTx) {
             if (!recordMatchesRoom(tx, selectedRoom, objects)) continue;
             const month = ledgerMonthFromRecord(tx.date, tx.reportMonth);
             if (!month) continue;
@@ -382,15 +512,6 @@ export default function OwnerBalanceDialog({
             }
         }
 
-        const keys = expandMonthKeys([
-            ...revenueByMonth.keys(),
-            ...expensesByMonth.keys(),
-            ...accruedByMonth.keys(),
-            ...debitedByMonth.keys(),
-        ]);
-
-        const round2 = (v: number) => Number(v.toFixed(2));
-
         return {
             labels: keys.map(formatMonthLabel),
             revenue: keys.map((k) => round2(revenueByMonth.get(k) ?? 0)),
@@ -398,11 +519,44 @@ export default function OwnerBalanceDialog({
             accrued: keys.map((k) => round2(accruedByMonth.get(k) ?? 0)),
             debited: keys.map((k) => round2(debitedByMonth.get(k) ?? 0)),
         };
-    }, [selectedRoom, incomes, expenses, sortedTx, objects]);
+    }, [selectedRoom, incomes, expenses, periodTx, objects, periodFrom, periodTo]);
+
+    const periodSummary = useMemo(() => {
+        let opening = 0;
+        let accrued = 0;
+        let paid = 0;
+        let periodSigned = 0;
+
+        for (const tx of sortedTx) {
+            const month = ledgerMonthFromRecord(tx.date, tx.reportMonth);
+            if (!month) continue;
+            const signed = signedLineAmount(tx);
+            if (month < periodFrom) {
+                opening += signed;
+                continue;
+            }
+            if (month > periodTo) continue;
+            periodSigned += signed;
+            const kind = ownerBalanceCategoryKind(tx.category);
+            const abs = Math.abs((tx.quantity ?? 1) * (tx.amount ?? 0));
+            if (kind === 'accrued' || kind === 'targetedIncomeFromOwner' || kind === 'openingPositive') {
+                accrued += abs;
+            } else if (kind === 'payout' || kind === 'debited' || kind === 'openingNegative') {
+                paid += abs;
+            }
+        }
+
+        return {
+            opening: round2(opening),
+            accrued: round2(accrued),
+            paid: round2(paid),
+            closing: round2(opening + periodSigned),
+        };
+    }, [sortedTx, periodFrom, periodTo]);
 
     const total = useMemo(() => {
-        return sortedTx.reduce((s, e) => s + signedLineAmount(e), 0);
-    }, [sortedTx]);
+        return periodTx.reduce((s, e) => s + signedLineAmount(e), 0);
+    }, [periodTx]);
 
     const groupedTx = useMemo(() => {
         type Group = {
@@ -414,7 +568,7 @@ export default function OwnerBalanceDialog({
             total: number;
         };
         const map = new Map<string, Group>();
-        for (const tx of sortedTx) {
+        for (const tx of periodTx) {
             const obj = objects.find((o) => o.id === tx.objectId || o.propertyId === tx.objectId);
             const objectName = obj?.name ?? `${tx.objectId}`;
             const roomName = (tx.roomName ?? '').trim() || '—';
@@ -439,7 +593,25 @@ export default function OwnerBalanceDialog({
             if (byObj !== 0) return byObj;
             return a.roomName.localeCompare(b.roomName, 'ru');
         });
-    }, [sortedTx, objects]);
+    }, [periodTx, objects]);
+
+    const handlePeriodFromChange = (value: string) => {
+        const next = clampPeriodFrom(value, periodTo);
+        setPeriodFrom(next.from);
+        setPeriodTo(next.to);
+    };
+
+    const handlePeriodToChange = (value: string) => {
+        const next = clampPeriodTo(periodFrom, value);
+        setPeriodFrom(next.from);
+        setPeriodTo(next.to);
+    };
+
+    const monthOptionLabel = (monthKey: string) => {
+        const monthNum = Number(monthKey.slice(5, 7));
+        const year = monthKey.slice(0, 4);
+        return `${t(`accountancy.months.${monthNum}`)} ${year}`;
+    };
 
     return (
         <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
@@ -449,6 +621,55 @@ export default function OwnerBalanceDialog({
             </DialogTitle>
             <DialogContent dividers>
                 <Stack spacing={3}>
+                    <Box>
+                        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                            {t('accountancy.cashflow.analysisPeriod')}
+                        </Typography>
+                        <Stack
+                            direction={{ xs: 'column', sm: 'row' }}
+                            spacing={2}
+                            alignItems={{ xs: 'stretch', sm: 'center' }}
+                        >
+                            <FormControl size="small" sx={{ minWidth: 180 }}>
+                                <InputLabel id="owner-balance-period-from">
+                                    {t('accountancy.cashflow.analysisPeriodFrom')}
+                                </InputLabel>
+                                <Select
+                                    labelId="owner-balance-period-from"
+                                    label={t('accountancy.cashflow.analysisPeriodFrom')}
+                                    value={periodFrom}
+                                    onChange={(e) => handlePeriodFromChange(String(e.target.value))}
+                                >
+                                    {selectableMonths.map((month) => (
+                                        <MenuItem key={`from-${month}`} value={month}>
+                                            {monthOptionLabel(month)}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <FormControl size="small" sx={{ minWidth: 180 }}>
+                                <InputLabel id="owner-balance-period-to">
+                                    {t('accountancy.cashflow.analysisPeriodTo')}
+                                </InputLabel>
+                                <Select
+                                    labelId="owner-balance-period-to"
+                                    label={t('accountancy.cashflow.analysisPeriodTo')}
+                                    value={periodTo}
+                                    onChange={(e) => handlePeriodToChange(String(e.target.value))}
+                                >
+                                    {selectableMonths.map((month) => (
+                                        <MenuItem key={`to-${month}`} value={month}>
+                                            {monthOptionLabel(month)}
+                                        </MenuItem>
+                                    ))}
+                                </Select>
+                            </FormControl>
+                            <Typography variant="body2" color="text.secondary">
+                                {t('accountancy.cashflow.analysisPeriodHint')}
+                            </Typography>
+                        </Stack>
+                    </Box>
+
                     <Box>
                         <Stack
                             direction={{ xs: 'column', sm: 'row' }}
@@ -524,6 +745,26 @@ export default function OwnerBalanceDialog({
 
                                 <Stack spacing={3}>
                                     <RoomMetricChart
+                                        title={t('accountancy.cashflow.ownerRoomProfitabilityChart')}
+                                        labels={roomChartData.labels}
+                                        series={[
+                                            {
+                                                id: 'accrued',
+                                                label: t('accountancy.cashflow.ownerRoomAccrued'),
+                                                data: roomChartData.accrued,
+                                                color: '#2e7d32',
+                                            },
+                                            {
+                                                id: 'debited',
+                                                label: t('accountancy.cashflow.ownerRoomDebited'),
+                                                data: roomChartData.debited,
+                                                color: '#d32f2f',
+                                            },
+                                        ]}
+                                        viewMode={chartViewMode}
+                                        emptyLabel={t('accountancy.cashflow.noChartData')}
+                                    />
+                                    <RoomMetricChart
                                         title={t('accountancy.cashflow.ownerRoomRevenueChart')}
                                         labels={roomChartData.labels}
                                         series={[
@@ -549,26 +790,6 @@ export default function OwnerBalanceDialog({
                                         viewMode={chartViewMode}
                                         emptyLabel={t('accountancy.cashflow.noChartData')}
                                     />
-                                    <RoomMetricChart
-                                        title={t('accountancy.cashflow.ownerRoomProfitabilityChart')}
-                                        labels={roomChartData.labels}
-                                        series={[
-                                            {
-                                                id: 'accrued',
-                                                label: t('accountancy.cashflow.ownerRoomAccrued'),
-                                                data: roomChartData.accrued,
-                                                color: '#2e7d32',
-                                            },
-                                            {
-                                                id: 'debited',
-                                                label: t('accountancy.cashflow.ownerRoomDebited'),
-                                                data: roomChartData.debited,
-                                                color: '#d32f2f',
-                                            },
-                                        ]}
-                                        viewMode={chartViewMode}
-                                        emptyLabel={t('accountancy.cashflow.noChartData')}
-                                    />
                                 </Stack>
                             </>
                         )}
@@ -576,9 +797,52 @@ export default function OwnerBalanceDialog({
 
                     <Box>
                         <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                            {t('accountancy.cashflow.transactionsList')} ({sortedTx.length})
+                            {t('accountancy.cashflow.periodSummary')}
                         </Typography>
-                        {sortedTx.length === 0 ? (
+                        <Paper variant="outlined" sx={{ overflow: 'auto' }}>
+                            <Table size="small">
+                                <TableBody>
+                                    <TableRow>
+                                        <TableCell>{t('accountancy.cashflow.openingBalance')}</TableCell>
+                                        <TableCell align="right">
+                                            <SignedAmountText value={periodSummary.opening} />
+                                        </TableCell>
+                                    </TableRow>
+                                    <TableRow>
+                                        <TableCell>{t('accountancy.cashflow.totalAccrued')}</TableCell>
+                                        <TableCell align="right">
+                                            <SignedAmountText value={periodSummary.accrued} />
+                                        </TableCell>
+                                    </TableRow>
+                                    <TableRow>
+                                        <TableCell>{t('accountancy.cashflow.totalPaid')}</TableCell>
+                                        <TableCell align="right">
+                                            <SignedAmountText value={-periodSummary.paid} />
+                                        </TableCell>
+                                    </TableRow>
+                                    <TableRow>
+                                        <TableCell>
+                                            <Typography fontWeight={600}>
+                                                {t('accountancy.cashflow.closingBalance')}
+                                            </Typography>
+                                        </TableCell>
+                                        <TableCell align="right">
+                                            <SignedAmountText
+                                                value={periodSummary.closing}
+                                                fontWeight={600}
+                                            />
+                                        </TableCell>
+                                    </TableRow>
+                                </TableBody>
+                            </Table>
+                        </Paper>
+                    </Box>
+
+                    <Box>
+                        <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                            {t('accountancy.cashflow.transactionsList')} ({periodTx.length})
+                        </Typography>
+                        {periodTx.length === 0 ? (
                             <Paper variant="outlined" sx={{ p: 3 }}>
                                 <Typography color="text.secondary">
                                     {t('accountancy.cashflow.noTransactions')}

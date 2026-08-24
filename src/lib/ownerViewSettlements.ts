@@ -1,6 +1,6 @@
 import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import { sortRowsByAccountancyCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
-import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
+import { getReportLineTotal } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import {
     OWNER_DEBITED_FROM_ACCOUNT_CATEGORY_NAME,
@@ -119,13 +119,12 @@ function settlementDescription(
 }
 
 function rowKey(record: Income | Expense, type: 'income' | 'expense'): string {
-    const line =
-        type === 'income' ? getIncomeSum(record as Income) : getExpenseSum(record as Expense);
+    const line = getReportLineTotal(record);
     return record._id ?? `${type}-${record.objectId}-${String(record.date)}-${line}`;
 }
 
-function transactionAmount(record: Income | Expense, type: 'income' | 'expense'): number {
-    return type === 'income' ? getIncomeSum(record as Income) : getExpenseSum(record as Expense);
+function transactionAmount(record: Income | Expense): number {
+    return getReportLineTotal(record);
 }
 
 export function ownerSettlementSignedAmount(category: string, amount: number): number {
@@ -209,7 +208,7 @@ export function buildOwnerViewSettlementRows(
         const canonicalCategory = resolveOwnerBalanceCanonicalCategoryName(record, categoryNameById);
         if (!canonicalCategory) return;
 
-        const amount = transactionAmount(record, type);
+        const amount = transactionAmount(record);
         if (amount === 0) return;
 
         const ledgerMonth = ledgerMonthFromRecord(record.date, record.reportMonth);

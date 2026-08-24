@@ -36,6 +36,8 @@ import SourceRecipientSelect, {
     type SourceRecipientOptionValue,
 } from './SourceRecipientSelect';
 import { useObjects } from '@/providers/ObjectsProvider';
+import { getEffectiveReportAmount } from '@/lib/accountancyUtils';
+import { ReportAmountDeltaBodyCells } from './ReportAmountDeltaCells';
 
 /** Строка операции в сводке /dashboard/accountancy (таблица без брони / с бронью). */
 export type AccountancyOverviewOperationRowModel = {
@@ -82,6 +84,11 @@ export type AccountancyOverviewOperationRowModel = {
     resolvedRoomKey?: string | null;
     /** Закрытый отчётный период — предрасчёт на странице сводки */
     periodLocked?: boolean;
+    /**
+     * Сумма для отчёта (со знаком как в колонке «Сумма»).
+     * Если не задана — считается равной сумме транзакции.
+     */
+    reportAmount?: number | null;
 };
 
 export type AccountancyOverviewOperationTableRowProps = {
@@ -121,6 +128,13 @@ export type AccountancyOverviewOperationTableRowProps = {
     amountEditEscapeRef: MutableRefObject<boolean>;
     handleOperationAmountCommit: (row: AccountancyOverviewOperationRowModel, raw: string) => void | Promise<void>;
     amountUpdatingId: string | null;
+    reportAmountEditingId: string | null;
+    reportAmountDraft: string;
+    setReportAmountDraft: (v: string) => void;
+    setReportAmountEditingId: (id: string | null) => void;
+    reportAmountEditEscapeRef: MutableRefObject<boolean>;
+    handleReportAmountCommit: (row: AccountancyOverviewOperationRowModel, raw: string) => void | Promise<void>;
+    reportAmountUpdatingId: string | null;
     formatAmount: (n: number) => string;
     handleSourceChange: (row: AccountancyOverviewOperationRowModel, v: SourceRecipientOptionValue) => void | Promise<void>;
     handleRecipientChange: (row: AccountancyOverviewOperationRowModel, v: SourceRecipientOptionValue) => void | Promise<void>;
@@ -825,6 +839,34 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 ) : null}
                 </Stack>
             </TableCell>
+            <ReportAmountDeltaBodyCells
+                signedAmount={row.amount}
+                reportAmount={row.reportAmount}
+                formatAmount={(n) => `${n >= 0 ? '+' : ''}${p.formatAmount(n)}`}
+                t={t}
+                compact
+                editable={!ro && !pending}
+                editing={p.reportAmountEditingId === row.id}
+                draft={p.reportAmountDraft}
+                updating={p.reportAmountUpdatingId === row.id || p.inlinePatchUpdatingId === row.id}
+                onStartEdit={() => {
+                    if (p.reportAmountUpdatingId === row.id || p.inlinePatchUpdatingId === row.id) return;
+                    p.setReportAmountEditingId(row.id);
+                    p.setReportAmountDraft(
+                        getEffectiveReportAmount(row.amount, row.reportAmount).toLocaleString('ru-RU', {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                        }),
+                    );
+                }}
+                onDraftChange={p.setReportAmountDraft}
+                onCommit={(raw) => void p.handleReportAmountCommit(row, raw)}
+                onEscape={() => {
+                    p.reportAmountEditEscapeRef.current = true;
+                    p.setReportAmountEditingId(null);
+                    p.setReportAmountDraft('');
+                }}
+            />
             <TableCell align="center" sx={{ px: 0.25, verticalAlign: 'middle' }}>
                 {p.showDivisibilityCheckbox || p.shouldShowCommissionPercentSelect(row) ? (
                     <Stack alignItems="center" spacing={0.35} sx={{ minWidth: 0 }}>
