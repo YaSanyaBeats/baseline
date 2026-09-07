@@ -48,7 +48,7 @@ export function recommendPrice(input: RecommendInput): Recommendation {
     const rpi = effectiveRpi(cell, t);
     const ceilF = t.ceil / 100;
 
-    let anchor =
+    const anchor =
         regime === 'LOW'
             ? cell.adrFloor + rpi * (cell.adrBase - cell.adrFloor)
             : cell.adrBase + rpi * (cell.adrCeiling * ceilF - cell.adrBase);
