@@ -1,0 +1,100 @@
+[
+  {
+    "period": "P1",
+    "dates": "25.12–15.01",
+    "occTargetPct": 95,
+    "occNormHistPct": 71,
+    "deltaPp": 24
+  },
+  {
+    "period": "P2",
+    "dates": "16–31.01",
+    "occTargetPct": 95,
+    "occNormHistPct": 62,
+    "deltaPp": 33
+  },
+  {
+    "period": "P3",
+    "dates": "февраль",
+    "occTargetPct": 90,
+    "occNormHistPct": 71,
+    "deltaPp": 19
+  },
+  {
+    "period": "P4",
+    "dates": "март",
+    "occTargetPct": 80,
+    "occNormHistPct": 50,
+    "deltaPp": 30
+  },
+  {
+    "period": "P5",
+    "dates": "апрель",
+    "occTargetPct": 70,
+    "occNormHistPct": 41,
+    "deltaPp": 29
+  },
+  {
+    "period": "P6",
+    "dates": "май",
+    "occTargetPct": 50,
+    "occNormHistPct": 30,
+    "deltaPp": 20
+  },
+  {
+    "period": "P7",
+    "dates": "июнь",
+    "occTargetPct": 40,
+    "occNormHistPct": 31,
+    "deltaPp": 9
+  },
+  {
+    "period": "P8",
+    "dates": "июль",
+    "occTargetPct": 40,
+    "occNormHistPct": 38,
+    "deltaPp": 2
+  },
+  {
+    "period": "P9",
+    "dates": "август",
+    "occTargetPct": 50,
+    "occNormHistPct": 42,
+    "deltaPp": 8
+  },
+  {
+    "period": "P10",
+    "dates": "01.09–14.10",
+    "occTargetPct": 46,
+    "occNormHistPct": 46,
+    "deltaPp": 0
+  },
+  {
+    "period": "P11",
+    "dates": "15–31.10",
+    "occTargetPct": 60,
+    "occNormHistPct": 48,
+    "deltaPp": 12
+  },
+  {
+    "period": "P12",
+    "dates": "01–19.11",
+    "occTargetPct": 70,
+    "occNormHistPct": 56,
+    "deltaPp": 14
+  },
+  {
+    "period": "P13",
+    "dates": "20.11–09.12",
+    "occTargetPct": 75,
+    "occNormHistPct": 53,
+    "deltaPp": 22
+  },
+  {
+    "period": "P14",
+    "dates": "10–24.12",
+    "occTargetPct": 85,
+    "occNormHistPct": 60,
+    "deltaPp": 25
+  }
+]

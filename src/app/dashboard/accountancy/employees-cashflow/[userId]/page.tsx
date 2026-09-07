@@ -5,6 +5,7 @@ import {
     AccordionDetails,
     AccordionSummary,
     Alert,
+    Autocomplete,
     Box,
     Button,
     Checkbox,
@@ -12,17 +13,22 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableContainer,
     TableHead,
     TableRow,
+    TextField,
     Tooltip,
     Typography,
+    Link as MuiLink,
+    Stack,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Booking, Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
+import { Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
 import { getExpenses, updateExpense } from '@/lib/expenses';
 import { getIncomes, updateIncome } from '@/lib/incomes';
 import { getCashflows } from '@/lib/cashflows';
@@ -32,7 +38,8 @@ import {
     getEffectiveReportAmount,
     parseSignedLocalizedAmount,
 } from '@/lib/accountancyUtils';
-import { getBookingsByIds } from '@/lib/bookings';
+import { accountancyBalanceMuiColor, roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
+import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
 import { getCounterparties } from '@/lib/counterparties';
 import { getUsersWithCashflow } from '@/lib/users';
 import { formatSourceRecipientLabel } from '@/components/accountancy/SourceRecipientSelect';
@@ -44,6 +51,7 @@ import {
     ReportAmountDeltaBodyCells,
     ReportAmountDeltaHeaderCells,
 } from '@/components/accountancy/ReportAmountDeltaCells';
+import { createCashflowExport, getCashflowExports, type CashflowExportFile } from '@/lib/cashflowExports';
 
 type RecordRow = {
     _id: string;
@@ -51,12 +59,13 @@ type RecordRow = {
     date: Date | string;
     category: string;
     amount: number;
-    bookingId?: number;
+    comment: string;
     source?: string;
     recipient?: string;
     recipientLabel: string;
     objectId: number;
     roomName?: string | null;
+    district: string;
     status: ExpenseStatus | IncomeStatus;
     reportAmount?: number | null;
     monthKey: string;
@@ -67,8 +76,80 @@ type MonthGroup = {
     monthKey: string;
     monthLabel: string;
     rows: RecordRow[];
-    balance: number;
+    openingBalance: number;
+    expenses: number;
+    incomes: number;
+    closingBalance: number;
 };
+
+const NO_DISTRICT_FILTER = '__none__';
+
+function monthStatsFromRows(monthRows: RecordRow[]): { expenses: number; incomes: number } {
+    let expenses = 0;
+    let incomes = 0;
+    for (const row of monthRows) {
+        if (row.type === 'expense') expenses += Math.abs(row.amount);
+        else incomes += Math.abs(row.amount);
+    }
+    return {
+        expenses: roundAccountancyAmount(expenses),
+        incomes: roundAccountancyAmount(incomes),
+    };
+}
+
+function buildMonthGroups(sourceRows: RecordRow[], noMonthLabel: string): MonthGroup[] {
+    const byMonth = new Map<string, RecordRow[]>();
+    const monthLabels = new Map<string, string>();
+
+    for (const row of sourceRows) {
+        monthLabels.set(row.monthKey, row.monthLabel);
+        const list = byMonth.get(row.monthKey) ?? [];
+        list.push(row);
+        byMonth.set(row.monthKey, list);
+    }
+
+    const datedKeys = Array.from(byMonth.keys())
+        .filter((key) => key.length > 0)
+        .sort((a, b) => a.localeCompare(b));
+
+    const datedGroups: MonthGroup[] = [];
+    let running = 0;
+    for (const monthKey of datedKeys) {
+        const monthRows = byMonth.get(monthKey) ?? [];
+        const { expenses, incomes } = monthStatsFromRows(monthRows);
+        const openingBalance = roundAccountancyAmount(running);
+        const closingBalance = roundAccountancyAmount(openingBalance - expenses + incomes);
+        running = closingBalance;
+        datedGroups.push({
+            monthKey,
+            monthLabel: monthLabels.get(monthKey) ?? formatMonthLabel(monthKey, noMonthLabel),
+            rows: monthRows,
+            openingBalance,
+            expenses,
+            incomes,
+            closingBalance,
+        });
+    }
+
+    datedGroups.sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+
+    const undatedRows = byMonth.get('') ?? [];
+    if (undatedRows.length === 0) return datedGroups;
+
+    const { expenses, incomes } = monthStatsFromRows(undatedRows);
+    return [
+        ...datedGroups,
+        {
+            monthKey: '',
+            monthLabel: monthLabels.get('') ?? noMonthLabel,
+            rows: undatedRows,
+            openingBalance: 0,
+            expenses,
+            incomes,
+            closingBalance: roundAccountancyAmount(incomes - expenses),
+        },
+    ];
+}
 
 function monthKeyFromRecord(date: Date | string, reportMonth?: string | null): string {
     const rm = (reportMonth ?? '').trim();
@@ -85,6 +166,11 @@ function formatMonthLabel(monthKey: string, fallback: string): string {
     return `${Number(m)}.${y}`;
 }
 
+function currentMonthKey(): string {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
 export default function Page() {
     const params = useParams();
     const userId = typeof params.userId === 'string' ? params.userId : '';
@@ -96,7 +182,6 @@ export default function Page() {
     const [userName, setUserName] = useState('');
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [incomes, setIncomes] = useState<Income[]>([]);
-    const [bookings, setBookings] = useState<Booking[]>([]);
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [allCashflows, setAllCashflows] = useState<{ _id: string; name: string }[]>([]);
@@ -105,10 +190,18 @@ export default function Page() {
     const [reportAmountEditingId, setReportAmountEditingId] = useState<string | null>(null);
     const [reportAmountDraft, setReportAmountDraft] = useState('');
     const [reportAmountUpdatingId, setReportAmountUpdatingId] = useState<string | null>(null);
+    const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+    const [filterDistricts, setFilterDistricts] = useState<string[]>([]);
+    const [exportFrom, setExportFrom] = useState('');
+    const [exportTo, setExportTo] = useState('');
+    const [exportRangeTouched, setExportRangeTouched] = useState(false);
+    const [exporting, setExporting] = useState(false);
+    const [exportFiles, setExportFiles] = useState<CashflowExportFile[]>([]);
     const reportAmountEditEscapeRef = useRef(false);
 
     const hasAccess = isAdmin || isAccountant;
     const canEditReportAmount = isAdmin || isAccountant;
+    const canEditStatus = isAdmin || isAccountant;
 
     useEffect(() => {
         if (!hasAccess || !userId) {
@@ -120,16 +213,18 @@ export default function Page() {
 
         (async () => {
             try {
-                const [cfList, cpList, usersCf] = await Promise.all([
+                const [cfList, cpList, usersCf, exportList] = await Promise.all([
                     getCashflows(),
                     getCounterparties(),
                     getUsersWithCashflow(),
+                    getCashflowExports(userId),
                 ]);
                 if (cancelled) return;
 
                 setAllCashflows(cfList.map((c) => ({ _id: c._id!, name: c.name })));
                 setCounterparties(cpList.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
+                setExportFiles(exportList);
 
                 const selectedUser = usersCf.find((u) => u._id === userId);
                 setUserName(selectedUser?.name ?? userId);
@@ -139,7 +234,6 @@ export default function Page() {
                     setNoCashflow(true);
                     setExpenses([]);
                     setIncomes([]);
-                    setBookings([]);
                     return;
                 }
 
@@ -153,20 +247,6 @@ export default function Page() {
 
                 setExpenses(expList);
                 setIncomes(incList);
-
-                const bookingIds = Array.from(
-                    new Set(
-                        [...expList, ...incList]
-                            .map((r) => r.bookingId)
-                            .filter((id): id is number => typeof id === 'number'),
-                    ),
-                );
-                if (bookingIds.length > 0) {
-                    const bookingList = await getBookingsByIds(bookingIds);
-                    if (!cancelled) setBookings(bookingList);
-                } else {
-                    setBookings([]);
-                }
             } catch (err) {
                 console.error(err);
                 if (!cancelled) {
@@ -187,12 +267,6 @@ export default function Page() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasAccess, userId]);
 
-    const bookingsById = useMemo(() => {
-        const m = new Map<number, Booking>();
-        bookings.forEach((b) => m.set(b.id, b));
-        return m;
-    }, [bookings]);
-
     const roomFromBookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
 
     const labelSource = (value: string | undefined) =>
@@ -210,10 +284,6 @@ export default function Page() {
             language,
         );
 
-    const balance =
-        incomes.reduce((s, i) => s + getIncomeSum(i), 0) -
-        expenses.reduce((s, e) => s + getExpenseSum(e), 0);
-
     const noMonthLabel = t('accountancy.employeesCashflow.noMonth');
 
     const rows: RecordRow[] = useMemo(() => {
@@ -227,12 +297,13 @@ export default function Page() {
                     date: e.date,
                     category: e.category,
                     amount: -getExpenseSum(e),
-                    bookingId: e.bookingId,
+                    comment: (e.comment ?? '').trim(),
                     source: e.source,
                     recipient: e.recipient,
                     recipientLabel: recipient ? labelSource(e.recipient) : '—',
                     objectId: e.objectId,
                     roomName: e.roomName,
+                    district: resolveDistrictForObjectId(objects, e.objectId) ?? '',
                     status: e.status,
                     reportAmount: e.reportAmount ?? null,
                     monthKey,
@@ -248,12 +319,13 @@ export default function Page() {
                     date: i.date,
                     category: i.category,
                     amount: getIncomeSum(i),
-                    bookingId: i.bookingId,
+                    comment: (i.comment ?? '').trim(),
                     source: i.source,
                     recipient: i.recipient,
                     recipientLabel: recipient ? labelSource(i.recipient) : '—',
                     objectId: i.objectId,
                     roomName: i.roomName,
+                    district: resolveDistrictForObjectId(objects, i.objectId) ?? '',
                     status: i.status,
                     reportAmount: i.reportAmount ?? null,
                     monthKey,
@@ -265,30 +337,51 @@ export default function Page() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [expenses, incomes, objects, counterparties, usersWithCashflow, allCashflows, language, t, noMonthLabel]);
 
-    const groupedByMonth: MonthGroup[] = useMemo(() => {
-        const byMonth = new Map<string, RecordRow[]>();
-        const monthLabels = new Map<string, string>();
-
+    const districtFilterOptions = useMemo(() => {
+        const names = new Set<string>();
+        let hasEmpty = false;
         for (const row of rows) {
-            monthLabels.set(row.monthKey, row.monthLabel);
-            const list = byMonth.get(row.monthKey) ?? [];
-            list.push(row);
-            byMonth.set(row.monthKey, list);
+            if (row.district) names.add(row.district);
+            else hasEmpty = true;
         }
+        const options = Array.from(names).sort((a, b) => a.localeCompare(b, language === 'en' ? 'en' : 'ru'));
+        if (hasEmpty) options.push(NO_DISTRICT_FILTER);
+        return options;
+    }, [rows, language]);
 
-        return Array.from(byMonth.entries())
-            .map(([monthKey, monthRows]) => ({
-                monthKey,
-                monthLabel: monthLabels.get(monthKey) ?? formatMonthLabel(monthKey, noMonthLabel),
-                rows: monthRows,
-                balance: monthRows.reduce((s, r) => s + r.amount, 0),
-            }))
-            .sort((a, b) => {
-                if (!a.monthKey && b.monthKey) return 1;
-                if (a.monthKey && !b.monthKey) return -1;
-                return b.monthKey.localeCompare(a.monthKey);
-            });
-    }, [rows, noMonthLabel]);
+    const filteredRows = useMemo(() => {
+        if (filterDistricts.length === 0) return rows;
+        const selected = new Set(filterDistricts);
+        return rows.filter((row) => {
+            const key = row.district || NO_DISTRICT_FILTER;
+            return selected.has(key);
+        });
+    }, [rows, filterDistricts]);
+
+    const groupedByMonth: MonthGroup[] = useMemo(
+        () => buildMonthGroups(filteredRows, noMonthLabel),
+        [filteredRows, noMonthLabel],
+    );
+
+    const balance = roundAccountancyAmount(filteredRows.reduce((s, r) => s + r.amount, 0));
+
+    useEffect(() => {
+        if (exportRangeTouched) return;
+        const keys = rows
+            .map((r) => r.monthKey)
+            .filter((k) => /^\d{4}-\d{2}$/.test(k))
+            .sort();
+        if (keys.length > 0) {
+            setExportFrom(keys[0]);
+            setExportTo(keys[keys.length - 1]);
+            return;
+        }
+        if (!loading && !noCashflow) {
+            const now = currentMonthKey();
+            setExportFrom(now);
+            setExportTo(now);
+        }
+    }, [rows, loading, noCashflow, exportRangeTouched]);
 
     const formatDate = (date: Date | string): string => {
         const d = typeof date === 'string' ? new Date(date) : date;
@@ -299,27 +392,17 @@ export default function Page() {
         });
     };
 
-    const formatAttachedBooking = (bookingId?: number): string => {
-        if (bookingId == null) return '—';
-        const b = bookingsById.get(bookingId);
-        if (!b) return `#${bookingId}`;
-        const parts = [
-            (b.title || '').trim(),
-            (b.firstName || '').trim(),
-            (b.lastName || '').trim(),
-            b.arrival ? formatDate(b.arrival) : '',
-            b.departure ? formatDate(b.departure) : '',
-        ].filter((p) => p.length > 0);
-        return parts.length > 0 ? parts.join(' · ') : `#${bookingId}`;
-    };
-
     const formatRoomLabel = (objectId: number, roomName?: string | null): string => {
-        const obj = objects.find((o) => o.id === objectId);
+        const obj = objects.find((o) => o.id === objectId || o.propertyId === objectId);
         const objectLabel = (obj?.name ?? '').trim();
         const roomLabel = (roomName ?? '').trim();
         const parts = [objectLabel, roomLabel].filter((p) => p.length > 0);
         return parts.length > 0 ? parts.join(' — ') : '—';
     };
+
+    const noDistrictLabel = t('accountancy.employeesCashflow.noDistrict');
+    const districtOptionLabel = (value: string) =>
+        value === NO_DISTRICT_FILTER ? noDistrictLabel : value;
 
     const formatAmount = (value: number): string => {
         const fixed = Number(value).toFixed(2);
@@ -411,6 +494,112 @@ export default function Page() {
         }
     };
 
+    const handleStatusToggle = async (row: RecordRow) => {
+        if (!canEditStatus) return;
+        const newStatus: ExpenseStatus | IncomeStatus = row.status === 'confirmed' ? 'draft' : 'confirmed';
+        setStatusUpdatingId(rowKey(row));
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row._id);
+                if (!expense) return;
+                const res = await updateExpense({
+                    ...expense,
+                    status: newStatus,
+                    date: expense.date
+                        ? typeof expense.date === 'string'
+                            ? new Date(expense.date)
+                            : expense.date
+                        : new Date(),
+                });
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row._id ? { ...e, status: newStatus } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row._id);
+                if (!income) return;
+                const res = await updateIncome({
+                    ...income,
+                    status: newStatus,
+                    date: income.date
+                        ? typeof income.date === 'string'
+                            ? new Date(income.date)
+                            : income.date
+                        : new Date(),
+                });
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row._id ? { ...i, status: newStatus } : i)),
+                    );
+                }
+            }
+        } catch (err) {
+            console.error(err);
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setStatusUpdatingId(null);
+        }
+    };
+
+    const handleExport = async () => {
+        if (!userId || !/^\d{4}-\d{2}$/.test(exportFrom) || !/^\d{4}-\d{2}$/.test(exportTo)) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.employeesCashflow.exportInvalidRange'),
+                severity: 'error',
+            });
+            return;
+        }
+        if (exportFrom > exportTo) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.employeesCashflow.exportInvalidRange'),
+                severity: 'error',
+            });
+            return;
+        }
+        setExporting(true);
+        try {
+            const res = await createCashflowExport({
+                userId,
+                fromMonth: exportFrom,
+                toMonth: exportTo,
+            });
+            setSnackbar({
+                open: true,
+                message: res.message || (res.success
+                    ? t('accountancy.employeesCashflow.exportDone')
+                    : t('common.serverError')),
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success && res.export) {
+                setExportFiles((prev) => [res.export!, ...prev]);
+                const link = document.createElement('a');
+                link.href = res.export.url;
+                link.download = res.export.fileName;
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+            }
+        } catch (err) {
+            console.error(err);
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setExporting(false);
+        }
+    };
+
     if (!hasAccess) {
         return (
             <Box>
@@ -440,14 +629,103 @@ export default function Page() {
                     <Typography
                         variant="h3"
                         sx={{ fontWeight: 700 }}
-                        color={balance >= 0 ? 'success.main' : 'error.main'}
+                        color={accountancyBalanceMuiColor(balance)}
                     >
                         {formatAmount(balance)}
                     </Typography>
                     <Typography variant="body1" color="text.secondary">
                         {t('accountancy.myCashflowBalance')}
                     </Typography>
+                    {rows.length > 0 && (
+                        <Autocomplete
+                            multiple
+                            size="small"
+                            options={districtFilterOptions}
+                            value={filterDistricts}
+                            onChange={(_, value) => setFilterDistricts(value)}
+                            getOptionLabel={districtOptionLabel}
+                            renderInput={(params) => (
+                                <TextField
+                                    {...params}
+                                    label={t('accountancy.districtColumn')}
+                                    placeholder={t('accountancy.all')}
+                                />
+                            )}
+                            sx={{ minWidth: 260, maxWidth: 480, ml: { sm: 'auto' } }}
+                        />
+                    )}
                 </Box>
+            )}
+
+            {!loading && !noCashflow && (
+                <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
+                    <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1.5 }}>
+                        {t('accountancy.employeesCashflow.exportTitle')}
+                    </Typography>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
+                        <TextField
+                            type="month"
+                            size="small"
+                            label={t('accountancy.employeesCashflow.exportFrom')}
+                            value={exportFrom}
+                            onChange={(e) => {
+                                setExportRangeTouched(true);
+                                setExportFrom(e.target.value);
+                            }}
+                            slotProps={{ inputLabel: { shrink: true } }}
+                            sx={{ minWidth: 180 }}
+                        />
+                        <TextField
+                            type="month"
+                            size="small"
+                            label={t('accountancy.employeesCashflow.exportTo')}
+                            value={exportTo}
+                            onChange={(e) => {
+                                setExportRangeTouched(true);
+                                setExportTo(e.target.value);
+                            }}
+                            slotProps={{ inputLabel: { shrink: true } }}
+                            sx={{ minWidth: 180 }}
+                        />
+                        <Button
+                            variant="contained"
+                            startIcon={<FileDownloadIcon />}
+                            onClick={() => void handleExport()}
+                            disabled={exporting || !exportFrom || !exportTo}
+                        >
+                            {exporting
+                                ? t('accountancy.employeesCashflow.exporting')
+                                : t('accountancy.employeesCashflow.exportButton')}
+                        </Button>
+                    </Stack>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                        {t('accountancy.employeesCashflow.exportFiles')}
+                    </Typography>
+                    {exportFiles.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">
+                            {t('accountancy.employeesCashflow.exportNoFiles')}
+                        </Typography>
+                    ) : (
+                        <Box component="ul" sx={{ m: 0, pl: 2 }}>
+                            {exportFiles.map((file) => (
+                                <Box component="li" key={file._id} sx={{ mb: 0.5 }}>
+                                    <MuiLink href={file.url} download={file.fileName} underline="hover">
+                                        {file.fileName}
+                                    </MuiLink>
+                                    <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                        {formatMonthLabel(file.fromMonth, file.fromMonth)}
+                                        {' — '}
+                                        {formatMonthLabel(file.toMonth, file.toMonth)}
+                                        {file.createdAt
+                                            ? ` · ${new Date(file.createdAt).toLocaleString('ru-RU')}`
+                                            : ''}
+                                        {` · ${file.rowCount} ${t('accountancy.employeesCashflow.exportRows')}`}
+                                    </Typography>
+                                </Box>
+                            ))}
+                        </Box>
+                    )}
+                </Paper>
             )}
 
             {loading ? (
@@ -461,6 +739,12 @@ export default function Page() {
             ) : rows.length === 0 ? (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                     <Typography color="text.secondary">{t('accountancy.myCashflowNoRecords')}</Typography>
+                </Paper>
+            ) : filteredRows.length === 0 ? (
+                <Paper variant="outlined" sx={{ p: 3 }}>
+                    <Typography color="text.secondary">
+                        {t('accountancy.employeesCashflow.noFilteredRecords')}
+                    </Typography>
                 </Paper>
             ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -483,9 +767,9 @@ export default function Page() {
                                     <Typography
                                         variant="body2"
                                         fontWeight={600}
-                                        color={monthGroup.balance >= 0 ? 'success.main' : 'error.main'}
+                                        color={accountancyBalanceMuiColor(monthGroup.closingBalance)}
                                     >
-                                        {formatAmount(monthGroup.balance)}
+                                        {formatAmount(monthGroup.closingBalance)}
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary">
                                         ({monthGroup.rows.length})
@@ -493,18 +777,76 @@ export default function Page() {
                                 </Box>
                             </AccordionSummary>
                             <AccordionDetails sx={{ pt: 0, px: 0 }}>
-                                <Paper variant="outlined" sx={{ overflow: 'auto' }}>
-                                    <Table size="small">
+                                <Box sx={{ px: 2, pb: 1.5 }}>
+                                    <Table
+                                        size="small"
+                                        sx={{
+                                            width: 'auto',
+                                            minWidth: 520,
+                                            '& .MuiTableCell-root': { py: 0.5, px: 1, fontSize: '0.8125rem' },
+                                        }}
+                                    >
+                                        <TableHead>
+                                            <TableRow>
+                                                <TableCell>{t('accountancy.openingBalanceColumn')}</TableCell>
+                                                <TableCell>{t('accountancy.expensesTitle')}</TableCell>
+                                                <TableCell>{t('accountancy.incomesTitle')}</TableCell>
+                                                <TableCell>{t('accountancy.closingBalanceColumn')}</TableCell>
+                                            </TableRow>
+                                        </TableHead>
+                                        <TableBody>
+                                            <TableRow>
+                                                <TableCell
+                                                    sx={{
+                                                        color: accountancyBalanceMuiColor(monthGroup.openingBalance),
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    {formatAmount(monthGroup.openingBalance)}
+                                                </TableCell>
+                                                <TableCell sx={{ color: 'error.main' }}>
+                                                    {formatAmount(-monthGroup.expenses)}
+                                                </TableCell>
+                                                <TableCell sx={{ color: 'success.main' }}>
+                                                    {formatAmount(monthGroup.incomes)}
+                                                </TableCell>
+                                                <TableCell
+                                                    sx={{
+                                                        color: accountancyBalanceMuiColor(monthGroup.closingBalance),
+                                                        fontWeight: 600,
+                                                    }}
+                                                >
+                                                    {formatAmount(monthGroup.closingBalance)}
+                                                </TableCell>
+                                            </TableRow>
+                                        </TableBody>
+                                    </Table>
+                                </Box>
+                                <TableContainer
+                                    component={Paper}
+                                    variant="outlined"
+                                    sx={{ maxHeight: '70vh' }}
+                                >
+                                    <Table
+                                        size="small"
+                                        stickyHeader
+                                        sx={{
+                                            '& .MuiTableCell-head': {
+                                                backgroundColor: 'background.paper',
+                                            },
+                                        }}
+                                    >
                                         <TableHead>
                                             <TableRow>
                                                 <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                <TableCell sx={{ minWidth: 220 }}>
-                                                    {t('accountancy.attachedBookingColumn')}
-                                                </TableCell>
                                                 <TableCell>{t('common.room')}</TableCell>
+                                                <TableCell>{t('accountancy.districtColumn')}</TableCell>
                                                 <TableCell>{t('accountancy.categoryColumn')}</TableCell>
                                                 <TableCell>{t('accountancy.source')}</TableCell>
                                                 <TableCell>{t('accountancy.recipient')}</TableCell>
+                                                <TableCell sx={{ minWidth: 180 }}>
+                                                    {t('accountancy.comment')}
+                                                </TableCell>
                                                 <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
                                                     {t('accountancy.amountColumn')}
                                                 </TableCell>
@@ -520,20 +862,12 @@ export default function Page() {
                                                         sx={{
                                                             whiteSpace: 'normal',
                                                             wordBreak: 'break-word',
-                                                            maxWidth: 360,
-                                                        }}
-                                                    >
-                                                        {formatAttachedBooking(row.bookingId)}
-                                                    </TableCell>
-                                                    <TableCell
-                                                        sx={{
-                                                            whiteSpace: 'normal',
-                                                            wordBreak: 'break-word',
                                                             maxWidth: 240,
                                                         }}
                                                     >
                                                         {formatRoomLabel(row.objectId, row.roomName)}
                                                     </TableCell>
+                                                    <TableCell>{row.district || noDistrictLabel}</TableCell>
                                                     <TableCell>{row.category}</TableCell>
                                                     <TableCell
                                                         sx={{
@@ -552,6 +886,15 @@ export default function Page() {
                                                         }}
                                                     >
                                                         {row.recipientLabel}
+                                                    </TableCell>
+                                                    <TableCell
+                                                        sx={{
+                                                            maxWidth: 280,
+                                                            whiteSpace: 'normal',
+                                                            wordBreak: 'break-word',
+                                                        }}
+                                                    >
+                                                        {row.comment || '—'}
                                                     </TableCell>
                                                     <TableCell
                                                         align="right"
@@ -607,16 +950,17 @@ export default function Page() {
                                                                 <Checkbox
                                                                     checked={row.status === 'confirmed'}
                                                                     size="small"
-                                                                    disableRipple
-                                                                    tabIndex={-1}
+                                                                    disabled={
+                                                                        !canEditStatus ||
+                                                                        statusUpdatingId === rowKey(row)
+                                                                    }
+                                                                    onChange={() => void handleStatusToggle(row)}
                                                                     inputProps={{
                                                                         'aria-label':
                                                                             row.status === 'confirmed'
                                                                                 ? t('accountancy.statusVerified')
                                                                                 : t('accountancy.statusDraft'),
-                                                                        readOnly: true,
                                                                     }}
-                                                                    sx={{ pointerEvents: 'none' }}
                                                                 />
                                                             </span>
                                                         </Tooltip>
@@ -625,7 +969,7 @@ export default function Page() {
                                             ))}
                                         </TableBody>
                                     </Table>
-                                </Paper>
+                                </TableContainer>
                             </AccordionDetails>
                         </Accordion>
                     ))}

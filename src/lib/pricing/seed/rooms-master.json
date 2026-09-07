@@ -1,0 +1,500 @@
+[
+  {
+    "roomId": 249781,
+    "propertyId": 110051,
+    "name": "Aristo Resort (1) -104",
+    "qty": 1
+  },
+  {
+    "roomId": 249788,
+    "propertyId": 110054,
+    "name": "Aristo Resort (1) -218",
+    "qty": 1
+  },
+  {
+    "roomId": 249791,
+    "propertyId": 110057,
+    "name": "Aristo Resort (1) - Studio",
+    "qty": 11
+  },
+  {
+    "roomId": 249795,
+    "propertyId": 110061,
+    "name": "Aristo Resort (1) - 610",
+    "qty": 1
+  },
+  {
+    "roomId": 249800,
+    "propertyId": 110066,
+    "name": "Palmyrah Surin - B207",
+    "qty": 7
+  },
+  {
+    "roomId": 249809,
+    "propertyId": 110075,
+    "name": "ABSKG Studio+kitchen",
+    "qty": 7
+  },
+  {
+    "roomId": 249813,
+    "propertyId": 110079,
+    "name": "Aristo Beach (2) - 423",
+    "qty": 2
+  },
+  {
+    "roomId": 249814,
+    "propertyId": 110080,
+    "name": "Aristo Resort (1) - 215",
+    "qty": 1
+  },
+  {
+    "roomId": 249818,
+    "propertyId": 110084,
+    "name": "ABSNM Studio w/o kitchen",
+    "qty": 3
+  },
+  {
+    "roomId": 249823,
+    "propertyId": 110089,
+    "name": "Panora Garden D513",
+    "qty": 1
+  },
+  {
+    "roomId": 249824,
+    "propertyId": 110090,
+    "name": "Panora Seaview E102",
+    "qty": 5
+  },
+  {
+    "roomId": 249826,
+    "propertyId": 110092,
+    "name": "OS-201",
+    "qty": 1
+  },
+  {
+    "roomId": 249829,
+    "propertyId": 110095,
+    "name": "OS-211",
+    "qty": 1
+  },
+  {
+    "roomId": 249833,
+    "propertyId": 110099,
+    "name": "OS-510",
+    "qty": 2
+  },
+  {
+    "roomId": 249834,
+    "propertyId": 110100,
+    "name": "OS-602",
+    "qty": 7
+  },
+  {
+    "roomId": 249840,
+    "propertyId": 110106,
+    "name": "OS-704",
+    "qty": 1
+  },
+  {
+    "roomId": 249849,
+    "propertyId": 110114,
+    "name": "Palmetto 8/12",
+    "qty": 2
+  },
+  {
+    "roomId": 249850,
+    "propertyId": 110115,
+    "name": "Palmetto 8/25",
+    "qty": 1
+  },
+  {
+    "roomId": 249853,
+    "propertyId": 110118,
+    "name": "Relife Windy sofa",
+    "qty": 2
+  },
+  {
+    "roomId": 249854,
+    "propertyId": 110119,
+    "name": "Relife Windy City A307",
+    "qty": 2
+  },
+  {
+    "roomId": 249855,
+    "propertyId": 110120,
+    "name": "Relife Windy podium",
+    "qty": 2
+  },
+  {
+    "roomId": 249857,
+    "propertyId": 110122,
+    "name": "Relife Windy Saras Nest D724",
+    "qty": 1
+  },
+  {
+    "roomId": 249861,
+    "propertyId": 110124,
+    "name": "NSC-307",
+    "qty": 2
+  },
+  {
+    "roomId": 249864,
+    "propertyId": 110127,
+    "name": "NSC-601",
+    "qty": 6
+  },
+  {
+    "roomId": 249870,
+    "propertyId": 110133,
+    "name": "Pearl-507",
+    "qty": 11
+  },
+  {
+    "roomId": 250492,
+    "propertyId": 110491,
+    "name": "Relife Windy Country A508",
+    "qty": 2
+  },
+  {
+    "roomId": 261463,
+    "propertyId": 116117,
+    "name": "Diamond 1202",
+    "qty": 1
+  },
+  {
+    "roomId": 305965,
+    "propertyId": 137099,
+    "name": "Aristo Resort (1) -722",
+    "qty": 1
+  },
+  {
+    "roomId": 342683,
+    "propertyId": 154772,
+    "name": "Saturdays",
+    "qty": 2
+  },
+  {
+    "roomId": 364379,
+    "propertyId": 165982,
+    "name": "Panora Mountain G320",
+    "qty": 5
+  },
+  {
+    "roomId": 366967,
+    "propertyId": 167354,
+    "name": "Title NaiYang E202",
+    "qty": 1
+  },
+  {
+    "roomId": 386044,
+    "propertyId": 177582,
+    "name": "Title NaiYang A207",
+    "qty": 1
+  },
+  {
+    "roomId": 393983,
+    "propertyId": 181474,
+    "name": "PS-A306",
+    "qty": 1
+  },
+  {
+    "roomId": 410170,
+    "propertyId": 190049,
+    "name": "Calypso Garden 107",
+    "qty": 1
+  },
+  {
+    "roomId": 410941,
+    "propertyId": 190521,
+    "name": "RBC-302",
+    "qty": 1
+  },
+  {
+    "roomId": 428692,
+    "propertyId": 200137,
+    "name": "Palmyrah Seaview A602",
+    "qty": 1
+  },
+  {
+    "roomId": 428695,
+    "propertyId": 200140,
+    "name": "Relife Windy Country A308",
+    "qty": 1
+  },
+  {
+    "roomId": 538037,
+    "propertyId": 256216,
+    "name": "Calypso Garden 402",
+    "qty": 1
+  },
+  {
+    "roomId": 546558,
+    "propertyId": 260437,
+    "name": "RawaiVIP J10",
+    "qty": 1
+  },
+  {
+    "roomId": 573511,
+    "propertyId": 274247,
+    "name": "LagunaVillage TH 138/26",
+    "qty": 1
+  },
+  {
+    "roomId": 591659,
+    "propertyId": 283333,
+    "name": "NSC-805",
+    "qty": 1
+  },
+  {
+    "roomId": 592834,
+    "propertyId": 284089,
+    "name": "Karon Hill 113",
+    "qty": 1
+  },
+  {
+    "roomId": 592841,
+    "propertyId": 284096,
+    "name": "RBC-512",
+    "qty": 1
+  },
+  {
+    "roomId": 600394,
+    "propertyId": 287086,
+    "name": "Pearl-507-Pets",
+    "qty": 3
+  },
+  {
+    "roomId": 608545,
+    "propertyId": 291114,
+    "name": "Title Rawai Y111",
+    "qty": 1
+  },
+  {
+    "roomId": 608887,
+    "propertyId": 291246,
+    "name": "NaiYang Villa 4BR",
+    "qty": 1
+  },
+  {
+    "roomId": 610805,
+    "propertyId": 292253,
+    "name": "Title Legendary A302",
+    "qty": 1
+  },
+  {
+    "roomId": 610812,
+    "propertyId": 292255,
+    "name": "Title Legendary D405",
+    "qty": 2
+  },
+  {
+    "roomId": 610813,
+    "propertyId": 292256,
+    "name": "Title Legendary D407",
+    "qty": 1
+  },
+  {
+    "roomId": 611019,
+    "propertyId": 292361,
+    "name": "RawaiVIP M9",
+    "qty": 1
+  },
+  {
+    "roomId": 612926,
+    "propertyId": 293129,
+    "name": "RawaiVIP R20",
+    "qty": 1
+  },
+  {
+    "roomId": 612929,
+    "propertyId": 293131,
+    "name": "NBC2KM-P807",
+    "qty": 1
+  },
+  {
+    "roomId": 616224,
+    "propertyId": 294710,
+    "name": "Botanica Modern Loft II",
+    "qty": 1
+  },
+  {
+    "roomId": 627851,
+    "propertyId": 300902,
+    "name": "Karon Hill 103",
+    "qty": 1
+  },
+  {
+    "roomId": 634178,
+    "propertyId": 304283,
+    "name": "Grand Kata VIP B-102",
+    "qty": 1
+  },
+  {
+    "roomId": 634240,
+    "propertyId": 304318,
+    "name": "Karon Hill 607 2BR",
+    "qty": 1
+  },
+  {
+    "roomId": 634330,
+    "propertyId": 304341,
+    "name": "Title Legendary H704",
+    "qty": 1
+  },
+  {
+    "roomId": 634771,
+    "propertyId": 304520,
+    "name": "Laguna Beachside 1BR",
+    "qty": 1
+  },
+  {
+    "roomId": 642714,
+    "propertyId": 308487,
+    "name": "PS-E403",
+    "qty": 1
+  },
+  {
+    "roomId": 642717,
+    "propertyId": 308490,
+    "name": "PS-E707",
+    "qty": 1
+  },
+  {
+    "roomId": 648770,
+    "propertyId": 311434,
+    "name": "777 1KM-CD412",
+    "qty": 1
+  },
+  {
+    "roomId": 648773,
+    "propertyId": 311435,
+    "name": "NBC2KP-B204",
+    "qty": 1
+  },
+  {
+    "roomId": 648774,
+    "propertyId": 311436,
+    "name": "Botanica Luxury 29/27",
+    "qty": 1
+  },
+  {
+    "roomId": 656897,
+    "propertyId": 311434,
+    "name": "777 SKB-PC447",
+    "qty": 1
+  },
+  {
+    "roomId": 656898,
+    "propertyId": 311434,
+    "name": "777 SKJ-PA306",
+    "qty": 1
+  },
+  {
+    "roomId": 676072,
+    "propertyId": 311434,
+    "name": "777 SKJ-PA210",
+    "qty": 1
+  },
+  {
+    "roomId": 676073,
+    "propertyId": 311434,
+    "name": "777 SKP-PB251",
+    "qty": 2
+  },
+  {
+    "roomId": 676150,
+    "propertyId": 325714,
+    "name": "MBC2KP",
+    "qty": 1
+  },
+  {
+    "roomId": 676195,
+    "propertyId": 325747,
+    "name": "Skypark SC1KG",
+    "qty": 1
+  },
+  {
+    "roomId": 676196,
+    "propertyId": 325747,
+    "name": "Skypark SC2KC",
+    "qty": 1
+  },
+  {
+    "roomId": 676197,
+    "propertyId": 325747,
+    "name": "Skypark SC2KGolf",
+    "qty": 1
+  },
+  {
+    "roomId": 676199,
+    "propertyId": 325749,
+    "name": "Capri CP1K-B802",
+    "qty": 1
+  },
+  {
+    "roomId": 700396,
+    "propertyId": 304283,
+    "name": "Grand Kata VIP A416 - 55m",
+    "qty": 1
+  },
+  {
+    "roomId": 700434,
+    "propertyId": 338742,
+    "name": "WeKata Luxury WK1KC - 30m",
+    "qty": 1
+  },
+  {
+    "roomId": 700436,
+    "propertyId": 338742,
+    "name": "WeKata Luxury WK1KC - 35m",
+    "qty": 1
+  },
+  {
+    "roomId": 700437,
+    "propertyId": 338742,
+    "name": "WeKata Luxury WK1KM - 35m",
+    "qty": 1
+  },
+  {
+    "roomId": 697696,
+    "propertyId": 337401,
+    "name": "Title Serenity D125",
+    "qty": 1
+  },
+  {
+    "roomId": 601653,
+    "propertyId": 287663,
+    "name": "777 Maikhao P306 (exited)",
+    "qty": 1
+  },
+  {
+    "roomId": 710171,
+    "propertyId": 256216,
+    "name": "Calypso Garden 414",
+    "qty": 1
+  },
+  {
+    "roomId": 710182,
+    "propertyId": 291114,
+    "name": "Title Rawai X306",
+    "qty": 1
+  },
+  {
+    "roomId": 711964,
+    "propertyId": 344656,
+    "name": "Canvas Cherngtalay CV2KM",
+    "qty": 1
+  },
+  {
+    "roomId": 711968,
+    "propertyId": 344657,
+    "name": "Title Halo NaiYang MA405",
+    "qty": 1
+  },
+  {
+    "roomId": 711979,
+    "propertyId": 344668,
+    "name": "Aristo Resort 209 (AR1KG)",
+    "qty": 1
+  }
+]

@@ -1,0 +1,171 @@
+{
+  "cluster": "Studio Surin",
+  "area": "surin",
+  "level": "comfort",
+  "objects": {
+    "ABSKG": {
+      "roomId": 249809,
+      "comps": [
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/41880022",
+          "name": "Cozy Studio Surin Pool",
+          "bedrooms": 0,
+          "sqm": 30,
+          "view": "pool"
+        },
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/52310145",
+          "name": "Surin Beach Studio + Kitchen",
+          "bedrooms": 0,
+          "sqm": 32,
+          "view": "garden"
+        },
+        {
+          "platform": "booking",
+          "url": "https://www.booking.com/hotel/th/the-bay-surin-studio",
+          "name": "The Bay Surin Studio",
+          "bedrooms": 0,
+          "sqm": 30,
+          "view": "pool"
+        },
+        {
+          "platform": "agoda",
+          "url": "https://www.agoda.com/3920114",
+          "name": "Bangtao Beach Studio",
+          "bedrooms": 0,
+          "sqm": 28,
+          "view": "pool"
+        },
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/60012233",
+          "name": "Modern Studio 5min Beach",
+          "bedrooms": 0,
+          "sqm": 31,
+          "view": "pool"
+        },
+        {
+          "platform": "trip",
+          "url": "https://www.trip.com/hotels/detail/?hotelId=99551122",
+          "name": "Surin Hill Studio",
+          "bedrooms": 0,
+          "sqm": 30,
+          "view": "sea"
+        }
+      ]
+    },
+    "ARSKM": {
+      "roomId": 249791,
+      "comps": [
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/41005577",
+          "name": "Aristo-style Studio Surin",
+          "bedrooms": 0,
+          "sqm": 30,
+          "view": "pool"
+        },
+        {
+          "platform": "booking",
+          "url": "https://www.booking.com/hotel/th/aristo-resort-studio",
+          "name": "Aristo Resort Studio",
+          "bedrooms": 0,
+          "sqm": 30,
+          "view": "pool"
+        },
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/58823100",
+          "name": "Surin Studio Walk to Beach",
+          "bedrooms": 0,
+          "sqm": 29,
+          "view": "garden"
+        },
+        {
+          "platform": "agoda",
+          "url": "https://www.agoda.com/4100233",
+          "name": "Surin Comfort Studio",
+          "bedrooms": 0,
+          "sqm": 30,
+          "view": "pool"
+        },
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/61220034",
+          "name": "Bright Studio Surin Pool",
+          "bedrooms": 0,
+          "sqm": 32,
+          "view": "pool"
+        }
+      ]
+    },
+    "ABSKM-423": {
+      "roomId": 249813,
+      "comps": [
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/70012001",
+          "name": "Studio near Surin 423",
+          "bedrooms": 0,
+          "sqm": 28,
+          "view": "garden"
+        },
+        {
+          "platform": "booking",
+          "url": "https://www.booking.com/hotel/th/surin-423-studio",
+          "name": "Surin 423 Studio",
+          "bedrooms": 0,
+          "sqm": 29,
+          "view": "pool"
+        }
+      ]
+    },
+    "ABSNM": {
+      "roomId": null,
+      "comps": [
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/55012099",
+          "name": "Surin Studio no-kitchen",
+          "bedrooms": 0,
+          "sqm": 26,
+          "view": "garden"
+        },
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/55920011",
+          "name": "Cosy Surin Studio",
+          "bedrooms": 0,
+          "sqm": 27,
+          "view": "pool"
+        },
+        {
+          "platform": "booking",
+          "url": "https://www.booking.com/hotel/th/surin-nm-studio",
+          "name": "Surin NM Studio",
+          "bedrooms": 0,
+          "sqm": 28,
+          "view": "pool"
+        },
+        {
+          "platform": "agoda",
+          "url": "https://www.agoda.com/4500112",
+          "name": "Surin Budget Studio",
+          "bedrooms": 0,
+          "sqm": 26,
+          "view": "garden"
+        },
+        {
+          "platform": "airbnb",
+          "url": "https://www.airbnb.com/rooms/60330142",
+          "name": "Studio 7min Surin Beach",
+          "bedrooms": 0,
+          "sqm": 28,
+          "view": "pool"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,500 @@
+[
+  {
+    "cluster": "Villa Rawai",
+    "roomId": 546558,
+    "name": "RawaiVIP J10",
+    "units": 1
+  },
+  {
+    "cluster": "Villa Rawai",
+    "roomId": 611019,
+    "name": "RawaiVIP M9",
+    "units": 1
+  },
+  {
+    "cluster": "Villa Rawai",
+    "roomId": 612926,
+    "name": "RawaiVIP R20",
+    "units": 1
+  },
+  {
+    "cluster": "Villa North",
+    "roomId": 573511,
+    "name": "LagunaVillage TH 138/26",
+    "units": 1
+  },
+  {
+    "cluster": "Villa North",
+    "roomId": 608887,
+    "name": "NaiYang Villa 4BR",
+    "units": 1
+  },
+  {
+    "cluster": "Villa North",
+    "roomId": 616224,
+    "name": "Botanica Modern Loft II",
+    "units": 1
+  },
+  {
+    "cluster": "Villa North",
+    "roomId": 648774,
+    "name": "Botanica Luxury 29/27",
+    "units": 1
+  },
+  {
+    "cluster": "Studio Surin",
+    "roomId": 249791,
+    "name": "Aristo Resort (1) - Studio",
+    "units": 11
+  },
+  {
+    "cluster": "Studio Surin",
+    "roomId": 249809,
+    "name": "ABSKG Studio+kitchen",
+    "units": 7
+  },
+  {
+    "cluster": "Studio Surin",
+    "roomId": 249818,
+    "name": "ABSNM Studio w/o kitchen",
+    "units": 3
+  },
+  {
+    "cluster": "Studio Surin",
+    "roomId": 249813,
+    "name": "Aristo Beach (2) - 423",
+    "units": 2
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 249800,
+    "name": "Palmyrah Surin - B207",
+    "units": 7
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 428692,
+    "name": "Palmyrah Seaview A602",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 305965,
+    "name": "Aristo Resort (1) -722",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 676199,
+    "name": "Capri CP1K-B802",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 249834,
+    "name": "OS-602",
+    "units": 7
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 249840,
+    "name": "OS-704",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 610805,
+    "name": "Title Legendary A302",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 610812,
+    "name": "Title Legendary D405",
+    "units": 2
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 610813,
+    "name": "Title Legendary D407",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 261463,
+    "name": "Diamond 1202",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 249823,
+    "name": "Panora Garden D513",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 249824,
+    "name": "Panora Seaview E102",
+    "units": 5
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 364379,
+    "name": "Panora Mountain G320",
+    "units": 5
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 393983,
+    "name": "PS-A306",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 642714,
+    "name": "PS-E403",
+    "units": 1
+  },
+  {
+    "cluster": "Premium 1BR Bangtao",
+    "roomId": 634771,
+    "name": "Laguna Beachside 1BR",
+    "units": 1
+  },
+  {
+    "cluster": "Premium 1BR Bangtao",
+    "roomId": 676195,
+    "name": "Skypark SC1KG",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249826,
+    "name": "OS-201",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249829,
+    "name": "OS-211",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249833,
+    "name": "OS-510",
+    "units": 2
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249781,
+    "name": "Aristo Resort (1) -104",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249788,
+    "name": "Aristo Resort (1) -218",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249795,
+    "name": "Aristo Resort (1) - 610",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 634330,
+    "name": "Title Legendary H704",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 249814,
+    "name": "Aristo Resort (1) - 215",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 676196,
+    "name": "Skypark SC2KC",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 676197,
+    "name": "Skypark SC2KGolf",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 642717,
+    "name": "PS-E707",
+    "units": 1
+  },
+  {
+    "cluster": "Studio Rawai",
+    "roomId": 249853,
+    "name": "Relife Windy sofa",
+    "units": 2
+  },
+  {
+    "cluster": "Studio Rawai",
+    "roomId": 249854,
+    "name": "Relife Windy City A307",
+    "units": 2
+  },
+  {
+    "cluster": "Studio Rawai",
+    "roomId": 249855,
+    "name": "Relife Windy podium",
+    "units": 2
+  },
+  {
+    "cluster": "Studio Rawai",
+    "roomId": 250492,
+    "name": "Relife Windy Country A508",
+    "units": 2
+  },
+  {
+    "cluster": "Studio Rawai",
+    "roomId": 428695,
+    "name": "Relife Windy Country A308",
+    "units": 1
+  },
+  {
+    "cluster": "Studio Rawai",
+    "roomId": 410941,
+    "name": "RBC-302",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 249870,
+    "name": "Pearl-507",
+    "units": 11
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 600394,
+    "name": "Pearl-507-Pets",
+    "units": 3
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 249861,
+    "name": "NSC-307",
+    "units": 2
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 249864,
+    "name": "NSC-601",
+    "units": 6
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 608545,
+    "name": "Title Rawai Y111",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 592841,
+    "name": "RBC-512",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Rawai",
+    "roomId": 648773,
+    "name": "NBC2KP-B204",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Rawai",
+    "roomId": 612929,
+    "name": "NBC2KM-P807",
+    "units": 1
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 538037,
+    "name": "Calypso Garden 402",
+    "units": 1
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 342683,
+    "name": "Saturdays",
+    "units": 2
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 591659,
+    "name": "NSC-805",
+    "units": 1
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 249857,
+    "name": "Relife Windy Saras Nest D724",
+    "units": 1
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 634240,
+    "name": "Karon Hill 607 2BR",
+    "units": 1
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 410170,
+    "name": "Calypso Garden 107",
+    "units": 1
+  },
+  {
+    "cluster": "Studio 777",
+    "roomId": 656897,
+    "name": "777 SKB-PC447",
+    "units": 1
+  },
+  {
+    "cluster": "Studio 777",
+    "roomId": 656898,
+    "name": "777 SKJ-PA306",
+    "units": 1
+  },
+  {
+    "cluster": "Studio 777",
+    "roomId": 676072,
+    "name": "777 SKJ-PA210",
+    "units": 1
+  },
+  {
+    "cluster": "Studio 777",
+    "roomId": 676073,
+    "name": "777 SKP-PB251",
+    "units": 2
+  },
+  {
+    "cluster": "North apts (777 1BR+MBC+NaiYang)",
+    "roomId": 648770,
+    "name": "777 1KM-CD412",
+    "units": 1
+  },
+  {
+    "cluster": "North apts (777 1BR+MBC+NaiYang)",
+    "roomId": 676150,
+    "name": "MBC2KP",
+    "units": 1
+  },
+  {
+    "cluster": "North apts (777 1BR+MBC+NaiYang)",
+    "roomId": 366967,
+    "name": "Title NaiYang E202",
+    "units": 1
+  },
+  {
+    "cluster": "North apts (777 1BR+MBC+NaiYang)",
+    "roomId": 386044,
+    "name": "Title NaiYang A207",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 592834,
+    "name": "Karon Hill 113",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 627851,
+    "name": "Karon Hill 103",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 634178,
+    "name": "Grand Kata VIP B-102",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 249849,
+    "name": "Palmetto 8/12",
+    "units": 2
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 249850,
+    "name": "Palmetto 8/25",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 700396,
+    "name": "Grand Kata VIP A416",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 700434,
+    "name": "WeKata WK1KC-30m",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 700436,
+    "name": "WeKata WK1KC-35m",
+    "units": 1
+  },
+  {
+    "cluster": "Karon Hill+Kata",
+    "roomId": 700437,
+    "name": "WeKata WK1KM-35m",
+    "units": 1
+  },
+  {
+    "cluster": "North apts (777 1BR+MBC+NaiYang)",
+    "roomId": 697696,
+    "name": "Title Serenity D125",
+    "units": 1
+  },
+  {
+    "cluster": "Studio 777",
+    "roomId": 601653,
+    "name": "777 Maikhao P306 (exited)",
+    "units": 1
+  },
+  {
+    "cluster": "Premium Rawai",
+    "roomId": 710171,
+    "name": "Calypso Garden 414",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Rawai",
+    "roomId": 710182,
+    "name": "Title Rawai X306",
+    "units": 1
+  },
+  {
+    "cluster": "2BR Bangtao",
+    "roomId": 711964,
+    "name": "Canvas Cherngtalay CV2KM",
+    "units": 1
+  },
+  {
+    "cluster": "North apts (777 1BR+MBC+NaiYang)",
+    "roomId": 711968,
+    "name": "Title Halo NaiYang MA405",
+    "units": 1
+  },
+  {
+    "cluster": "1BR Surin+Bangtao",
+    "roomId": 711979,
+    "name": "Aristo Resort 209 (AR1KG)",
+    "units": 1
+  }
+]

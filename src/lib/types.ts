@@ -586,7 +586,7 @@ export interface AccountancyCategory {
 
 export type AuditLogAction = 'create' | 'update' | 'delete';
 
-export type AuditLogEntity = 'expense' | 'income' | 'report' | 'user' | 'category' | 'booking' | 'cashflow' | 'other';
+export type AuditLogEntity = 'expense' | 'income' | 'report' | 'user' | 'category' | 'booking' | 'cashflow' | 'pricing' | 'other';
 
 export type AuditLogMetadata = {
     objectId?: number;
