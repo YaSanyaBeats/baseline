@@ -55,8 +55,8 @@ function isoToday(): string {
 
 async function loadCurrentRoomPrices(startIso: string, endIso: string): Promise<Map<number, number>> {
     const db = await getDB();
-    const docs = (await db
-        .collection('prices')
+    const docs = await db
+        .collection<Beds24FixedPrice>('prices')
         .find(
             {
                 firstNight: { $lte: endIso },
@@ -65,7 +65,7 @@ async function loadCurrentRoomPrices(startIso: string, endIso: string): Promise<
             },
             { projection: { roomId: 1, firstNight: 1, lastNight: 1, roomPrice: 1, minNights: 1, roomPriceEnable: 1 } },
         )
-        .toArray()) as Beds24FixedPrice[];
+        .toArray();
 
     const todayIso = isoToday();
     const refIso = todayIso >= startIso && todayIso <= endIso ? todayIso : startIso;
