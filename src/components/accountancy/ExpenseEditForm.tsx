@@ -30,7 +30,7 @@ import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import RoomsMultiSelect from '@/components/objectsMultiSelect/RoomsMultiSelect';
 import BookingSelectModal from '@/components/bookingsModal/BookingSelectModal';
 import { getAccountancyCategories } from '@/lib/accountancyCategories';
@@ -38,6 +38,7 @@ import { buildCategoriesForSelect } from '@/lib/accountancyCategoryUtils';
 import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from '@/lib/accountancyCategoryResolve';
 import { isForbiddenZeroUnitAmountOnEdit, getEffectiveReportAmount, getSignedRecordAmount } from '@/lib/accountancyUtils';
+import { navigateReturnOrBack, parseSafeDashboardReturnTo, withReturnTo } from '@/lib/accountancyReturnTo';
 
 function stableExpenseRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -64,7 +65,9 @@ export default function ExpenseEditForm({
     const { t, language } = useTranslation();
     const router = useRouter();
     const params = useParams();
+    const searchParams = useSearchParams();
     const expenseId = params?.id as string;
+    const returnTo = parseSafeDashboardReturnTo(searchParams.get('returnTo'));
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
     const [expense, setExpense] = useState<Partial<ExpenseForm>>({});
@@ -365,7 +368,7 @@ export default function ExpenseEditForm({
                     severity: res.success ? 'success' : 'error',
                 });
                 if (res.success) {
-                    router.back();
+                    navigateReturnOrBack(router, returnTo);
                 }
             })
             .catch((error) => {
@@ -381,7 +384,12 @@ export default function ExpenseEditForm({
 
     const handleAddSubtransaction = () => {
         if (!expenseId) return;
-        router.push(`/dashboard/accountancy/income/add?parentExpenseId=${encodeURIComponent(expenseId)}`);
+        router.push(
+            withReturnTo(
+                `/dashboard/accountancy/income/add?parentExpenseId=${encodeURIComponent(expenseId)}`,
+                returnTo,
+            ),
+        );
     };
 
     const bookingModalInitialRoomId = useMemo(() => {
@@ -704,7 +712,7 @@ export default function ExpenseEditForm({
                         type="button"
                         variant="outlined"
                         startIcon={<ArrowBackIcon />}
-                        onClick={() => router.back()}
+                        onClick={() => navigateReturnOrBack(router, returnTo)}
                     >
                         {t('common.cancel')}
                     </Button>

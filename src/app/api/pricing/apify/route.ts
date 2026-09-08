@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 import { abortAllRunning, runMonitorForCompetitor } from '@/lib/pricing/apify/gateway';
 import { actorById, monitorActorFor } from '@/lib/pricing/apify/registry';
+import { runClusterDiscovery } from '@/lib/pricing/apify/discovery';
 import { spentSince } from '@/lib/pricing/apify/budget';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
@@ -35,7 +36,13 @@ export async function GET() {
             monthSpent,
             dayLimitPct: settings.perDayUsd ? daySpent / settings.perDayUsd : 0,
             monthLimitPct: settings.perMonthUsd ? monthSpent / settings.perMonthUsd : 0,
-            actors: ['tri_angle/airbnb-rooms-urls-scraper', 'voyager/booking-scraper', 'bestscraper/agoda-property-scraper', 'datawebot/trip-hotel-scraper']
+            actors: [
+                'apify/rag-web-browser',
+                'tri_angle/airbnb-rooms-urls-scraper',
+                'voyager/booking-scraper',
+                'bestscraper/agoda-property-scraper',
+                'datawebot/trip-hotel-scraper',
+            ]
                 .map(actorById)
                 .filter(Boolean),
             runs,
@@ -82,11 +89,40 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
             success: true,
             data: {
-                estimatedUsd: actor ? actor.estimatedUsd * 3 : 0,
+                estimatedUsd: actor ? actor.estimatedUsd * 2 : 0,
                 actor: actor?.id,
-                dates: 3,
+                stays: [14, 20],
             },
         });
+    }
+
+    if (body.action === 'discover') {
+        const cluster = String(body.cluster || '').trim();
+        const platform = String(body.platform || 'airbnb') as CompetitorPlatform;
+        if (!cluster) {
+            return NextResponse.json({ success: false, message: 'Нужен cluster' }, { status: 400 });
+        }
+        if (!['airbnb', 'booking', 'agoda', 'trip'].includes(platform)) {
+            return NextResponse.json({ success: false, message: 'Неизвестная площадка' }, { status: 400 });
+        }
+        try {
+            const result = await runClusterDiscovery({
+                cluster,
+                platform,
+                userName: access.user.name || access.user.login,
+            });
+            await writePricingJournal({
+                userId: String(access.user._id || access.user.login),
+                userName: access.user.name || access.user.login,
+                type: 'discovery',
+                target: cluster,
+                detail: `${platform}: +${result.inserted} кандидатов, $${result.costUsd.toFixed(3)}`,
+            });
+            return NextResponse.json({ success: true, data: result });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Ошибка Discovery';
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
     }
 
     if (body.action === 'run') {
@@ -101,7 +137,8 @@ export async function POST(request: NextRequest) {
         try {
             const result = await runMonitorForCompetitor({
                 competitorId: String(competitor._id),
-                roomId: Number(competitor.roomId),
+                roomId: competitor.roomId == null ? null : Number(competitor.roomId),
+                cluster: competitor.cluster ? String(competitor.cluster) : null,
                 platform: competitor.platform,
                 url: competitor.url,
                 periodStart: window.startIso,
@@ -113,7 +150,7 @@ export async function POST(request: NextRequest) {
                 userName: access.user.name || access.user.login,
                 type: 'apify съём',
                 target: competitor.url,
-                detail: `снимков ${result.snapshots}, $${result.costUsd.toFixed(3)}`,
+                detail: `снимков ${result.snapshots}, 14/20 ночей, $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
             });
             return NextResponse.json({ success: true, data: result });
         } catch (error) {

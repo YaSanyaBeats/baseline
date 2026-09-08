@@ -76,6 +76,7 @@ export function ReportAmountDeltaBodyCells({
         <>
             <TableCell
                 align="right"
+                onClick={(e) => e.stopPropagation()}
                 sx={{
                     color: reportValue >= 0 ? 'success.main' : 'error.main',
                     fontWeight: 500,
@@ -122,7 +123,8 @@ export function ReportAmountDeltaBodyCells({
                     <Tooltip title={t('accountancy.inlineReportAmountEditHint')}>
                         <Box
                             component="span"
-                            onClick={() => {
+                            onClick={(e) => {
+                                e.stopPropagation();
                                 if (updating) return;
                                 onStartEdit?.();
                             }}

@@ -83,8 +83,8 @@ export async function fetchCompetitors() {
     return data.data;
 }
 
-export async function addCompetitors(roomId: number, urls: string[], name?: string) {
-    const { data } = await apiClient.post(getApiUrl('pricing/competitors'), { roomId, urls, name });
+export async function addCompetitors(cluster: string, urls: string[], name?: string) {
+    const { data } = await apiClient.post(getApiUrl('pricing/competitors'), { cluster, urls, name });
     return data;
 }
 
@@ -115,5 +115,10 @@ export async function stopApify() {
 
 export async function enableApify() {
     const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'enable' });
+    return data;
+}
+
+export async function discoverCluster(cluster: string, platform: string) {
+    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'discover', cluster, platform });
     return data;
 }

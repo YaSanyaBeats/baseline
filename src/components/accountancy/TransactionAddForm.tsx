@@ -97,6 +97,7 @@ import {
 } from '@/lib/accountancyUtils';
 import { MIN_LEDGER_REPORT_MONTH } from '@/lib/accountancyClosedMonth';
 import { buildMonthOptions } from '@/lib/monthOptions';
+import { navigateReturnOrBack, parseSafeDashboardReturnTo } from '@/lib/accountancyReturnTo';
 
 type LineFields = {
     category: string;
@@ -213,6 +214,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const searchParams = useSearchParams();
     const parentExpenseId = searchParams.get('parentExpenseId')?.trim() ?? '';
     const parentIncomeId = searchParams.get('parentIncomeId')?.trim() ?? '';
+    const returnTo = parseSafeDashboardReturnTo(searchParams.get('returnTo'));
     const isSubtransactionMode = Boolean(parentExpenseId || parentIncomeId);
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
@@ -1107,7 +1109,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
 
             setSnackbar({ open: true, message, severity: failCount === 0 ? 'success' : 'warning' });
 
-            if (successCount > 0) router.back();
+            if (successCount > 0) navigateReturnOrBack(router, returnTo);
         } catch (error) {
             console.error('Error adding transactions:', error);
             setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
@@ -1441,7 +1443,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         <>
             <form noValidate autoComplete="off">
                 <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                    <Button variant="text" size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => router.back()} sx={{ minWidth: 0, px: 1 }}>
+                    <Button variant="text" size="small" startIcon={<ArrowBackIcon fontSize="small" />} onClick={() => navigateReturnOrBack(router, returnTo)} sx={{ minWidth: 0, px: 1 }}>
                         {t('common.back')}
                     </Button>
                     <Typography variant="h6" sx={{ fontSize: '1.05rem', fontWeight: 600 }}>
@@ -1769,7 +1771,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 </TableContainer>
 
                 <Stack direction="row" spacing={1} justifyContent="flex-end">
-                    <Button variant="outlined" size="small" onClick={() => router.back()}>
+                    <Button variant="outlined" size="small" onClick={() => navigateReturnOrBack(router, returnTo)}>
                         {t('common.cancel')}
                     </Button>
                     <Button

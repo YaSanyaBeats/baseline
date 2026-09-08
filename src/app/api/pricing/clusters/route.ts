@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
+import { rebuildClustersFromMetadata } from '@/lib/pricing/clusterMeta';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
 import { writePricingJournal } from '@/lib/pricing/journal';
 import { ensurePricingSeeded, getRooms } from '@/lib/pricing/seed';
@@ -32,6 +33,19 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json();
     const db = await getDB();
     const col = db.collection(IP_COLLECTIONS.rooms);
+
+    if (body.rebuildFromMetadata === true) {
+        await ensurePricingSeeded();
+        const result = await rebuildClustersFromMetadata();
+        await writePricingJournal({
+            userId: String(access.user._id || access.user.login),
+            userName: access.user.name || access.user.login,
+            type: 'кластер',
+            target: 'metadata',
+            detail: `собрано ${result.clusters.length} кластеров, назначено ${result.assigned}, без метаданных ${result.unassigned}`,
+        });
+        return NextResponse.json({ success: true, data: result });
+    }
 
     if (typeof body.roomId === 'number' && typeof body.cluster === 'string' && body.cluster.trim()) {
         const room = await col.findOne({ roomId: body.roomId });

@@ -124,50 +124,70 @@ async function loadBookings(): Promise<OccupancyBooking[]> {
     return rows as unknown as OccupancyBooking[];
 }
 
-async function competitorAnchors(roomIds: number[], channels: Awaited<ReturnType<typeof getChannels>>) {
+async function competitorAnchors(rooms: IpRoom[], channels: Awaited<ReturnType<typeof getChannels>>) {
     const db = await getDB();
+    const clusters = [...new Set(rooms.map((r) => r.cluster).filter(Boolean))];
+    const roomIds = rooms.map((r) => r.roomId);
+    const roomToCluster = new Map(rooms.map((r) => [r.roomId, r.cluster]));
+
     const members = await db
         .collection(IP_COLLECTIONS.competitors)
-        .find({ roomId: { $in: roomIds }, status: 'approved' })
+        .find({ status: 'approved', cluster: { $in: clusters } })
         .toArray();
 
-    const countByRoom = new Map<number, number>();
+    const countByCluster = new Map<string, number>();
+    const competitorIds: string[] = [];
     for (const m of members) {
-        countByRoom.set(m.roomId, (countByRoom.get(m.roomId) ?? 0) + 1);
+        const cluster = String(m.cluster || roomToCluster.get(Number(m.roomId)) || '');
+        if (!cluster) continue;
+        countByCluster.set(cluster, (countByCluster.get(cluster) ?? 0) + 1);
+        if (m._id) competitorIds.push(String(m._id));
     }
 
-    const pricesByRoom = new Map<number, number[]>();
     const snapshots = await db
         .collection(IP_COLLECTIONS.snapshots)
-        .find({ roomId: { $in: roomIds } })
+        .find({
+            $or: [
+                { cluster: { $in: clusters } },
+                { competitorId: { $in: competitorIds } },
+                { roomId: { $in: roomIds } },
+            ],
+        })
         .sort({ createdAt: -1 })
-        .limit(2000)
+        .limit(3000)
         .toArray();
 
+    const pricesByCluster = new Map<string, number[]>();
     for (const snap of snapshots) {
         if (!snap.pricePerNightNorm || snap.availabilityStatus === 'strategic_hold') continue;
-        const roomId = Number(snap.roomId);
-        if (!pricesByRoom.has(roomId)) pricesByRoom.set(roomId, []);
+        const cluster = String(snap.cluster || roomToCluster.get(Number(snap.roomId)) || '');
+        if (!cluster) continue;
+        if (!pricesByCluster.has(cluster)) pricesByCluster.set(cluster, []);
         const site = otaToSite(Number(snap.pricePerNightNorm), snap.platform || 'airbnb', channels);
-        pricesByRoom.get(roomId)!.push(site);
+        pricesByCluster.get(cluster)!.push(site);
     }
 
+    const countByRoom = new Map<number, number>();
     const individual = new Map<number, number | null>();
-    for (const roomId of roomIds) {
-        const prices = pricesByRoom.get(roomId) || [];
-        const live = countByRoom.get(roomId) ?? 0;
-        if (live >= 5 && prices.length >= 5) {
-            const med = median(prices);
+    const medianByRoom = new Map<number, number | null>();
+
+    for (const room of rooms) {
+        const prices = pricesByCluster.get(room.cluster) || [];
+        const live = countByCluster.get(room.cluster) ?? 0;
+        countByRoom.set(room.roomId, live);
+        const med = median(prices);
+        medianByRoom.set(room.roomId, med);
+        if (live >= 5 && prices.length >= 5 && med != null) {
             const min = Math.min(...prices);
             const max = Math.max(...prices);
             const spread = med ? (max - min) / med : 1;
-            individual.set(roomId, spread <= 0.8 ? med : null);
+            individual.set(room.roomId, spread <= 0.8 ? med : null);
         } else {
-            individual.set(roomId, null);
+            individual.set(room.roomId, null);
         }
     }
 
-    return { countByRoom, individual, medianByRoom: new Map([...pricesByRoom].map(([id, p]) => [id, median(p)])) };
+    return { countByRoom, individual, medianByRoom };
 }
 
 export async function buildDesk(
@@ -211,10 +231,7 @@ export async function buildDesk(
         seenAssigned.add(room.roomId);
         return true;
     });
-    const { countByRoom, individual, medianByRoom } = await competitorAnchors(
-        uniqueAssigned.map((r) => r.roomId),
-        channels,
-    );
+    const { countByRoom, individual, medianByRoom } = await competitorAnchors(uniqueAssigned, channels);
 
     const occTarget = targets[period] ?? 0;
     const groups = new Map<string, IpRoom[]>();
@@ -248,15 +265,12 @@ export async function buildDesk(
         });
         for (const p of prepared) companySlices.push(p.occupancy);
 
-        const reliableAnchors = prepared
-            .map((p) => p.ownAnchor)
-            .filter((v): v is number => v != null);
-
         const clusterOcc = mergeOccupancy(prepared.map((p) => p.occupancy));
-        const clusterAnchor =
-            useCompetitors && reliableAnchors.length >= 3
-                ? reliableAnchors.sort((a, b) => a - b)[Math.floor(reliableAnchors.length / 2)]
-                : null;
+        const clusterAnchor = useCompetitors
+            ? prepared.find((p) => p.ownAnchor != null)?.ownAnchor ??
+              prepared.find((p) => p.roomMedian != null)?.roomMedian ??
+              null
+            : null;
 
         const clusterRec = recommendPrice({
             cell,
@@ -274,7 +288,7 @@ export async function buildDesk(
             let competitor: number | null = null;
             if (ownAnchor != null) {
                 competitor = ownAnchor;
-                anchorMode = 'individual';
+                anchorMode = 'cluster';
             } else if (clusterAnchor != null) {
                 competitor = clusterAnchor;
                 anchorMode = 'cluster';

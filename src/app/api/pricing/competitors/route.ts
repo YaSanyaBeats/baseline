@@ -4,6 +4,7 @@ import { getDB } from '@/lib/db/getDB';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
 import { detectPlatform } from '@/lib/pricing/apify/registry';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
+import { ensureCompetitorsOnCluster, upsertClusterCompetitor } from '@/lib/pricing/competitors';
 import { writePricingJournal } from '@/lib/pricing/journal';
 import { ensurePricingSeeded, getRooms } from '@/lib/pricing/seed';
 
@@ -11,6 +12,7 @@ export async function GET() {
     const access = await requirePricingAccess();
     if (!isPricingSession(access)) return access;
     await ensurePricingSeeded();
+    await ensureCompetitorsOnCluster();
     const db = await getDB();
     const [competitors, rooms] = await Promise.all([
         db.collection(IP_COLLECTIONS.competitors).find({}).toArray(),
@@ -19,35 +21,52 @@ export async function GET() {
     const serialized = competitors.map((c) => ({
         ...c,
         _id: String(c._id),
-        roomId: Number(c.roomId),
+        cluster: String(c.cluster || ''),
+        roomId: c.roomId == null ? null : Number(c.roomId),
         status: String(c.status || 'approved'),
+        source: String(c.source || 'manual'),
+        lastPrice: c.lastPrice == null ? null : Number(c.lastPrice),
+        lastRating: c.lastRating == null ? null : Number(c.lastRating),
+        lastReviews: c.lastReviews == null ? null : Number(c.lastReviews),
+        lastStayNights: c.lastStayNights == null ? null : Number(c.lastStayNights),
+        lastPriceByStay: c.lastPriceByStay || {},
+        lastWarnings: Array.isArray(c.lastWarnings) ? c.lastWarnings : [],
+        lastScrapedAt: c.lastScrapedAt
+            ? new Date(c.lastScrapedAt as Date).toISOString()
+            : c.updatedAt
+              ? new Date(c.updatedAt as Date).toISOString()
+              : null,
+        updatedAt: c.updatedAt ? new Date(c.updatedAt as Date).toISOString() : null,
     }));
-    const byRoom = new Map<number, typeof serialized>();
+    const byCluster = new Map<string, typeof serialized>();
     for (const c of serialized) {
-        const list = byRoom.get(c.roomId) || [];
+        if (!c.cluster) continue;
+        const list = byCluster.get(c.cluster) || [];
         list.push(c);
-        byRoom.set(c.roomId, list);
+        byCluster.set(c.cluster, list);
     }
-    const clusters = new Map<string, Array<{ room: (typeof rooms)[number]; competitors: typeof serialized }>>();
-    for (const room of rooms.filter((r) => r.cluster)) {
-        const list = clusters.get(room.cluster) || [];
-        list.push({ room, competitors: byRoom.get(room.roomId) || [] });
-        clusters.set(room.cluster, list);
-    }
-    const data = [...clusters.entries()].map(([cluster, members]) => {
-        const covered = members.filter((m) => m.competitors.some((c) => c.status === 'approved')).length;
-        return {
-            cluster,
-            objects: members.length,
-            covered,
-            coverage: members.length ? covered / members.length : 0,
-            rooms: members.map((m) => ({
-                roomId: m.room.roomId,
-                name: m.room.name,
-                competitors: m.competitors,
-            })),
-        };
-    });
+    const data = rooms
+        .filter((r) => r.cluster)
+        .reduce<Array<{ cluster: string; rooms: typeof rooms }>>((acc, room) => {
+            const row = acc.find((x) => x.cluster === room.cluster);
+            if (row) row.rooms.push(room);
+            else acc.push({ cluster: room.cluster, rooms: [room] });
+            return acc;
+        }, [])
+        .map(({ cluster, rooms: members }) => {
+            const list = byCluster.get(cluster) || [];
+            const approved = list.filter((c) => c.status === 'approved');
+            return {
+                cluster,
+                objects: members.length,
+                covered: approved.length > 0 ? members.length : 0,
+                coverage: approved.length > 0 ? 1 : 0,
+                approved: approved.length,
+                total: list.length,
+                competitors: list,
+                rooms: members.map((m) => ({ roomId: m.roomId, name: m.name })),
+            };
+        });
     return NextResponse.json({ success: true, data });
 }
 
@@ -55,13 +74,16 @@ export async function POST(request: NextRequest) {
     const access = await requirePricingAccess();
     if (!isPricingSession(access)) return access;
     const body = await request.json();
-    const roomId = Number(body.roomId);
+    const rooms = await getRooms();
+    const cluster =
+        typeof body.cluster === 'string' && body.cluster.trim()
+            ? body.cluster.trim()
+            : rooms.find((r) => r.roomId === Number(body.roomId))?.cluster || '';
     const urls: string[] = Array.isArray(body.urls) ? body.urls : body.url ? [String(body.url)] : [];
-    if (!roomId || !urls.length) {
-        return NextResponse.json({ success: false, message: 'Нужны roomId и url / urls' }, { status: 400 });
+    if (!cluster || !urls.length) {
+        return NextResponse.json({ success: false, message: 'Нужны cluster (или roomId) и url / urls' }, { status: 400 });
     }
-    const db = await getDB();
-    const docs = [];
+    let added = 0;
     for (const raw of urls) {
         const url = String(raw).trim();
         if (!url) continue;
@@ -69,31 +91,28 @@ export async function POST(request: NextRequest) {
         if (!platform) {
             return NextResponse.json({ success: false, message: `Неизвестная площадка: ${url}` }, { status: 400 });
         }
-        docs.push({
-            roomId,
-            platform,
+        const result = await upsertClusterCompetitor({
+            cluster,
             url,
+            platform,
             name: body.name || url,
             bedrooms: body.bedrooms ?? null,
             sqm: body.sqm ?? null,
             view: body.view ?? null,
             status: 'approved',
+            source: 'manual',
             isReference: Boolean(body.isReference),
-            lastPrice: null,
-            lastSiteAnchor: null,
-            lastAvailability: null,
-            updatedAt: null,
         });
+        if (result === 'inserted') added += 1;
     }
-    if (docs.length) await db.collection(IP_COLLECTIONS.competitors).insertMany(docs);
     await writePricingJournal({
         userId: String(access.user._id || access.user.login),
         userName: access.user.name || access.user.login,
         type: 'comp set +',
-        target: `#${roomId}`,
-        detail: docs.map((d) => d.url).join(', '),
+        target: cluster,
+        detail: urls.join(', '),
     });
-    return NextResponse.json({ success: true, added: docs.length });
+    return NextResponse.json({ success: true, added });
 }
 
 export async function PATCH(request: NextRequest) {

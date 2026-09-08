@@ -18,7 +18,7 @@ import SendIcon from '@mui/icons-material/Send';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { AccountancyCategory, AccountancyAttachment, Income, IncomeStatus, UserObject } from "@/lib/types";
 import { getIncomeById, updateIncome } from "@/lib/incomes";
 import { getCounterparties } from "@/lib/counterparties";
@@ -30,7 +30,7 @@ import { useSnackbar } from "@/providers/SnackbarContext";
 import { useUser } from "@/providers/UserProvider";
 import { useTranslation } from "@/i18n/useTranslation";
 import { useObjects } from "@/providers/ObjectsProvider";
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import RoomsMultiSelect from "@/components/objectsMultiSelect/RoomsMultiSelect";
 import BookingSelectModal from "@/components/bookingsModal/BookingSelectModal";
 import { getAccountancyCategories } from "@/lib/accountancyCategories";
@@ -38,6 +38,7 @@ import { buildCategoriesForSelect } from "@/lib/accountancyCategoryUtils";
 import { getAccountancyMutationErrorMessage } from '@/lib/axiosResponseMessage';
 import { resolveCategoryFieldsFromId, resolveCategoryIdFromRecord } from "@/lib/accountancyCategoryResolve";
 import { isForbiddenZeroUnitAmountOnEdit, getEffectiveReportAmount, getSignedRecordAmount } from '@/lib/accountancyUtils';
+import { navigateReturnOrBack, parseSafeDashboardReturnTo, withReturnTo } from '@/lib/accountancyReturnTo';
 
 function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
     return room.name != null && String(room.name).trim() !== ''
@@ -45,11 +46,13 @@ function stableIncomeRoomLabel(room: { id: number; name?: string }): string {
         : `Unit ${room.id}`;
 }
 
-export default function Page() {
+function IncomeEditPage() {
     const { t, language } = useTranslation();
     const router = useRouter();
     const params = useParams();
+    const searchParams = useSearchParams();
     const incomeId = params?.id as string;
+    const returnTo = parseSafeDashboardReturnTo(searchParams.get('returnTo'));
     const { isAdmin, isAccountant, user } = useUser();
     const { objects } = useObjects();
     const [income, setIncome] = useState<Partial<Income & { dateString: string }>>({});
@@ -316,7 +319,7 @@ export default function Page() {
                     severity: res.success ? 'success' : 'error',
                 });
             if (res.success) {
-                router.back();
+                navigateReturnOrBack(router, returnTo);
             }
             })
             .catch((error) => {
@@ -332,7 +335,12 @@ export default function Page() {
 
     const handleAddSubtransaction = () => {
         if (!incomeId) return;
-        router.push(`/dashboard/accountancy/expense/add?parentIncomeId=${encodeURIComponent(incomeId)}`);
+        router.push(
+            withReturnTo(
+                `/dashboard/accountancy/expense/add?parentIncomeId=${encodeURIComponent(incomeId)}`,
+                returnTo,
+            ),
+        );
     };
 
     const bookingModalInitialRoomId = useMemo(() => {
@@ -644,7 +652,7 @@ export default function Page() {
                         type="button"
                         variant="outlined"
                         startIcon={<ArrowBackIcon />}
-                        onClick={() => router.back()}
+                        onClick={() => navigateReturnOrBack(router, returnTo)}
                     >
                         {t('common.cancel')}
                     </Button>
@@ -675,6 +683,14 @@ export default function Page() {
                 initialRoomId={bookingModalInitialRoomId}
             />
         </>
+    );
+}
+
+export default function Page() {
+    return (
+        <Suspense fallback={null}>
+            <IncomeEditPage />
+        </Suspense>
     );
 }
 

@@ -1,3 +1,4 @@
+import type { ObjectType, RoomLevel } from '@/lib/types';
 import type { PeriodId, SeasonRegime } from './periods';
 
 export type PricingQuality = 'ok' | 'thin' | 'one-yr' | 'LT-only' | 'est';
@@ -34,6 +35,10 @@ export type IpRoom = {
     managedTo: string | null;
     needsOnboarding: boolean;
     source: 'seed' | 'live';
+    district?: string | null;
+    bedrooms?: number | null;
+    objectType?: ObjectType | null;
+    level?: RoomLevel | null;
 };
 
 export type IpOccupancyTarget = {
@@ -106,13 +111,13 @@ export type ApifyBudgetSettings = {
 };
 
 export const DEFAULT_APIFY_BUDGET: ApifyBudgetSettings = {
-    scrapingEnabled: true,
-    perRunUsd: 2,
-    perDayUsd: 15,
-    perMonthUsd: 80,
+    scrapingEnabled: false,
+    perRunUsd: 0.35,
+    perDayUsd: 0.5,
+    perMonthUsd: 2,
     ttlHours: 72,
-    timeoutMs: 8 * 60 * 1000,
-    maxItems: 15,
+    timeoutMs: 3 * 60 * 1000,
+    maxItems: 1,
     topNPerObject: 5,
 };
 
@@ -203,7 +208,8 @@ export type CompetitorPlatform = 'airbnb' | 'booking' | 'agoda' | 'trip';
 export type CompetitorStatus = 'approved' | 'candidate' | 'blocked' | 'excluded';
 
 export type IpCompetitor = {
-    roomId: number;
+    cluster: string;
+    roomId?: number | null;
     platform: CompetitorPlatform;
     url: string;
     name: string;
@@ -215,5 +221,12 @@ export type IpCompetitor = {
     lastPrice: number | null;
     lastSiteAnchor: number | null;
     lastAvailability: string | null;
+    lastRating: number | null;
+    lastReviews: number | null;
+    lastStayNights: number | null;
+    lastPriceByStay?: Partial<Record<14 | 20, number>>;
+    lastWarnings: string[];
+    lastScrapedAt: Date | null;
     updatedAt: Date | null;
+    source?: 'manual' | 'seed' | 'discovery';
 };

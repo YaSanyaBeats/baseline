@@ -51,8 +51,9 @@ export async function recordCost(params: {
     platform: string;
     costUsd: number;
     usefulItems: number;
-    runType: 'manual' | 'schedule';
+    runType: 'manual' | 'schedule' | 'discovery';
     roomId?: number;
+    cluster?: string;
 }) {
     const db = await getDB();
     await db.collection(IP_COLLECTIONS.apifyCosts).insertOne({

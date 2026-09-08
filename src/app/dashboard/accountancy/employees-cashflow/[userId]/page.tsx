@@ -9,6 +9,7 @@ import {
     Box,
     Button,
     Checkbox,
+    IconButton,
     Paper,
     Table,
     TableBody,
@@ -25,9 +26,10 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
 import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
 import { getExpenses, updateExpense } from '@/lib/expenses';
 import { getIncomes, updateIncome } from '@/lib/incomes';
@@ -36,8 +38,10 @@ import {
     getExpenseSum,
     getIncomeSum,
     getEffectiveReportAmount,
+    getParentTransactionPointer,
     parseSignedLocalizedAmount,
 } from '@/lib/accountancyUtils';
+import { withReturnTo } from '@/lib/accountancyReturnTo';
 import { accountancyBalanceMuiColor, roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
 import { getCounterparties } from '@/lib/counterparties';
@@ -52,6 +56,9 @@ import {
     ReportAmountDeltaHeaderCells,
 } from '@/components/accountancy/ReportAmountDeltaCells';
 import { createCashflowExport, getCashflowExports, type CashflowExportFile } from '@/lib/cashflowExports';
+import QuickSubtransactionDialog, {
+    type QuickSubtransactionParent,
+} from '@/components/accountancy/QuickSubtransactionDialog';
 
 type RecordRow = {
     _id: string;
@@ -70,6 +77,7 @@ type RecordRow = {
     reportAmount?: number | null;
     monthKey: string;
     monthLabel: string;
+    isSubtransaction: boolean;
 };
 
 type MonthGroup = {
@@ -173,6 +181,7 @@ function currentMonthKey(): string {
 
 export default function Page() {
     const params = useParams();
+    const router = useRouter();
     const userId = typeof params.userId === 'string' ? params.userId : '';
     const { t, language } = useTranslation();
     const { objects } = useObjects();
@@ -197,6 +206,7 @@ export default function Page() {
     const [exportRangeTouched, setExportRangeTouched] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [exportFiles, setExportFiles] = useState<CashflowExportFile[]>([]);
+    const [subtransactionParent, setSubtransactionParent] = useState<QuickSubtransactionParent | null>(null);
     const reportAmountEditEscapeRef = useRef(false);
 
     const hasAccess = isAdmin || isAccountant;
@@ -308,6 +318,7 @@ export default function Page() {
                     reportAmount: e.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
+                    isSubtransaction: Boolean(getParentTransactionPointer(e)),
                 };
             }),
             ...incomes.map((i) => {
@@ -330,6 +341,7 @@ export default function Page() {
                     reportAmount: i.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
+                    isSubtransaction: Boolean(getParentTransactionPointer(i)),
                 };
             }),
         ];
@@ -415,6 +427,32 @@ export default function Page() {
         value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const rowKey = (row: RecordRow) => `${row.type}-${row._id}`;
+    const cashflowReturnTo = userId ? `/dashboard/accountancy/employees-cashflow/${userId}` : '';
+
+    const transactionHref = (row: RecordRow) => {
+        const base =
+            row.type === 'expense'
+                ? `/dashboard/accountancy/expense/edit/${row._id}`
+                : `/dashboard/accountancy/income/edit/${row._id}`;
+        return withReturnTo(base, cashflowReturnTo);
+    };
+
+    const openTransaction = (row: RecordRow) => {
+        router.push(transactionHref(row));
+    };
+
+    const openSubtransactionDialog = (row: RecordRow) => {
+        if (row.isSubtransaction) return;
+        if (row.type === 'expense') {
+            const expense = expenses.find((e) => e._id === row._id);
+            if (!expense) return;
+            setSubtransactionParent({ type: 'expense', record: expense });
+            return;
+        }
+        const income = incomes.find((i) => i._id === row._id);
+        if (!income) return;
+        setSubtransactionParent({ type: 'income', record: income });
+    };
 
     const handleReportAmountCommit = async (row: RecordRow, draft: string) => {
         if (reportAmountEditEscapeRef.current) {
@@ -852,11 +890,25 @@ export default function Page() {
                                                 </TableCell>
                                                 <ReportAmountDeltaHeaderCells t={t} />
                                                 <TableCell align="center">{t('accountancy.statusColumn')}</TableCell>
+                                                <TableCell align="center" sx={{ width: 48, px: 0.5 }} />
                                             </TableRow>
                                         </TableHead>
                                         <TableBody>
                                             {monthGroup.rows.map((row) => (
-                                                <TableRow key={`${row.type}-${row._id}`}>
+                                                <TableRow
+                                                    key={`${row.type}-${row._id}`}
+                                                    hover
+                                                    tabIndex={0}
+                                                    aria-label={t('common.view')}
+                                                    onClick={() => openTransaction(row)}
+                                                    onKeyDown={(e) => {
+                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                            e.preventDefault();
+                                                            openTransaction(row);
+                                                        }
+                                                    }}
+                                                    sx={{ cursor: 'pointer' }}
+                                                >
                                                     <TableCell>{formatDate(row.date)}</TableCell>
                                                     <TableCell
                                                         sx={{
@@ -938,7 +990,11 @@ export default function Page() {
                                                             setReportAmountDraft('');
                                                         }}
                                                     />
-                                                    <TableCell align="center" sx={{ py: 0 }}>
+                                                    <TableCell
+                                                        align="center"
+                                                        sx={{ py: 0 }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
                                                         <Tooltip
                                                             title={
                                                                 row.status === 'confirmed'
@@ -965,6 +1021,24 @@ export default function Page() {
                                                             </span>
                                                         </Tooltip>
                                                     </TableCell>
+                                                    <TableCell
+                                                        align="center"
+                                                        sx={{ py: 0, px: 0.5 }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {!row.isSubtransaction ? (
+                                                            <Tooltip title={t('accountancy.addSubtransaction')}>
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="secondary"
+                                                                    onClick={() => openSubtransactionDialog(row)}
+                                                                    aria-label={t('accountancy.addSubtransaction')}
+                                                                >
+                                                                    <SubdirectoryArrowRightIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </Tooltip>
+                                                        ) : null}
+                                                    </TableCell>
                                                 </TableRow>
                                             ))}
                                         </TableBody>
@@ -975,6 +1049,21 @@ export default function Page() {
                     ))}
                 </Box>
             )}
+            <QuickSubtransactionDialog
+                open={subtransactionParent != null}
+                parent={subtransactionParent}
+                counterparties={counterparties}
+                usersWithCashflow={usersWithCashflow}
+                cashflows={allCashflows}
+                onClose={() => setSubtransactionParent(null)}
+                onCreated={(created) => {
+                    if (created.type === 'expense') {
+                        setExpenses((prev) => [created.record as Expense, ...prev]);
+                        return;
+                    }
+                    setIncomes((prev) => [created.record as Income, ...prev]);
+                }}
+            />
         </Box>
     );
 }

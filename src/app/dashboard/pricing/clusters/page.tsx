@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
+    Alert,
     Box,
     Button,
     CircularProgress,
@@ -30,6 +31,7 @@ export default function ClustersPage() {
     const [loading, setLoading] = useState(true);
     const [data, setData] = useState<any>(null);
     const [newName, setNewName] = useState('');
+    const [rebuilding, setRebuilding] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -60,7 +62,10 @@ export default function ClustersPage() {
     return (
         <Stack spacing={2}>
             <Paper sx={{ p: 2 }}>
-                <Stack direction="row" spacing={1}>
+                <Alert severity="info" sx={{ mb: 2 }}>
+                    {t('pricing.rebuildFromMetaHint')}
+                </Alert>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                     <TextField size="small" label={t('pricing.newCluster')} value={newName} onChange={(e) => setNewName(e.target.value)} />
                     <Button
                         variant="contained"
@@ -73,6 +78,27 @@ export default function ClustersPage() {
                     >
                         {t('pricing.addCluster')}
                     </Button>
+                    <Button
+                        variant="outlined"
+                        disabled={rebuilding}
+                        onClick={async () => {
+                            setRebuilding(true);
+                            try {
+                                const res = await patchCluster({ rebuildFromMetadata: true });
+                                await load();
+                                notify(
+                                    `${t('pricing.rebuildDone')}: ${res.data?.clusters?.length ?? 0} · ${res.data?.assigned ?? 0}`,
+                                    'success',
+                                );
+                            } catch {
+                                notify(t('pricing.saveError'), 'error');
+                            } finally {
+                                setRebuilding(false);
+                            }
+                        }}
+                    >
+                        {t('pricing.rebuildFromMeta')}
+                    </Button>
                 </Stack>
             </Paper>
 
@@ -83,9 +109,33 @@ export default function ClustersPage() {
                     </Typography>
                     {data.unassigned.map((room: any) => (
                         <Stack key={room.roomId} direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-                            <Typography sx={{ flex: 1 }}>
-                                {room.name} #{room.roomId}
-                            </Typography>
+                            <Box sx={{ flex: 1 }}>
+                                <Typography>
+                                    {room.name} #{room.roomId}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                    {[
+                                        room.district || '—',
+                                        room.objectType === 'villa'
+                                            ? t('dashboard.objectTypeVilla')
+                                            : room.objectType === 'apartments'
+                                              ? t('dashboard.objectTypeApartments')
+                                              : '—',
+                                        room.level === 'economy'
+                                            ? t('dashboard.levelEconomy')
+                                            : room.level === 'comfort'
+                                              ? t('dashboard.levelComfort')
+                                              : room.level === 'premium'
+                                                ? t('dashboard.levelPremium')
+                                                : room.level === 'lux'
+                                                  ? t('dashboard.levelLux')
+                                                  : '—',
+                                        room.bedrooms == null ? '—' : room.bedrooms === 0 ? t('pricing.studio') : String(room.bedrooms),
+                                    ].join(' · ')}
+                                    {' · '}
+                                    {t('pricing.missingMeta')}
+                                </Typography>
+                            </Box>
                             <FormControl size="small" sx={{ minWidth: 220 }}>
                                 <InputLabel>{t('pricing.cluster')}</InputLabel>
                                 <Select

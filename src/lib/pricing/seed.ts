@@ -13,6 +13,7 @@ import {
     type TemperatureSettings,
 } from './types';
 import type { PeriodId, SeasonRegime } from './periods';
+import { ensureCompetitorsOnCluster } from './competitors';
 import clustersSeed from './seed/clusters.json';
 import roomsMasterSeed from './seed/rooms-master.json';
 import targetsSeed from './seed/occupancy-targets.json';
@@ -116,13 +117,15 @@ async function mergeLivePortfolio(): Promise<IpRoom[]> {
 function seedCompetitors() {
     const docs: Array<Record<string, unknown>> = [];
     const root = compSetExample as unknown as {
+        cluster?: string;
         objects?: Record<string, { roomId: number | null; comps?: Array<Record<string, unknown>> }>;
     };
+    const cluster = String(root.cluster || 'Studio Surin');
     for (const obj of Object.values(root.objects || {})) {
-        if (obj.roomId == null) continue;
         for (const comp of obj.comps || []) {
             docs.push({
-                roomId: obj.roomId,
+                cluster,
+                roomId: obj.roomId ?? null,
                 platform: comp.platform,
                 url: comp.url,
                 name: comp.name,
@@ -134,7 +137,13 @@ function seedCompetitors() {
                 lastPrice: null,
                 lastSiteAnchor: null,
                 lastAvailability: null,
+                lastRating: null,
+                lastReviews: null,
+                lastStayNights: null,
+                lastWarnings: [],
+                lastScrapedAt: null,
                 updatedAt: null,
+                source: 'seed',
             });
         }
     }
@@ -225,12 +234,31 @@ export async function ensurePricingSeeded(): Promise<{ seeded: boolean }> {
         { $setOnInsert: { ...DEFAULT_APIFY_BUDGET } },
         { upsert: true },
     );
+    const apifyDoc = await settings.findOne({ _id: 'apify' as never });
+    const dayCap = Number(apifyDoc?.perDayUsd);
+    const monthCap = Number(apifyDoc?.perMonthUsd);
+    if (dayCap >= 15 || monthCap >= 80) {
+        await settings.updateOne(
+            { _id: 'apify' as never },
+            {
+                $set: {
+                    scrapingEnabled: false,
+                    perRunUsd: DEFAULT_APIFY_BUDGET.perRunUsd,
+                    perDayUsd: DEFAULT_APIFY_BUDGET.perDayUsd,
+                    perMonthUsd: DEFAULT_APIFY_BUDGET.perMonthUsd,
+                    timeoutMs: DEFAULT_APIFY_BUDGET.timeoutMs,
+                    maxItems: DEFAULT_APIFY_BUDGET.maxItems,
+                },
+            },
+        );
+    }
 
     if ((await db.collection(IP_COLLECTIONS.competitors).countDocuments()) === 0) {
         const comps = seedCompetitors();
         if (comps.length) await db.collection(IP_COLLECTIONS.competitors).insertMany(comps as never[]);
         seeded = true;
     }
+    await ensureCompetitorsOnCluster();
 
     return { seeded };
 }
