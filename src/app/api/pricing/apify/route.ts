@@ -20,10 +20,10 @@ export async function GET() {
     const now = new Date();
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [settings, daySpent, monthSpent, db] = await Promise.all([
-        getApifyBudget(),
-        spentSince(dayStart),
-        spentSince(monthStart),
+    const settings = await getApifyBudget();
+    const [daySpent, monthSpent, db] = await Promise.all([
+        spentSince(dayStart, settings.budgetResetAt),
+        spentSince(monthStart, settings.budgetResetAt),
         getDB(),
     ]);
     const runs = await db.collection(IP_COLLECTIONS.apifyRuns).find({}).sort({ startedAt: -1 }).limit(30).toArray();
@@ -81,6 +81,30 @@ export async function POST(request: NextRequest) {
             { upsert: true },
         );
         return NextResponse.json({ success: true });
+    }
+
+    if (body.action === 'resetLimits') {
+        const db = await getDB();
+        const now = new Date();
+        await db.collection(IP_COLLECTIONS.settings).updateOne(
+            { _id: 'apify' as never },
+            {
+                $set: {
+                    perDayUsd: DEFAULT_APIFY_BUDGET.perDayUsd,
+                    perMonthUsd: DEFAULT_APIFY_BUDGET.perMonthUsd,
+                    budgetResetAt: now,
+                },
+            },
+            { upsert: true },
+        );
+        await writePricingJournal({
+            userId: String(access.user._id || access.user.login),
+            userName: access.user.name || access.user.login,
+            type: 'apify сброс лимитов',
+            target: 'global',
+            detail: `$${DEFAULT_APIFY_BUDGET.perDayUsd}/день · $${DEFAULT_APIFY_BUDGET.perMonthUsd}/месяц, счётчики обнулены`,
+        });
+        return NextResponse.json({ success: true, data: { budgetResetAt: now.toISOString() } });
     }
 
     if (body.action === 'estimate') {

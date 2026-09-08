@@ -108,13 +108,14 @@ export type ApifyBudgetSettings = {
     timeoutMs: number;
     maxItems: number;
     topNPerObject: number;
+    budgetResetAt?: Date | string | null;
 };
 
 export const DEFAULT_APIFY_BUDGET: ApifyBudgetSettings = {
     scrapingEnabled: false,
     perRunUsd: 0.35,
-    perDayUsd: 0.5,
-    perMonthUsd: 2,
+    perDayUsd: 2,
+    perMonthUsd: 10,
     ttlHours: 72,
     timeoutMs: 3 * 60 * 1000,
     maxItems: 1,

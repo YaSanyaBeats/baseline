@@ -1078,6 +1078,8 @@
     "apifyMonth": "Month",
     "apifyStop": "Kill switch",
     "apifyEnable": "Enable scraping",
+    "apifyResetLimits": "Reset limits",
+    "apifyLimitsReset": "Limits reset, spend cleared",
     "apifyNoToken": "APIFY_TOKEN is not set. You can add competitors manually; price fetch is unavailable.",
     "apifyDone": "Fetch done, cost",
     "newCluster": "New cluster",

@@ -118,6 +118,11 @@ export async function enableApify() {
     return data;
 }
 
+export async function resetApifyLimits() {
+    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'resetLimits' });
+    return data;
+}
+
 export async function discoverCluster(cluster: string, platform: string) {
     const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'discover', cluster, platform });
     return data;

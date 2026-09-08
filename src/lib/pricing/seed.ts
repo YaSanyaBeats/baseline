@@ -237,6 +237,17 @@ export async function ensurePricingSeeded(): Promise<{ seeded: boolean }> {
     const apifyDoc = await settings.findOne({ _id: 'apify' as never });
     const dayCap = Number(apifyDoc?.perDayUsd);
     const monthCap = Number(apifyDoc?.perMonthUsd);
+    if (!Number.isFinite(dayCap) || dayCap < DEFAULT_APIFY_BUDGET.perDayUsd || !Number.isFinite(monthCap) || monthCap < DEFAULT_APIFY_BUDGET.perMonthUsd) {
+        await settings.updateOne(
+            { _id: 'apify' as never },
+            {
+                $set: {
+                    perDayUsd: DEFAULT_APIFY_BUDGET.perDayUsd,
+                    perMonthUsd: DEFAULT_APIFY_BUDGET.perMonthUsd,
+                },
+            },
+        );
+    }
     if (dayCap >= 15 || monthCap >= 80) {
         await settings.updateOne(
             { _id: 'apify' as never },
@@ -285,7 +296,9 @@ export async function getChannels(): Promise<ChannelSettings> {
 export async function getApifyBudget(): Promise<ApifyBudgetSettings> {
     const db = await getDB();
     const doc = await db.collection(IP_COLLECTIONS.settings).findOne({ _id: 'apify' as never });
-    return { ...DEFAULT_APIFY_BUDGET, ...(doc || {}) };
+    if (!doc) return DEFAULT_APIFY_BUDGET;
+    const { _id: _ignored, ...rest } = doc as Record<string, unknown> & { _id?: unknown };
+    return { ...DEFAULT_APIFY_BUDGET, ...(rest as Partial<ApifyBudgetSettings>) };
 }
 
 export async function getRooms(): Promise<IpRoom[]> {

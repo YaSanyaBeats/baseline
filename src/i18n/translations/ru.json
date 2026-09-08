@@ -1077,6 +1077,8 @@
     "apifyMonth": "Месяц",
     "apifyStop": "Стоп-кран",
     "apifyEnable": "Включить съём",
+    "apifyResetLimits": "Сбросить лимиты",
+    "apifyLimitsReset": "Лимиты сброшены, расход обнулён",
     "apifyNoToken": "APIFY_TOKEN не задан в окружении. Можно добавлять конкурентов вручную, съём цен недоступен.",
     "apifyDone": "Съём завершён, расход",
     "newCluster": "Новый кластер",

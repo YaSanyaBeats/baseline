@@ -39,6 +39,7 @@ import {
     fetchApifyStatus,
     fetchCompetitors,
     patchCompetitor,
+    resetApifyLimits,
     runApify,
     stopApify,
 } from '@/lib/pricing/client';
@@ -206,6 +207,26 @@ export default function CompsetPage() {
                             {t('pricing.apifyEnable')}
                         </Button>
                     )}
+                    <Button
+                        variant="outlined"
+                        disabled={busy}
+                        onClick={async () => {
+                            setBusy(true);
+                            try {
+                                const res = await resetApifyLimits();
+                                if (!res.success) throw new Error(res.message);
+                                const status = await fetchApifyStatus();
+                                setApify(status);
+                                notify(t('pricing.apifyLimitsReset'), 'success');
+                            } catch (e) {
+                                notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error');
+                            } finally {
+                                setBusy(false);
+                            }
+                        }}
+                    >
+                        {t('pricing.apifyResetLimits')}
+                    </Button>
                 </Stack>
                 {!apify?.tokenConfigured && (
                     <Alert severity="warning" sx={{ mt: 2 }}>

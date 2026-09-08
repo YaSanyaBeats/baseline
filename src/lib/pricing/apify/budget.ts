@@ -9,11 +9,13 @@ export class ApifyBudgetError extends Error {
     }
 }
 
-export async function spentSince(from: Date): Promise<number> {
+export async function spentSince(from: Date, resetAt?: Date | string | null): Promise<number> {
+    const reset = resetAt ? new Date(resetAt) : null;
+    const since = reset && !Number.isNaN(reset.getTime()) && reset > from ? reset : from;
     const db = await getDB();
     const rows = await db
         .collection(IP_COLLECTIONS.apifyCosts)
-        .aggregate([{ $match: { createdAt: { $gte: from } } }, { $group: { _id: null, sum: { $sum: '$costUsd' } } }])
+        .aggregate([{ $match: { createdAt: { $gte: since } } }, { $group: { _id: null, sum: { $sum: '$costUsd' } } }])
         .toArray();
     return Number(rows[0]?.sum || 0);
 }
@@ -33,7 +35,10 @@ export async function assertCanRun(estimatedUsd: number): Promise<{ daySpent: nu
     const now = new Date();
     const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const [daySpent, monthSpent] = await Promise.all([spentSince(dayStart), spentSince(monthStart)]);
+    const [daySpent, monthSpent] = await Promise.all([
+        spentSince(dayStart, settings.budgetResetAt),
+        spentSince(monthStart, settings.budgetResetAt),
+    ]);
 
     if (daySpent + estimatedUsd > settings.perDayUsd) {
         throw new ApifyBudgetError(`Дневной лимит Apify $${settings.perDayUsd} исчерпан (уже $${daySpent.toFixed(2)}).`);
