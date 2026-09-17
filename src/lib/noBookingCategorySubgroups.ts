@@ -4,6 +4,7 @@
 
 import { isExcludedFromAccountancyRoomStatsSumByCategoryId } from '@/lib/accountancyCategoryIds';
 import { getNoBookingSubgroupCategoryOrder } from '@/lib/accountancyOperationGroupCategoryOrder';
+import { normalizeMongoIdString } from '@/lib/mongoId';
 import type { AccountancyCategory, NoBookingSubgroupId } from '@/lib/types';
 
 export type { NoBookingSubgroupId };
@@ -31,16 +32,20 @@ function findCategoryForTransaction(
     categoryName: string | null | undefined,
     categories: readonly AccountancyCategory[],
 ): AccountancyCategory | undefined {
-    const id = (categoryId ?? '').trim();
+    const id = normalizeMongoIdString(categoryId).trim();
     if (id) {
-        const byId = categories.find((c) => c._id === id);
+        const byId = categories.find(
+            (c) => c._id != null && normalizeMongoIdString(c._id) === id,
+        );
         if (byId) return byId;
     }
     const name = (categoryName ?? '').trim();
-    if (name) {
-        return categories.find((c) => c.name === name);
-    }
-    return undefined;
+    if (!name) return undefined;
+    return categories.find((c) => {
+        if (c.name === name) return true;
+        const nameEn = c.nameEn != null ? String(c.nameEn).trim() : '';
+        return nameEn !== '' && nameEn === name;
+    });
 }
 
 function resolveSubgroupFromCategoryOrder(categoryName: string): NoBookingSubgroupId | null {

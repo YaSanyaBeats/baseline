@@ -165,7 +165,8 @@ export function buildOwnerViewSettlementRows(
     allExpenses: Expense[],
     language = 'ru',
     ownerAssignments: UserObject[] = [],
-    ownerObjects: AppObject[] = []
+    ownerObjects: AppObject[] = [],
+    categoryDisplayNameById: Map<string, string> = categoryNameById
 ): CommissionOwnerViewSettlementRow[] {
     const objectNameById = new Map(objectReports.map((r) => [r.objectId, r.objectName] as const));
     const labels = settlementLabels(language);
@@ -223,7 +224,7 @@ export function buildOwnerViewSettlementRows(
         const objectName = resolveObjectName(record);
         const roomName = (record.roomName ?? '').trim() || '—';
         const period = formatSettlementPeriod(record.reportMonth, record.date);
-        const displayCategory = resolveCategoryName(record, categoryNameById);
+        const displayCategory = resolveCategoryName(record, categoryDisplayNameById);
 
         monthPending.push({
             key: rowKey(record, type),

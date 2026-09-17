@@ -41,7 +41,12 @@ export async function computeCommissionOwnerViewPayload(
     if (ownerObjects.length === 0) return null;
 
     const appLanguage: AppLanguage = locale.startsWith('en') ? 'en' : 'ru';
-    const categoryNameById = buildCategoryNameByIdMap(categories, appLanguage);
+    // Канонические (RU) имена — для фильтров/подгрупп; display — только для подписей в отчёте.
+    const categoryNameByIdCanonical = buildCategoryNameByIdMap(categories, 'ru');
+    const categoryNameByIdDisplay =
+        appLanguage === 'ru'
+            ? categoryNameByIdCanonical
+            : buildCategoryNameByIdMap(categories, appLanguage);
 
     const objectReports = await Promise.all(
         ownerObjects.map((obj) =>
@@ -78,7 +83,7 @@ export async function computeCommissionOwnerViewPayload(
     const missingBookingIds = collectOwnerViewExtraBookingIds(
         objectReports,
         monthKey,
-        categoryNameById,
+        categoryNameByIdCanonical,
         categories,
         incomes,
         expenses
@@ -93,12 +98,13 @@ export async function computeCommissionOwnerViewPayload(
     return buildCommissionOwnerViewPayload(
         result,
         locale,
-        categoryNameById,
+        categoryNameByIdCanonical,
         categories,
         incomes,
         expenses,
         extraBookings,
         owner.objects ?? [],
-        ownerObjects
+        ownerObjects,
+        categoryNameByIdDisplay
     );
 }

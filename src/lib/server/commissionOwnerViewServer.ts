@@ -75,9 +75,24 @@ export async function loadCommissionOwnerViewPayloadServer(
             .toArray(),
     ]);
 
-    const expenses = expenseDocs as unknown as Expense[];
-    const incomes = incomeDocs as unknown as Income[];
-    const categories = categoryDocs as unknown as AccountancyCategory[];
+    const expenses = expenseDocs.map((doc) => ({
+        ...(doc as unknown as Expense),
+        _id: normalizeMongoIdString((doc as { _id?: unknown })._id) || undefined,
+        categoryId: normalizeMongoIdString((doc as { categoryId?: unknown }).categoryId) || undefined,
+        parentExpenseId:
+            normalizeMongoIdString((doc as { parentExpenseId?: unknown }).parentExpenseId) || undefined,
+    }));
+    const incomes = incomeDocs.map((doc) => ({
+        ...(doc as unknown as Income),
+        _id: normalizeMongoIdString((doc as { _id?: unknown })._id) || undefined,
+        categoryId: normalizeMongoIdString((doc as { categoryId?: unknown }).categoryId) || undefined,
+        parentExpenseId:
+            normalizeMongoIdString((doc as { parentExpenseId?: unknown }).parentExpenseId) || undefined,
+    }));
+    const categories = categoryDocs.map((doc) => ({
+        ...(doc as unknown as AccountancyCategory),
+        _id: normalizeMongoIdString((doc as { _id?: unknown })._id) || undefined,
+    }));
 
     const bookingFetchers = {
         searchBookings: (params: Parameters<typeof searchBookingsFromDb>[1]) =>

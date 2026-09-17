@@ -213,7 +213,8 @@ function buildRoomSectionsFromObjectReports(
     categories: AccountancyCategory[],
     allIncomes: Income[],
     allExpenses: Expense[],
-    extraBookings: Booking[] = []
+    extraBookings: Booking[] = [],
+    categoryDisplayNameById: Map<string, string> = categoryNameById
 ): CommissionOwnerViewRoomSection[] {
     const multiObject = objectReports.length > 1;
     const buckets = new Map<string, RoomBucket>();
@@ -331,7 +332,8 @@ function buildRoomSectionsFromObjectReports(
             allIncomes,
             objectReports,
             bookingMeta,
-            extraBookings
+            extraBookings,
+            categoryDisplayNameById
         );
         bucket.expenseGroups = buildOwnerViewExpenseGroupsForRoom(
             objectReport,
@@ -343,7 +345,8 @@ function buildRoomSectionsFromObjectReports(
             allIncomes,
             objectReports,
             bookingMeta,
-            extraBookings
+            extraBookings,
+            categoryDisplayNameById
         );
     }
 
@@ -513,7 +516,8 @@ export function buildCommissionOwnerViewPayload(
     allExpenses: Expense[],
     extraBookings: Booking[] = [],
     ownerAssignments: UserObject[] = [],
-    ownerObjects: AppObject[] = []
+    ownerObjects: AppObject[] = [],
+    categoryDisplayNameById: Map<string, string> = categoryNameById
 ): CommissionOwnerViewStoredPayload {
     const roomSections = buildRoomSectionsFromObjectReports(
         result.objectReports,
@@ -522,7 +526,8 @@ export function buildCommissionOwnerViewPayload(
         categories,
         allIncomes,
         allExpenses,
-        extraBookings
+        extraBookings,
+        categoryDisplayNameById
     );
     const settlementRows = buildOwnerViewSettlementRows(
         result.objectReports,
@@ -533,7 +538,8 @@ export function buildCommissionOwnerViewPayload(
         allExpenses,
         language,
         ownerAssignments,
-        ownerObjects
+        ownerObjects,
+        categoryDisplayNameById
     );
     const totals = roomSections.reduce(
         (acc, section) => ({

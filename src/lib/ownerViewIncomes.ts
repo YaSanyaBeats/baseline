@@ -89,7 +89,8 @@ export function buildOwnerViewIncomeGroupsForRoom(
     allIncomes: Income[],
     objectReports: ObjectCommissionResult[],
     bookingMeta: Map<number, BookingMeta>,
-    extraBookings: Booking[]
+    extraBookings: Booking[],
+    categoryDisplayNameById: Map<string, string> = categoryNameById
 ): CommissionOwnerViewIncomeGroup[] {
     if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) {
         return [];
@@ -108,6 +109,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
         if (!incomeInReportMonth(income, monthKey)) continue;
 
         const categoryName = resolveCategoryName(income, categoryNameById);
+        const displayCategoryName = resolveCategoryName(income, categoryDisplayNameById);
         const lineTotal = getReportLineTotal(income);
         if (lineTotal === 0 && !isHolyCowExpenseShareIncomeCategory(income.categoryId, categoryName)) {
             continue;
@@ -121,7 +123,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
 
             pending.push({
                 key: incomeLineKey(income, lineTotal),
-                description: transactionDescription(income, categoryName),
+                description: transactionDescription(income, displayCategoryName),
                 quantity: income.quantity ?? 1,
                 unitPrice: getReportUnitPrice(income),
                 lineTotal,
@@ -144,7 +146,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
 
         pending.push({
             key: incomeLineKey(income, lineTotal),
-            description: transactionDescription(income, categoryName),
+            description: transactionDescription(income, displayCategoryName),
             quantity: income.quantity ?? 1,
             unitPrice: getReportUnitPrice(income),
             lineTotal,

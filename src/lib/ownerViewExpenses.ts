@@ -233,7 +233,8 @@ export function buildOwnerViewExpenseGroupsForRoom(
     allIncomes: Income[],
     objectReports: ObjectCommissionResult[],
     bookingMeta: Map<number, BookingMeta>,
-    extraBookings: Booking[]
+    extraBookings: Booking[],
+    categoryDisplayNameById: Map<string, string> = categoryNameById
 ): CommissionOwnerViewExpenseGroup[] {
     if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) {
         return [];
@@ -308,6 +309,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (isExcludedExpenseCategory(categoryName, expense.categoryId)) continue;
+        const displayCategoryName = resolveCategoryName(expense, categoryDisplayNameById);
 
         const lineTotal = getReportLineTotal(expense);
         if (lineTotal === 0) continue;
@@ -355,7 +357,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
             pending.push({
                 key: expenseLineKey(expense, lineTotal),
-                description: transactionDescription(expense, categoryName),
+                description: transactionDescription(expense, displayCategoryName),
                 quantity: expense.quantity ?? 1,
                 unitPrice: getReportUnitPrice(expense),
                 lineTotal,
@@ -393,7 +395,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
         pending.push({
             key: expenseLineKey(expense, lineTotal),
-            description: transactionDescription(expense, categoryName),
+            description: transactionDescription(expense, displayCategoryName),
             quantity: expense.quantity ?? 1,
             unitPrice: getReportUnitPrice(expense),
             lineTotal,
