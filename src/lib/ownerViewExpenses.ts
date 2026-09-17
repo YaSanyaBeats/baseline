@@ -83,12 +83,14 @@ export type CommissionOwnerViewExpenseLine = {
     hasCommissionDeduction?: boolean;
 };
 
+export type OwnerViewRoomExpenseSubgroup = 'common' | 'guest' | 'owner' | 'other';
+
 export type CommissionOwnerViewExpenseGroup = {
     key: string;
-    kind: 'booking' | 'common' | 'guest' | 'owner';
+    kind: 'booking' | OwnerViewRoomExpenseSubgroup;
     /** Заголовок группы брони (kind=booking) */
     label: string;
-    /** i18n-ключ для «Общие расходы» / «Расходы гостя» / «Расходы владельца» */
+    /** i18n-ключ для групп «Без брони» */
     labelI18nKey?: string;
     lines: CommissionOwnerViewExpenseLine[];
 };
@@ -102,8 +104,15 @@ type BookingMeta = {
     roomsForObject: ObjectCommissionResult['roomsForObject'];
 };
 
-export function isOwnerViewRoomExpenseSubgroup(subgroup: NoBookingSubgroupId): boolean {
-    return subgroup === 'common' || subgroup === 'guest' || subgroup === 'owner';
+export function isOwnerViewRoomExpenseSubgroup(
+    subgroup: NoBookingSubgroupId
+): subgroup is OwnerViewRoomExpenseSubgroup {
+    return (
+        subgroup === 'common' ||
+        subgroup === 'guest' ||
+        subgroup === 'owner' ||
+        subgroup === 'other'
+    );
 }
 
 function getManagementPercentForBooking(
@@ -207,7 +216,7 @@ function commissionPercentForNoBookingTransaction(record: { commissionPercent?: 
 
 /** «Расходы владельца»: без чекбокса «Делимость» — комиссия не вычитается. */
 function shouldApplyNoBookingCommissionShare(
-    subgroup: 'common' | 'guest' | 'owner',
+    subgroup: OwnerViewRoomExpenseSubgroup,
     includeInSynthetic: boolean | undefined
 ): boolean {
     if (subgroup === 'owner') return false;
@@ -230,12 +239,10 @@ export function buildOwnerViewExpenseGroupsForRoom(
         return [];
     }
 
-    type NoBookingSubgroup = 'common' | 'guest' | 'owner';
-
     type PendingLine = CommissionOwnerViewExpenseLine & {
         bookingId: number | null;
         sortDate: string;
-        noBookingSubgroup?: NoBookingSubgroup;
+        noBookingSubgroup?: OwnerViewRoomExpenseSubgroup;
     };
 
     const pending: PendingLine[] = [];
@@ -377,7 +384,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
             categoryName,
             categories
         );
-        if (subgroup !== 'common' && subgroup !== 'guest' && subgroup !== 'owner') continue;
+        if (!isOwnerViewRoomExpenseSubgroup(subgroup)) continue;
 
         const hasCommissionDeduction =
             !isManagementCommission &&
@@ -410,10 +417,11 @@ export function buildOwnerViewExpenseGroupsForRoom(
     }
 
     const bookingMap = new Map<number, PendingLine[]>();
-    const noBookingLines: Record<NoBookingSubgroup, PendingLine[]> = {
+    const noBookingLines: Record<OwnerViewRoomExpenseSubgroup, PendingLine[]> = {
         common: [],
         guest: [],
         owner: [],
+        other: [],
     };
 
     for (const line of pending) {
@@ -458,7 +466,12 @@ export function buildOwnerViewExpenseGroupsForRoom(
     const sortByDateDesc = (a: PendingLine, b: PendingLine) =>
         new Date(b.sortDate).getTime() - new Date(a.sortDate).getTime();
 
-    const noBookingGroupOrder: NoBookingSubgroup[] = ['common', 'guest', 'owner'];
+    const noBookingGroupOrder: OwnerViewRoomExpenseSubgroup[] = [
+        'common',
+        'guest',
+        'owner',
+        'other',
+    ];
 
     for (const sid of noBookingGroupOrder) {
         const lines = noBookingLines[sid];
