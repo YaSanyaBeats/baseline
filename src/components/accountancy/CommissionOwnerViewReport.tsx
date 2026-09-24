@@ -35,6 +35,7 @@ import {
     type CommissionOwnerViewExpenseLine,
 } from '@/lib/ownerViewExpenses';
 import { sumOwnerViewIncomeTableTotal } from '@/lib/ownerViewIncomes';
+import { computeOwnerViewRoomEarnings } from '@/lib/ownerViewRoomEarnings';
 
 function formatAmount(value: number, locale: string): string {
     return value.toLocaleString(locale, {
@@ -356,11 +357,7 @@ function RoomEarningsTable({
     t: (key: string) => string;
     headCellSx: HeadCellSx;
 }) {
-    const expenseGroups = filterExpenseGroupsForDisplay(section.expenseGroups);
-    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
-    const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(expenseGroups, 'agency');
-    const expensesIncludingAgency = expenseColumnTotal + agencyExpenseColumnTotal;
-    const earningsNet = section.totals.totalIncome + expensesIncludingAgency;
+    const { expensesIncludingAgency, earningsNet } = computeOwnerViewRoomEarnings(section);
     return (
         <Paper variant="outlined" sx={{ overflow: 'hidden', maxWidth: 480 }}>
             <Typography variant="subtitle1" sx={{ ...headCellSx('info.dark'), px: 2, py: 1 }}>

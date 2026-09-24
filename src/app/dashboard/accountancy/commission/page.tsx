@@ -171,9 +171,22 @@ export default function Page() {
                 </Link>
             </Box>
 
-            <Typography variant="h4" sx={{ mb: 3 }}>
-                {t('accountancy.commission.title')}
-            </Typography>
+            <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                alignItems={{ sm: 'center' }}
+                justifyContent="space-between"
+                sx={{ mb: 3 }}
+            >
+                <Typography variant="h4">{t('accountancy.commission.title')}</Typography>
+                <Button
+                    component={Link}
+                    href="/dashboard/accountancy/commission/report-check"
+                    variant="outlined"
+                >
+                    {t('accountancy.commission.reportCheck.button')}
+                </Button>
+            </Stack>
 
             <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
                 {t('accountancy.commission.description')}

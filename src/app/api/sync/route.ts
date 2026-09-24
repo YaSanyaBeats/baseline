@@ -1,97 +1,95 @@
 import { NextRequest, NextResponse } from 'next/server';
-import type { AnyBulkWriteOperation } from 'mongodb';
 import { Beds24Connect } from '@/lib/beds24/Beds24Connect';
-import {
-    preserveBookingRoomAssignment,
-    type BookingSyncDoc,
-} from '@/lib/beds24/bookingSyncGuard';
 import { getDB } from '@/lib/db/getDB';
 
 /** Широкое окно, чтобы повторный синк подтягивал годовые и уже начавшиеся брони. */
 const BOOKINGS_ARRIVAL_FROM = '2020-01-01';
 const BOOKINGS_ARRIVAL_TO = '2029-01-01';
 
-function getDocumentId(doc: Record<string, unknown>): number | null {
-    const id = doc?.id;
-    if (id == null) return null;
-    const n = Number(id);
-    return Number.isFinite(n) ? n : null;
-}
+const SYNC_TYPES = new Set(['objects', 'prices', 'bookings']);
+const INSERT_CHUNK = 100;
 
 function assertBeds24Page(
-    result: { error?: unknown; pages?: { nextPageExists?: boolean } },
+    result: { error?: unknown; pages?: { nextPageExists?: boolean }; detail?: unknown },
     type: string,
     page: number,
 ): void {
     if (result?.error || result?.pages == null) {
-        throw new Error(`Beds24 ${type} sync failed on page ${page}`);
+        console.error(`[Beds24] ${type} sync failed on page ${page}`, result?.detail ?? result);
+        const detailText = result?.detail != null ? ` ${JSON.stringify(result.detail)}` : '';
+        throw new Error(`Beds24 ${type} sync failed on page ${page}.${detailText}`);
     }
 }
 
-async function upsertDocumentsById(collectionName: string, data: Record<string, unknown>[]) {
-    if (!data.length) return;
-
-    const db = await getDB();
-    const collection = db.collection(collectionName);
-    const ops: AnyBulkWriteOperation[] = [];
-
-    for (const doc of data) {
-        const id = getDocumentId(doc);
-        if (id == null) continue;
-        ops.push({
-            replaceOne: {
-                filter: { id },
-                replacement: doc,
-                upsert: true,
-            },
-        });
-    }
-
-    if (ops.length) {
-        await collection.bulkWrite(ops, { ordered: false });
-    }
+function isNamespaceNotFound(error: unknown): boolean {
+    const err = error as { code?: number; codeName?: string };
+    return err?.code === 26 || err?.codeName === 'NamespaceNotFound';
 }
 
-async function syncBookingsPage(data: Record<string, unknown>[]): Promise<{ upserted: number }> {
-    if (!data.length) return { upserted: 0 };
-
+/**
+ * Полная замена коллекции снимком из Beds24.
+ * Сначала пишем во временную коллекцию, затем drop старой через rename —
+ * обрыв загрузки не оставляет пустую рабочую коллекцию.
+ */
+async function replaceCollection(collectionName: string, docs: Record<string, unknown>[]) {
     const db = await getDB();
-    const collection = db.collection('bookings');
-    const ids = data.map((doc) => getDocumentId(doc)).filter((id): id is number => id != null);
+    const incomingName = `${collectionName}__incoming`;
+    const incoming = db.collection(incomingName);
 
-    const existingById = new Map<number, BookingSyncDoc>();
-    if (ids.length) {
-        const existing = await collection
-            .find({ id: { $in: ids } })
-            .project({ id: 1, propertyId: 1, unitId: 1, roomId: 1, roomID: 1 })
-            .toArray();
-        for (const doc of existing) {
-            existingById.set(Number(doc.id), doc as BookingSyncDoc);
+    try {
+        await incoming.drop();
+    } catch (error) {
+        if (!isNamespaceNotFound(error)) throw error;
+    }
+
+    if (docs.length === 0) {
+        await db.createCollection(incomingName);
+    } else {
+        for (let i = 0; i < docs.length; i += INSERT_CHUNK) {
+            await incoming.insertMany(docs.slice(i, i + INSERT_CHUNK), { ordered: false });
         }
     }
 
-    const ops: AnyBulkWriteOperation[] = [];
+    await incoming.rename(collectionName, { dropTarget: true });
+}
 
-    for (const doc of data) {
-        const id = getDocumentId(doc);
-        if (id == null) continue;
-
-        const replacement = preserveBookingRoomAssignment(existingById.get(id), doc);
-
-        ops.push({
-            replaceOne: {
-                filter: { id },
-                replacement,
-                upsert: true,
-            },
+async function fetchBeds24Page(beds24: Beds24Connect, type: string, page: number) {
+    if (type === 'objects') {
+        const objects = await beds24.get('properties', {
+            includeAllRooms: true,
+            includeUnitDetails: true,
+            page,
         });
+        assertBeds24Page(objects, type, page);
+        return {
+            data: (objects.data ?? []) as Record<string, unknown>[],
+            nextPageExists: Boolean(objects.pages.nextPageExists),
+        };
     }
 
-    if (ops.length) {
-        await collection.bulkWrite(ops, { ordered: false });
+    if (type === 'prices') {
+        const prices = await beds24.get('inventory/fixedPrices', { page });
+        assertBeds24Page(prices, type, page);
+        return {
+            data: (prices.data ?? []) as Record<string, unknown>[],
+            nextPageExists: Boolean(prices.pages.nextPageExists),
+        };
     }
 
-    return { upserted: ops.length };
+    const bookings = await beds24.get('bookings', {
+        includeInvoiceItems: true,
+        includeInfoItems: true,
+        includeGuests: true,
+        includeBookingGroup: true,
+        arrivalFrom: BOOKINGS_ARRIVAL_FROM,
+        arrivalTo: BOOKINGS_ARRIVAL_TO,
+        page,
+    });
+    assertBeds24Page(bookings, type, page);
+    return {
+        data: (bookings.data ?? []) as Record<string, unknown>[],
+        nextPageExists: Boolean(bookings.pages.nextPageExists),
+    };
 }
 
 async function checkTokens(collectionName: string) {
@@ -162,68 +160,30 @@ export async function GET(request: NextRequest) {
 }
 
 async function syncData(type: string) {
+    if (!SYNC_TYPES.has(type)) {
+        console.error(`Unknown sync type: ${type}`);
+        return;
+    }
+
     const beds24 = new Beds24Connect();
+    beds24.respectRateLimits = true;
+    const all: Record<string, unknown>[] = [];
     let nextPageIsExist = true;
     let page = 1;
 
-    const db = await getDB();
-    let totalUpserted = 0;
-
     while (nextPageIsExist) {
-        let beds24data: Record<string, unknown>[] = [];
         console.log('start sync');
-
-        if (type == 'objects') {
-            const objects = await beds24.get('properties', {
-                includeAllRooms: true,
-                includeUnitDetails: true,
-                page: page
-            });
-            assertBeds24Page(objects, type, page);
-            beds24data = objects.data ?? [];
-            nextPageIsExist = Boolean(objects.pages.nextPageExists);
-        } else if (type == 'prices') {
-            const prices = await beds24.get('inventory/fixedPrices', {
-                page: page
-            });
-            assertBeds24Page(prices, type, page);
-            beds24data = prices.data ?? [];
-            nextPageIsExist = Boolean(prices.pages.nextPageExists);
-        } else if (type == 'bookings') {
-            const bookings = await beds24.get('bookings', {
-                includeInvoiceItems: true,
-                includeInfoItems: true,
-                includeGuests: true,
-                includeBookingGroup: true,
-                arrivalFrom: BOOKINGS_ARRIVAL_FROM,
-                arrivalTo: BOOKINGS_ARRIVAL_TO,
-                page: page
-            });
-            assertBeds24Page(bookings, type, page);
-            beds24data = bookings.data ?? [];
-            nextPageIsExist = Boolean(bookings.pages.nextPageExists);
-        } else {
-            console.error(`Unknown sync type: ${type}`);
-            return;
-        }
-
-        console.log('Page: ', page);
-
-        if (type === 'bookings') {
-            const { upserted } = await syncBookingsPage(beds24data);
-            totalUpserted += upserted;
-            console.log(`Bookings page ${page}: upserted=${upserted}`);
-        } else {
-            await upsertDocumentsById(type, beds24data);
-        }
-
+        const pageResult = await fetchBeds24Page(beds24, type, page);
+        all.push(...pageResult.data);
+        nextPageIsExist = pageResult.nextPageExists;
+        console.log(`Page ${page}: ${pageResult.data.length}. ${beds24.rateLimitStatus()}`);
         page++;
     }
 
-    if (type === 'bookings') {
-        console.log(`Bookings sync finished: upserted=${totalUpserted}`);
-    }
+    await replaceCollection(type, all);
+    console.log(`${type} sync finished: replaced with ${all.length} documents`);
 
+    const db = await getDB();
     const beds24Collection = db.collection('beds24');
     const now = new Date();
 

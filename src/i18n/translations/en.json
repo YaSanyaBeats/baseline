@@ -818,7 +818,22 @@
       "settlementOpening": "Opening balance",
       "settlementIncomeMonth": "Incomes for the month",
       "settlementExpensesAndCommission": "Expenses and agency commission for the month",
-      "settlementClosing": "Total (Closing balance)"
+      "settlementClosing": "Total (Closing balance)",
+      "reportCheck": {
+        "title": "Report check",
+        "description": "Reports are built for every owner in Russian and English, from December 2025 through the current month. Each room total is matched to a mutual-settlement transaction with the same amount. A zero total counts as passed: zero lines are not created in settlements.",
+        "button": "Check reports",
+        "error": "Could not check reports",
+        "months": "Months",
+        "passed": "Check passed",
+        "failed": "Check failed",
+        "onlyFailed": "Failed only",
+        "empty": "Nothing to show",
+        "colMonth": "Month",
+        "colRoom": "Room",
+        "colLocale": "Locale",
+        "colStatus": "Check"
+      }
     },
     "autoAccounting": {
       "title": "Auto-accounting constructor",

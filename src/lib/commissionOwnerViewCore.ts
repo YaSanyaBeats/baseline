@@ -31,22 +31,17 @@ export type ComputeCommissionOwnerViewParams = {
     ratesByBookingId?: Map<number, BookingManagementCommissionRate>;
 };
 
-export async function computeCommissionOwnerViewPayload(
-    params: ComputeCommissionOwnerViewParams
-): Promise<CommissionOwnerViewStoredPayload | null> {
-    const { owner, monthKey, locale, objects, expenses, incomes, categories, bookingFetchers, ratesByBookingId } =
+export async function computeCommissionOwnerViewPayloads(
+    params: Omit<ComputeCommissionOwnerViewParams, 'locale'> & { locales: readonly string[] }
+): Promise<CommissionOwnerViewStoredPayload[]> {
+    const { owner, monthKey, locales, objects, expenses, incomes, categories, bookingFetchers, ratesByBookingId } =
         params;
 
     const ownerObjects = filterObjectsForOwner(objects, owner.objects ?? []);
-    if (ownerObjects.length === 0) return null;
+    if (ownerObjects.length === 0 || locales.length === 0) return [];
 
-    const appLanguage: AppLanguage = locale.startsWith('en') ? 'en' : 'ru';
     // Канонические (RU) имена — для фильтров/подгрупп; display — только для подписей в отчёте.
     const categoryNameByIdCanonical = buildCategoryNameByIdMap(categories, 'ru');
-    const categoryNameByIdDisplay =
-        appLanguage === 'ru'
-            ? categoryNameByIdCanonical
-            : buildCategoryNameByIdMap(categories, appLanguage);
 
     const objectReports = await Promise.all(
         ownerObjects.map((obj) =>
@@ -95,16 +90,34 @@ export async function computeCommissionOwnerViewPayload(
             ? await getBookingsByIds(missingBookingIds)
             : [];
 
-    return buildCommissionOwnerViewPayload(
-        result,
-        locale,
-        categoryNameByIdCanonical,
-        categories,
-        incomes,
-        expenses,
-        extraBookings,
-        owner.objects ?? [],
-        ownerObjects,
-        categoryNameByIdDisplay
-    );
+    return locales.map((locale) => {
+        const appLanguage: AppLanguage = locale.startsWith('en') ? 'en' : 'ru';
+        const categoryNameByIdDisplay =
+            appLanguage === 'ru'
+                ? categoryNameByIdCanonical
+                : buildCategoryNameByIdMap(categories, appLanguage);
+
+        return buildCommissionOwnerViewPayload(
+            result,
+            locale,
+            categoryNameByIdCanonical,
+            categories,
+            incomes,
+            expenses,
+            extraBookings,
+            owner.objects ?? [],
+            ownerObjects,
+            categoryNameByIdDisplay
+        );
+    });
+}
+
+export async function computeCommissionOwnerViewPayload(
+    params: ComputeCommissionOwnerViewParams
+): Promise<CommissionOwnerViewStoredPayload | null> {
+    const payloads = await computeCommissionOwnerViewPayloads({
+        ...params,
+        locales: [params.locale],
+    });
+    return payloads[0] ?? null;
 }
