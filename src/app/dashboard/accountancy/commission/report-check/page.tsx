@@ -167,6 +167,9 @@ export default function Page() {
                                         <TableCell align="right">
                                             {t('accountancy.commission.ownerEarningsRowTotal')}
                                         </TableCell>
+                                        <TableCell align="right">
+                                            {t('accountancy.commission.reportCheck.colSettlementSum')}
+                                        </TableCell>
                                         <TableCell>{t('accountancy.commission.reportCheck.colStatus')}</TableCell>
                                     </TableRow>
                                 </TableHead>
@@ -189,6 +192,7 @@ export default function Page() {
                                             <TableCell>{row.roomTitle}</TableCell>
                                             <TableCell>{localeLabel(row.locale)}</TableCell>
                                             <TableCell align="right">{formatTotal(row.roomTotal)}</TableCell>
+                                            <TableCell align="right">{formatTotal(row.settlementSum)}</TableCell>
                                             <TableCell>
                                                 {row.passed
                                                     ? t('accountancy.commission.reportCheck.passed')

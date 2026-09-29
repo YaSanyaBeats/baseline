@@ -11,6 +11,7 @@ import {
 } from '@/lib/ownerViewRoomEarnings';
 import { getDB } from '@/lib/db/getDB';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import { overlayOwnerReportSnapshots, loadAllOwnerReportSnapshots } from '@/lib/server/ownerReportSnapshots';
 import { getBookingsByIdsFromDb, searchBookingsFromDb } from '@/lib/server/bookingsQuery';
 import { getObjects } from '@/lib/server/getObjects';
 import { loadAllCommissionRatesForMonth } from '@/lib/server/bookingManagementCommissionRates';
@@ -121,10 +122,12 @@ export async function runOwnerReportCheck(db?: Db): Promise<OwnerReportCheckResu
     }));
 
     const rows: OwnerReportCheckRow[] = [];
+    const snapshots = await loadAllOwnerReportSnapshots(database);
 
     for (const owner of owners) {
         if (!owner._id) continue;
         const ownerName = (owner.name || owner.login || owner._id).trim();
+        const ownerSnapshots = snapshots.filter((snapshot) => snapshot.ownerId === owner._id);
 
         for (const monthKey of months) {
             let rates = ratesByMonth.get(monthKey);
@@ -149,9 +152,11 @@ export async function runOwnerReportCheck(db?: Db): Promise<OwnerReportCheckResu
                 const locale: OwnerReportCheckLocale = payload.language.startsWith('en')
                     ? 'en-US'
                     : 'ru-RU';
+                const frozen = overlayOwnerReportSnapshots(payload, ownerSnapshots);
                 const checks = checkRoomEarningsAgainstSettlements(
-                    payload.roomSections,
-                    payload.settlementRows
+                    frozen.roomSections,
+                    frozen.settlementRows,
+                    monthKey
                 );
                 for (const check of checks) {
                     rows.push({
@@ -162,6 +167,7 @@ export async function runOwnerReportCheck(db?: Db): Promise<OwnerReportCheckResu
                         roomKey: check.roomKey,
                         roomTitle: check.roomTitle,
                         roomTotal: check.roomTotal,
+                        settlementSum: check.settlementSum,
                         passed: check.passed,
                         zeroTotal: check.zeroTotal,
                     });

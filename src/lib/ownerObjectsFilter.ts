@@ -10,14 +10,52 @@ export function ownerRoomNameSet(rooms: { id: number; name?: string }[]): Set<st
     return new Set(rooms.map(roomLabel));
 }
 
+/** Ключ метаданных брони в отчёте владельца: unitId в Beds24 уникален только внутри типа комнаты. */
+export function ownerViewBookingMetaKey(objectId: number, bookingId: number): string {
+    return `${objectId}:${bookingId}`;
+}
+
+/**
+ * Комната проводки, привязанной к брони.
+ * Если unitId брони больше не совпадает с текущим юнитом, берётся комната из самой проводки.
+ */
+export function ownerViewRoomNameForLinkedBooking(
+    unitId: number | null | undefined,
+    rooms: { id: number; name?: string }[],
+    transactionRoomName: string | null | undefined,
+): string | null {
+    if (unitId != null) {
+        const unit = rooms.find((room) => room.id === unitId);
+        if (unit) {
+            const fromUnit = roomLabel(unit);
+            if (isOwnerAccessibleRoomName(fromUnit, rooms)) return fromUnit;
+        }
+    }
+    const fromTransaction = (transactionRoomName ?? '').trim();
+    if (fromTransaction && isOwnerAccessibleRoomName(fromTransaction, rooms)) return fromTransaction;
+    return null;
+}
+
 export function bookingMatchesOwnerRooms(
     booking: Booking,
     bookingPropertyId: number,
     roomsForObject: { id: number; name?: string }[],
-    roomFilter: string | 'all' = 'all'
+    roomFilter: string | 'all' = 'all',
+    accountingObjectId?: number,
 ): boolean {
     if (booking.propertyId !== bookingPropertyId) return false;
     if (roomsForObject.length === 0) return false;
+
+    const listedRoomId = booking.roomId ?? booking.roomID;
+    if (
+        accountingObjectId != null &&
+        listedRoomId != null &&
+        listedRoomId !== accountingObjectId &&
+        !roomsForObject.some((room) => room.id === listedRoomId)
+    ) {
+        return false;
+    }
+
     if (roomFilter !== 'all') {
         const row = roomsForObject.find((r) => roomLabel(r) === roomFilter);
         return row != null && booking.unitId === row.id;

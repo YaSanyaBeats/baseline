@@ -23,6 +23,12 @@ export type CommissionOwnerViewSettlementRow = {
     /** Знак суммы по формуле баланса владельца (для подсветки в UI). */
     signedAmount: number;
     category?: string;
+    /** Расход или приход — от этого зависит, в каком поле искать объект. */
+    recordType?: 'income' | 'expense';
+    /** «От кого». Для расхода здесь указан объект комнаты. */
+    source?: string;
+    /** «Кому». Для прихода здесь указан объект комнаты. */
+    recipient?: string;
     /** @deprecated накопительный остаток; колонка убрана из отчёта */
     balance?: number;
 };
@@ -33,6 +39,9 @@ type PendingSettlementRow = {
     category: string;
     description: string;
     amount: number;
+    recordType: 'income' | 'expense';
+    source?: string;
+    recipient?: string;
 };
 
 const SETTLEMENT_LABELS: Record<string, { opening: string; closing: string }> = {
@@ -238,6 +247,9 @@ export function buildOwnerViewSettlementRows(
                 record.comment
             ),
             amount,
+            recordType: type,
+            source: record.source,
+            recipient: record.recipient,
         });
     };
 
@@ -277,6 +289,9 @@ export function buildOwnerViewSettlementRows(
             kind: 'transaction',
             category: row.category,
             signedAmount: ownerSettlementSignedAmount(row.category, row.amount),
+            recordType: row.recordType,
+            source: row.source,
+            recipient: row.recipient,
         });
     }
 

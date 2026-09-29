@@ -84,7 +84,7 @@ export async function calculateCommissionForObject(
     });
 
     const overlapFiltered = overlapBookings.filter((b) =>
-        bookingMatchesOwnerRooms(b, bookingPropertyId, roomsForObject, roomFilter)
+        bookingMatchesOwnerRooms(b, bookingPropertyId, roomsForObject, roomFilter, selectedObjectId)
     );
 
     const txnBookingIds = new Set<number>();
@@ -104,7 +104,7 @@ export async function calculateCommissionForObject(
     );
     const extras = missingFromOverlap.length ? await getByIds(missingFromOverlap) : [];
     const extrasFiltered = extras.filter((b) =>
-        bookingMatchesOwnerRooms(b, bookingPropertyId, roomsForObject, roomFilter)
+        bookingMatchesOwnerRooms(b, bookingPropertyId, roomsForObject, roomFilter, selectedObjectId)
     );
 
     const byId = new Map<number, Booking>();

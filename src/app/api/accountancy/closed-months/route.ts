@@ -16,6 +16,11 @@ import {
     freezeBookingCommissionRatesForRooms,
     unfreezeBookingCommissionRatesForRooms,
 } from '@/lib/server/bookingManagementCommissionRates';
+import {
+    deleteOwnerReportSnapshots,
+    ensureOwnerReportSnapshots,
+    listSavedOwnerReportStatuses,
+} from '@/lib/server/ownerReportSnapshots';
 
 function requireAccountantOrAdmin(session: Awaited<ReturnType<typeof getServerSession>>) {
     if (!session || !(session as { user?: unknown }).user) {
@@ -27,6 +32,8 @@ function requireAccountantOrAdmin(session: Awaited<ReturnType<typeof getServerSe
     }
     return { ok: true as const, session: session as { user: { _id?: string; name?: string; role?: string } } };
 }
+
+export const maxDuration = 300;
 
 function canReadClosedMonths(session: Session | null): boolean {
     const accountantOrAdmin = requireAccountantOrAdmin(session);
@@ -45,7 +52,10 @@ export async function GET() {
         }
 
         const db = await getDB();
-        const data = await getClosedPeriodsData(db);
+        const [data, savedReports] = await Promise.all([
+            getClosedPeriodsData(db),
+            listSavedOwnerReportStatuses(db),
+        ]);
         const months = Array.from(
             new Set([...data.globalMonths, ...data.roomPeriods.map((p) => p.reportMonth)]),
         ).sort((a, b) => b.localeCompare(a));
@@ -55,6 +65,7 @@ export async function GET() {
             months,
             globalMonths: data.globalMonths,
             roomPeriods: data.roomPeriods,
+            savedReports,
         });
     } catch (error) {
         console.error('Error in GET /api/accountancy/closed-months:', error);
@@ -124,11 +135,38 @@ async function applyRoomPeriodAction(
             await freezeBookingCommissionRatesForRooms(db, reportMonth, newlyClosed, userId);
         }
 
+        let snapshotSaved = 0;
+        let snapshotError: string | null = null;
+        try {
+            const snapshots = await ensureOwnerReportSnapshots(db, reportMonth, rooms, userId);
+            snapshotSaved = snapshots.saved;
+        } catch (error) {
+            console.error('Failed to save owner report snapshots:', error);
+            snapshotError = 'Не удалось сохранить отчёты';
+        }
+
+        let message: string;
+        if (snapshotError) {
+            message =
+                inserted > 0
+                    ? `Отчётный период зафиксирован. ${snapshotError}`
+                    : snapshotError;
+        } else if (inserted > 0 && snapshotSaved > 0) {
+            message = 'Отчётный период зафиксирован, отчёты сохранены';
+        } else if (inserted > 0) {
+            message = 'Отчётный период зафиксирован';
+        } else if (snapshotSaved > 0) {
+            message = 'Отчёты сохранены для уже зафиксированных периодов';
+        } else {
+            message = 'Выбранные периоды уже были зафиксированы';
+        }
+
         return NextResponse.json({
-            success: true,
-            message: inserted > 0 ? 'Отчётный период зафиксирован' : 'Выбранные периоды уже были зафиксированы',
+            success: !snapshotError || inserted > 0,
+            message,
             reportMonth,
             affected: inserted,
+            snapshotsSaved: snapshotSaved,
         });
     }
 
@@ -159,6 +197,7 @@ async function applyRoomPeriodAction(
         return NextResponse.json({ success: false, message: 'Выбранные периоды не были зафиксированы' }, { status: 404 });
     }
 
+    await deleteOwnerReportSnapshots(db, reportMonth, reopened);
     await unfreezeBookingCommissionRatesForRooms(db, reportMonth, reopened);
 
     return NextResponse.json({

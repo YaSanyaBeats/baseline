@@ -7,7 +7,7 @@ import {
 import { incomeInReportMonth } from '@/lib/commissionCalculation';
 import { getReportLineTotal } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
-import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
+import { isOwnerAccessibleRoomName, ownerViewBookingMetaKey, ownerViewRoomNameForLinkedBooking, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
 import {
     buildOwnerViewExpenseGroupsForRoom,
@@ -110,11 +110,11 @@ type RoomBucket = Omit<CommissionOwnerViewRoomSection, 'totals'> & {
     roomName: string;
 };
 
-function buildBookingMetaMap(objectReports: ObjectCommissionResult[]): Map<number, BookingMeta> {
-    const map = new Map<number, BookingMeta>();
+function buildBookingMetaMap(objectReports: ObjectCommissionResult[]): Map<string, BookingMeta> {
+    const map = new Map<string, BookingMeta>();
     for (const objectReport of objectReports) {
         for (const { booking, calculation } of objectReport.bookingsReport) {
-            map.set(booking.id, {
+            map.set(ownerViewBookingMetaKey(objectReport.objectId, booking.id), {
                 booking,
                 nights: calculation.nights,
                 commissionPercent: calculation.commissionPercent,
@@ -176,12 +176,12 @@ function expenseLineTotal(e: Expense): number {
 function resolveBookingMetaForRecord(
     record: { bookingId?: number | null; objectId: number },
     objectReports: ObjectCommissionResult[],
-    bookingMeta: Map<number, BookingMeta>,
+    bookingMeta: Map<string, BookingMeta>,
     extraBookings: Booking[]
 ): BookingMeta | null {
     if (record.bookingId == null) return null;
 
-    const existing = bookingMeta.get(record.bookingId);
+    const existing = bookingMeta.get(ownerViewBookingMetaKey(record.objectId, record.bookingId));
     if (existing) return existing;
 
     const objectReport = objectReports.find((r) => r.objectId === record.objectId);
@@ -200,7 +200,7 @@ function resolveBookingMetaForRecord(
 function resolveBookingMetaForIncome(
     income: Income,
     objectReports: ObjectCommissionResult[],
-    bookingMeta: Map<number, BookingMeta>,
+    bookingMeta: Map<string, BookingMeta>,
     extraBookings: Booking[]
 ): BookingMeta | null {
     return resolveBookingMetaForRecord(income, objectReports, bookingMeta, extraBookings);
@@ -269,10 +269,20 @@ function buildRoomSectionsFromObjectReports(
 
         if (income.bookingId != null) {
             const meta = resolveBookingMetaForIncome(income, objectReports, bookingMeta, extraBookings);
-            if (!meta) continue;
-            const roomName = roomLabelForBooking(meta.booking, meta.roomsForObject);
-            if (!isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
-            getBucket(meta.objectId, meta.objectName, roomName);
+            if (meta) {
+                const roomName = ownerViewRoomNameForLinkedBooking(
+                    meta.booking.unitId,
+                    meta.roomsForObject,
+                    income.roomName,
+                );
+                if (!roomName || !isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
+                getBucket(meta.objectId, meta.objectName, roomName);
+                continue;
+            }
+            if (!transactionMatchesOwnerRooms(income.roomName, objectReport.roomsForObject)) continue;
+            const roomName = (income.roomName ?? '').trim() || '—';
+            if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) continue;
+            getBucket(objectReport.objectId, objectReport.objectName, roomName);
             continue;
         }
 
@@ -300,10 +310,20 @@ function buildRoomSectionsFromObjectReports(
                 bookingMeta,
                 extraBookings
             );
-            if (!meta) continue;
-            const roomName = roomLabelForBooking(meta.booking, meta.roomsForObject);
-            if (!isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
-            getBucket(meta.objectId, meta.objectName, roomName);
+            if (meta) {
+                const roomName = ownerViewRoomNameForLinkedBooking(
+                    meta.booking.unitId,
+                    meta.roomsForObject,
+                    expense.roomName,
+                );
+                if (!roomName || !isOwnerAccessibleRoomName(roomName, meta.roomsForObject)) continue;
+                getBucket(meta.objectId, meta.objectName, roomName);
+                continue;
+            }
+            if (!transactionMatchesOwnerRooms(expense.roomName, objectReport.roomsForObject)) continue;
+            const roomName = (expense.roomName ?? '').trim() || '—';
+            if (!isOwnerAccessibleRoomName(roomName, objectReport.roomsForObject)) continue;
+            getBucket(objectReport.objectId, objectReport.objectName, roomName);
             continue;
         }
 

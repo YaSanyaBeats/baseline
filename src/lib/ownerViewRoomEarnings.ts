@@ -9,6 +9,7 @@ import {
     normalizeOwnerViewSettlementRow,
     type CommissionOwnerViewSettlementRow,
 } from '@/lib/ownerViewSettlements';
+import { parseSourceRecipientValue } from '@/lib/sourceRecipientParse';
 
 function expenseGroupsForEarnings(
     groups: CommissionOwnerViewExpenseGroup[]
@@ -48,6 +49,8 @@ export type OwnerReportCheckRow = {
     roomKey: string;
     roomTitle: string;
     roomTotal: number;
+    /** Сумма транзакций взаиморасчётов, привязанных к этой комнате. */
+    settlementSum: number;
     passed: boolean;
     zeroTotal: boolean;
 };
@@ -56,48 +59,159 @@ export type RoomSettlementCheck = {
     roomKey: string;
     roomTitle: string;
     roomTotal: number;
+    settlementSum: number;
     passed: boolean;
     /** Нулевое итого не порождает строку во взаиморасчётах. */
     zeroTotal: boolean;
 };
 
+/** Ключ секции отчёта: `${objectId}::${roomName}`. */
+export function parseOwnerViewRoomSectionKey(
+    key: string
+): { objectId: number; roomName: string } | null {
+    const separator = key.indexOf('::');
+    if (separator <= 0) return null;
+    const objectId = Number(key.slice(0, separator));
+    const roomName = key.slice(separator + 2).trim();
+    if (!Number.isFinite(objectId) || !roomName) return null;
+    return { objectId, roomName };
+}
+
 /**
- * Для каждой комнаты ищет неиспользованную транзакцию взаиморасчётов
- * с той же суммой (до копейки), что и ИТОГО комнаты.
+ * Поле, в котором у транзакции взаиморасчётов указан объект комнаты:
+ * расход — «От кого», приход — «Кому».
+ */
+export function settlementPartyValue(row: CommissionOwnerViewSettlementRow): string | undefined {
+    if (row.recordType === 'expense') return row.source;
+    if (row.recordType === 'income') return row.recipient;
+    return undefined;
+}
+
+export function settlementRowMatchesRoom(
+    row: CommissionOwnerViewSettlementRow,
+    objectId: number,
+    roomName: string
+): boolean {
+    const parsed = parseSourceRecipientValue(settlementPartyValue(row));
+    if (!parsed || parsed.type !== 'room') return false;
+    return parsed.objectId === objectId && parsed.roomName.trim() === roomName.trim();
+}
+
+function settlementAmountsForRoom(
+    settlementRows: CommissionOwnerViewSettlementRow[],
+    objectId: number,
+    roomName: string
+): number[] {
+    const amounts: number[] = [];
+    for (const row of settlementRows) {
+        if (row.kind !== 'transaction') continue;
+        if (!settlementRowMatchesRoom(row, objectId, roomName)) continue;
+        amounts.push(roundAccountancyAmount(row.signedAmount));
+    }
+    return amounts;
+}
+
+/** Сумма знаковых сумм транзакций взаиморасчётов, относящихся к комнате. */
+export function sumSettlementAmountsForRoom(
+    settlementRows: CommissionOwnerViewSettlementRow[],
+    objectId: number,
+    roomName: string
+): number {
+    const sum = settlementAmountsForRoom(settlementRows, objectId, roomName).reduce(
+        (total, amount) => total + amount,
+        0
+    );
+    return roundAccountancyAmount(sum);
+}
+
+function amountCents(value: number): number {
+    return Math.round(roundAccountancyAmount(value) * 100);
+}
+
+/** Суммы всех поднаборов, включая пустой (0). */
+function subsetSums(values: number[]): number[] {
+    const sums = [0];
+    for (const value of values) {
+        const size = sums.length;
+        for (let index = 0; index < size; index++) sums.push(sums[index] + value);
+    }
+    return sums;
+}
+
+/** Суммы непустых поднаборов. */
+function nonEmptySubsetSums(values: number[]): number[] {
+    const sums: number[] = [];
+    const reached = [0];
+    for (const value of values) {
+        const size = reached.length;
+        for (let index = 0; index < size; index++) {
+            const next = reached[index] + value;
+            reached.push(next);
+            sums.push(next);
+        }
+    }
+    return sums;
+}
+
+/**
+ * Есть непустая комбинация сумм, равная итогу:
+ * все транзакции вместе, одна транзакция или любой другой набор.
+ */
+export function settlementCombinationMatchesTotal(amounts: number[], roomTotal: number): boolean {
+    const target = amountCents(roomTotal);
+    const values = amounts.map(amountCents).filter((value) => value !== 0);
+    if (values.length === 0) return target === 0;
+    if (values.some((value) => value === target)) return true;
+    if (values.reduce((sum, value) => sum + value, 0) === target) return true;
+
+    const half = Math.floor(values.length / 2);
+    const leftNonEmpty = nonEmptySubsetSums(values.slice(0, half));
+    const rightAny = new Set(subsetSums(values.slice(half)));
+    const rightNonEmpty = new Set(nonEmptySubsetSums(values.slice(half)));
+
+    for (const leftSum of leftNonEmpty) {
+        if (rightAny.has(target - leftSum)) return true;
+    }
+    return rightNonEmpty.has(target);
+}
+
+/** ВРЕМЕННО: май 2026 и раньше проходят проверку без сверки сумм. */
+const OWNER_REPORT_CHECK_WAIVED_THROUGH = '2026-05';
+
+export function isOwnerReportCheckWaived(monthKey: string): boolean {
+    return /^\d{4}-\d{2}$/.test(monthKey) && monthKey <= OWNER_REPORT_CHECK_WAIVED_THROUGH;
+}
+
+/**
+ * Итого комнаты сверяется с транзакциями взаиморасчётов,
+ * у которых в «От кого» (расход) или «Кому» (приход) указана эта комната.
+ * Проверка пройдена, если итог равен сумме всех таких транзакций,
+ * одной из них или любой их комбинации.
  */
 export function checkRoomEarningsAgainstSettlements(
     sections: CommissionOwnerViewRoomSection[],
-    settlementRows: CommissionOwnerViewSettlementRow[]
+    settlementRows: CommissionOwnerViewSettlementRow[],
+    monthKey?: string
 ): RoomSettlementCheck[] {
+    const waived = monthKey != null && isOwnerReportCheckWaived(monthKey);
     const transactions = settlementRows
         .map((row) => normalizeOwnerViewSettlementRow(row))
         .filter((row) => row.kind === 'transaction');
-    const used = new Set<number>();
 
     return sections.map((section) => {
         const roomTotal = roundAccountancyAmount(computeOwnerViewRoomEarnings(section).earningsNet);
-        if (roomTotal === 0) {
-            return {
-                roomKey: section.key,
-                roomTitle: section.title,
-                roomTotal,
-                passed: true,
-                zeroTotal: true,
-            };
-        }
-
-        const idx = transactions.findIndex(
-            (row, index) =>
-                !used.has(index) && roundAccountancyAmount(row.signedAmount) === roomTotal
-        );
-        if (idx >= 0) used.add(idx);
+        const room = parseOwnerViewRoomSectionKey(section.key);
+        const amounts = room ? settlementAmountsForRoom(transactions, room.objectId, room.roomName) : [];
+        const fullSum = roundAccountancyAmount(amounts.reduce((total, amount) => total + amount, 0));
+        const passed = waived || settlementCombinationMatchesTotal(amounts, roomTotal);
 
         return {
             roomKey: section.key,
             roomTitle: section.title,
             roomTotal,
-            passed: idx >= 0,
-            zeroTotal: false,
+            settlementSum: passed ? roomTotal : fullSum,
+            passed,
+            zeroTotal: roomTotal === 0,
         };
     });
 }

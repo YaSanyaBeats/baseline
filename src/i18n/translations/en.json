@@ -248,14 +248,31 @@
     "reportPeriodUnlockedSuccess": "Report period unlocked for editing",
     "lockPeriod": {
       "title": "Report period locking",
-      "description": "Lock or unlock a report month for selected rooms. Locked periods cannot be edited.",
+      "description": "Lock or unlock a report month for selected rooms. When a period is locked, the room report is saved and later shown from the database instead of being rebuilt from bookings. Locking again fills in missing reports and does not overwrite ones already saved.",
       "selectRooms": "Rooms",
       "openPeriod": "Unlock",
       "lockPeriod": "Lock",
       "selectMonthError": "Select a month",
       "selectRoomsError": "Select at least one room",
       "matrixTitle": "Lock status by room",
-      "lockedCell": "Locked"
+      "lockedCell": "Locked",
+      "legendLocked": "Locked, report not saved",
+      "legendPassed": "Report saved, check passed",
+      "legendFailed": "Report saved, check failed",
+      "cellLockedNoReport": "Locked, report not saved. Lock again to save the report",
+      "cellSavedPassed": "Report saved, check passed",
+      "cellSavedFailed": "Report saved, check failed",
+      "savedSummary": "Reports saved: {{saved}}. Passed: {{passed}}. Failed: {{failed}}. Missing: {{missing}}"
+    },
+    "migrateClosedReports": {
+      "title": "Save reports for locked periods",
+      "description": "Builds and saves the owner report for every period that is already locked. Reports that are already saved are left as they are. After that they do not change when bookings sync from Beds24.",
+      "button": "Build and save",
+      "running": "Saving reports…",
+      "months": "Months",
+      "rooms": "Rooms",
+      "saved": "Snapshots saved",
+      "skipped": "Already saved"
     },
     "months": {
       "1": "January",
@@ -821,7 +838,8 @@
       "settlementClosing": "Total (Closing balance)",
       "reportCheck": {
         "title": "Report check",
-        "description": "Reports are built for every owner in Russian and English, from December 2025 through the current month. Each room total is matched to a mutual-settlement transaction with the same amount. A zero total counts as passed: zero lines are not created in settlements.",
+        "description": "Reports are built for every owner in Russian and English, from December 2025 through the current month. Matching mutual-settlement transactions are those whose From field (for an expense) or To field (for an income) points to that room. The check passes when the room total equals the sum of all of them, any single one, or any combination of them. Locked rooms use the saved report. A zero total with no such transactions counts as passed.",
+        "colSettlementSum": "Settlements total",
         "button": "Check reports",
         "error": "Could not check reports",
         "months": "Months",

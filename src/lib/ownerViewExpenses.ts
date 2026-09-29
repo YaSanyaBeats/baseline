@@ -13,7 +13,7 @@ import {
     type CommissionSchemeId,
 } from '@/lib/commissionCalculation';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
-import { isOwnerAccessibleRoomName, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
+import { isOwnerAccessibleRoomName, ownerViewBookingMetaKey, ownerViewRoomNameForLinkedBooking, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import {
     resolveNoBookingSubgroupForTransaction,
     type NoBookingSubgroupId,
@@ -127,30 +127,14 @@ function getManagementPercentForBooking(
     return getDefaultManagementCommissionPercent(schemeId, nights);
 }
 
-function stableUnitLabel(room: { id: number; name?: string }): string {
-    return room.name != null && String(room.name).trim() !== ''
-        ? String(room.name).trim()
-        : `Unit ${room.id}`;
-}
-
-function roomLabelForBooking(
-    booking: Booking,
-    rooms: { id: number; name?: string }[]
-): string {
-    const room = rooms.find((r) => r.id === booking.unitId);
-    if (room) return stableUnitLabel(room);
-    if (booking.unitId != null) return `Unit ${booking.unitId}`;
-    return '—';
-}
-
 function resolveBookingMeta(
     record: { bookingId?: number | null; objectId: number },
     objectReports: ObjectCommissionResult[],
-    bookingMeta: Map<number, BookingMeta>,
+    bookingMeta: Map<string, BookingMeta>,
     extraBookings: Booking[]
 ): BookingMeta | null {
     if (record.bookingId == null) return null;
-    const existing = bookingMeta.get(record.bookingId);
+    const existing = bookingMeta.get(ownerViewBookingMetaKey(record.objectId, record.bookingId));
     if (existing) return existing;
     const objectReport = objectReports.find((r) => r.objectId === record.objectId);
     const booking = extraBookings.find((b) => b.id === record.bookingId);
@@ -188,13 +172,21 @@ function transactionMatchesRoomForOwnerView(
     objectReport: ObjectCommissionResult,
     roomName: string,
     objectReports: ObjectCommissionResult[],
-    bookingMeta: Map<number, BookingMeta>,
+    bookingMeta: Map<string, BookingMeta>,
     extraBookings: Booking[]
 ): boolean {
     if (record.bookingId != null) {
         const meta = resolveBookingMeta(record, objectReports, bookingMeta, extraBookings);
-        if (!meta) return false;
-        return roomLabelForBooking(meta.booking, meta.roomsForObject) === roomName;
+        if (!meta) {
+            return transactionMatchesOwnerRooms(record.roomName, objectReport.roomsForObject, roomName);
+        }
+        return (
+            ownerViewRoomNameForLinkedBooking(
+                meta.booking.unitId,
+                meta.roomsForObject,
+                record.roomName,
+            ) === roomName
+        );
     }
     return transactionMatchesOwnerRooms(record.roomName, objectReport.roomsForObject, roomName);
 }
@@ -232,7 +224,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
     allExpenses: Expense[],
     allIncomes: Income[],
     objectReports: ObjectCommissionResult[],
-    bookingMeta: Map<number, BookingMeta>,
+    bookingMeta: Map<string, BookingMeta>,
     extraBookings: Booking[],
     categoryDisplayNameById: Map<string, string> = categoryNameById
 ): CommissionOwnerViewExpenseGroup[] {
@@ -335,13 +327,23 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
         if (expense.bookingId != null) {
             const meta = resolveBookingMeta(expense, objectReports, bookingMeta, extraBookings);
-            if (!meta) continue;
-            const bookingRoom = roomLabelForBooking(meta.booking, meta.roomsForObject);
-            if (bookingRoom !== roomName) continue;
+            if (meta) {
+                const bookingRoom = ownerViewRoomNameForLinkedBooking(
+                    meta.booking.unitId,
+                    meta.roomsForObject,
+                    expense.roomName,
+                );
+                if (bookingRoom !== roomName) continue;
+            } else if (
+                !transactionMatchesOwnerRooms(expense.roomName, objectReport.roomsForObject, roomName)
+            ) {
+                continue;
+            }
 
-            const hasCommissionDeduction = includeInCommissionShare && !isManagementCommission && !isChildExpense;
+            const hasCommissionDeduction =
+                meta != null && includeInCommissionShare && !isManagementCommission && !isChildExpense;
             let expenseShare = 0;
-            if (hasCommissionDeduction) {
+            if (hasCommissionDeduction && meta) {
                 const nights =
                     meta.nights > 0
                         ? meta.nights
@@ -444,9 +446,13 @@ export function buildOwnerViewExpenseGroupsForRoom(
         ...rest
     }: PendingLine): CommissionOwnerViewExpenseLine => rest;
 
+    const bookingForLabel = (bookingId: number) =>
+        bookingMeta.get(ownerViewBookingMetaKey(objectReport.objectId, bookingId))?.booking ??
+        extraBookings.find((booking) => booking.id === bookingId);
+
     const bookingIds = [...bookingMap.keys()].sort((a, b) => {
-        const ta = bookingMeta.get(a)?.booking?.arrival;
-        const tb = bookingMeta.get(b)?.booking?.arrival;
+        const ta = bookingForLabel(a)?.arrival;
+        const tb = bookingForLabel(b)?.arrival;
         const timeA = ta ? new Date(ta).getTime() : 0;
         const timeB = tb ? new Date(tb).getTime() : 0;
         return timeB - timeA;
@@ -454,8 +460,8 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
     for (const bid of bookingIds) {
         const lines = bookingMap.get(bid)!;
-        const meta = bookingMeta.get(bid);
-        const label = meta ? bookingGroupLabel(meta.booking) : `#${bid}`;
+        const booking = bookingForLabel(bid);
+        const label = booking ? bookingGroupLabel(booking) : `#${bid}`;
         lines.sort((a, c) => new Date(c.sortDate).getTime() - new Date(a.sortDate).getTime());
         groups.push({
             key: `b-${bid}`,

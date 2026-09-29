@@ -1,19 +1,34 @@
 import { apiClient, getApiUrl } from '@/lib/api-client';
 import type { ClosedPeriodsData, ClosedRoomPeriod, RoomPeriodInput } from '@/lib/accountancyClosedMonth';
+import type { SavedOwnerReportStatus } from '@/lib/ownerReportSnapshots';
 import type { CommonResponse } from '@/lib/types';
 
 export type ClosedPeriodsResponse = CommonResponse & {
     months?: string[];
     globalMonths?: string[];
     roomPeriods?: ClosedRoomPeriod[];
+    savedReports?: SavedOwnerReportStatus[];
+};
+
+export type LockPeriodPageData = ClosedPeriodsData & {
+    savedReports: SavedOwnerReportStatus[];
 };
 
 export async function getClosedPeriods(): Promise<ClosedPeriodsData> {
+    const data = await getLockPeriodPageData();
+    return {
+        globalMonths: data.globalMonths,
+        roomPeriods: data.roomPeriods,
+    };
+}
+
+export async function getLockPeriodPageData(): Promise<LockPeriodPageData> {
     const response = await apiClient.get<ClosedPeriodsResponse>(getApiUrl('accountancy/closed-months'));
     const data = response.data;
     return {
         globalMonths: Array.isArray(data?.globalMonths) ? data.globalMonths : [],
         roomPeriods: Array.isArray(data?.roomPeriods) ? data.roomPeriods : [],
+        savedReports: Array.isArray(data?.savedReports) ? data.savedReports : [],
     };
 }
 

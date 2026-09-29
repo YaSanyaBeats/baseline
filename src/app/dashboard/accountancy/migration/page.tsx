@@ -341,6 +341,16 @@ export default function Page() {
             )}
 
             <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
+                {t('accountancy.migrateClosedReports.title')}
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                {t('accountancy.migrateClosedReports.description')}
+            </Alert>
+            <Link href="/dashboard/accountancy/migration/closed-reports">
+                <Button variant="contained">{t('accountancy.migrateClosedReports.button')}</Button>
+            </Link>
+
+            <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
                 {t('accountancy.deleteBeforeDec2025Title')}
             </Typography>
             <Alert severity="warning" sx={{ mb: 2 }}>

@@ -149,6 +149,8 @@ export async function getBookingsByIdsFromDb(db: Db, ids: number[]): Promise<Boo
                     id: 1,
                     propertyId: 1,
                     unitId: 1,
+                    roomId: 1,
+                    roomID: 1,
                     arrival: 1,
                     departure: 1,
                     title: 1,

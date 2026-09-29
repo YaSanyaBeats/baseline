@@ -37,9 +37,13 @@ import {
 } from '@/lib/accountancyClosedMonth';
 import {
     closeReportRoomPeriods,
-    getClosedPeriods,
+    getLockPeriodPageData,
     reopenReportRoomPeriods,
 } from '@/lib/accountancyClosedMonthsClient';
+import {
+    ownerReportSnapshotKey,
+    type SavedOwnerReportStatus,
+} from '@/lib/ownerReportSnapshots';
 import { stableAccountancyRoomLabel } from '@/lib/accountancyObjectGroups';
 import { getApiErrorMessage } from '@/lib/axiosResponseMessage';
 import type { Object as BedsObject, UserObject } from '@/lib/types';
@@ -129,14 +133,40 @@ export default function LockPeriodPage() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
     const [closedData, setClosedData] = useState<ClosedPeriodsData>({ globalMonths: [], roomPeriods: [] });
+    const [savedReports, setSavedReports] = useState<SavedOwnerReportStatus[]>([]);
     const [selectedMonth, setSelectedMonth] = useState('');
     const [selectedRooms, setSelectedRooms] = useState<UserObject[]>([]);
     const [formError, setFormError] = useState<string | null>(null);
 
     const closedCache = useMemo(() => buildClosedPeriodsCache(closedData), [closedData]);
+    const savedByKey = useMemo(() => {
+        const map = new Map<string, SavedOwnerReportStatus>();
+        for (const report of savedReports) {
+            map.set(ownerReportSnapshotKey(report.reportMonth, report.objectId, report.roomKey), report);
+        }
+        return map;
+    }, [savedReports]);
     const allRoomsSelection = useMemo(() => buildAllRoomsUserObjects(objects), [objects]);
     const matrixMonths = useMemo(() => buildMatrixMonths(), []);
     const matrixRows = useMemo(() => buildMatrixRoomRows(objects), [objects]);
+    const savedSummary = useMemo(() => {
+        let locked = 0;
+        let saved = 0;
+        let passed = 0;
+        let failed = 0;
+        for (const row of matrixRows) {
+            for (const month of matrixMonths) {
+                if (!isLedgerPeriodClosed(closedCache, month, row.objectId, row.roomKey)) continue;
+                locked += 1;
+                const report = savedByKey.get(ownerReportSnapshotKey(month, row.objectId, row.roomKey));
+                if (!report?.saved) continue;
+                saved += 1;
+                if (report.checkPassed) passed += 1;
+                else failed += 1;
+            }
+        }
+        return { locked, saved, passed, failed, missing: locked - saved };
+    }, [closedCache, matrixMonths, matrixRows, savedByKey]);
 
     const monthOptions = useMemo(() => {
         const options: { value: string; label: string }[] = [];
@@ -153,8 +183,9 @@ export default function LockPeriodPage() {
     }, [t]);
 
     const loadClosedPeriods = useCallback(async () => {
-        const data = await getClosedPeriods();
-        setClosedData(data);
+        const data = await getLockPeriodPageData();
+        setClosedData({ globalMonths: data.globalMonths, roomPeriods: data.roomPeriods });
+        setSavedReports(data.savedReports);
     }, []);
 
     useEffect(() => {
@@ -165,8 +196,11 @@ export default function LockPeriodPage() {
         let cancelled = false;
         (async () => {
             try {
-                const data = await getClosedPeriods();
-                if (!cancelled) setClosedData(data);
+                const data = await getLockPeriodPageData();
+                if (!cancelled) {
+                    setClosedData({ globalMonths: data.globalMonths, roomPeriods: data.roomPeriods });
+                    setSavedReports(data.savedReports);
+                }
             } catch (error) {
                 if (!cancelled) {
                     setSnackbar({
@@ -252,9 +286,16 @@ export default function LockPeriodPage() {
             <Typography variant="h4" sx={{ mb: 1 }}>
                 {t('accountancy.lockPeriod.title')}
             </Typography>
-            <Typography color="text.secondary" sx={{ mb: 3 }}>
+            <Typography color="text.secondary" sx={{ mb: 1 }}>
                 {t('accountancy.lockPeriod.description')}
             </Typography>
+            <Box sx={{ mb: 3 }}>
+                <Link href="/dashboard/accountancy/migration/closed-reports">
+                    <Button variant="text" size="small">
+                        {t('accountancy.migrateClosedReports.title')}
+                    </Button>
+                </Link>
+            </Box>
 
             <Paper variant="outlined" sx={{ p: 2, mb: 3 }}>
                 <Stack spacing={2}>
@@ -329,6 +370,29 @@ export default function LockPeriodPage() {
             <Typography variant="h6" sx={{ mb: 1 }}>
                 {t('accountancy.lockPeriod.matrixTitle')}
             </Typography>
+            {!loading && savedSummary.locked > 0 ? (
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                    {t('accountancy.lockPeriod.savedSummary')
+                        .replace('{{saved}}', String(savedSummary.saved))
+                        .replace('{{passed}}', String(savedSummary.passed))
+                        .replace('{{failed}}', String(savedSummary.failed))
+                        .replace('{{missing}}', String(savedSummary.missing))}
+                </Typography>
+            ) : null}
+            <Stack direction="row" spacing={2} sx={{ mb: 1 }} flexWrap="wrap" useFlexGap>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Box sx={{ width: 14, height: 14, bgcolor: 'warning.light', border: '1px solid', borderColor: 'divider' }} />
+                    <Typography variant="caption">{t('accountancy.lockPeriod.legendLocked')}</Typography>
+                </Stack>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Box sx={{ width: 14, height: 14, bgcolor: 'success.light', border: '1px solid', borderColor: 'divider' }} />
+                    <Typography variant="caption">{t('accountancy.lockPeriod.legendPassed')}</Typography>
+                </Stack>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                    <Box sx={{ width: 14, height: 14, bgcolor: 'error.light', border: '1px solid', borderColor: 'divider' }} />
+                    <Typography variant="caption">{t('accountancy.lockPeriod.legendFailed')}</Typography>
+                </Stack>
+            </Stack>
 
             {loading ? (
                 <Typography>{t('accountancy.loading')}</Typography>
@@ -374,6 +438,12 @@ export default function LockPeriodPage() {
                                         '&:hover .lock-matrix-cell--locked': {
                                             bgcolor: 'warning.main',
                                         },
+                                        '&:hover .lock-matrix-cell--passed': {
+                                            bgcolor: 'success.main',
+                                        },
+                                        '&:hover .lock-matrix-cell--failed': {
+                                            bgcolor: 'error.main',
+                                        },
                                     }}
                                 >
                                     <TableCell
@@ -399,23 +469,49 @@ export default function LockPeriodPage() {
                                             row.objectId,
                                             row.roomKey,
                                         );
+                                        const report = savedByKey.get(
+                                            ownerReportSnapshotKey(month, row.objectId, row.roomKey),
+                                        );
+                                        const saved = Boolean(locked && report?.saved);
+                                        const passed = saved && report?.checkPassed === true;
+                                        const failed = saved && !passed;
+                                        const cellClass = failed
+                                            ? 'lock-matrix-cell lock-matrix-cell--failed'
+                                            : passed
+                                              ? 'lock-matrix-cell lock-matrix-cell--passed'
+                                              : locked
+                                                ? 'lock-matrix-cell lock-matrix-cell--locked'
+                                                : 'lock-matrix-cell';
+                                        const title = failed
+                                            ? t('accountancy.lockPeriod.cellSavedFailed')
+                                            : passed
+                                              ? t('accountancy.lockPeriod.cellSavedPassed')
+                                              : locked
+                                                ? t('accountancy.lockPeriod.cellLockedNoReport')
+                                                : undefined;
                                         return (
                                             <TableCell
                                                 key={month}
-                                                className={
-                                                    locked
-                                                        ? 'lock-matrix-cell lock-matrix-cell--locked'
-                                                        : 'lock-matrix-cell'
-                                                }
+                                                className={cellClass}
                                                 align="center"
                                                 sx={{
                                                     p: 0,
-                                                    bgcolor: locked ? 'warning.light' : 'transparent',
+                                                    bgcolor: failed
+                                                        ? 'error.light'
+                                                        : passed
+                                                          ? 'success.light'
+                                                          : locked
+                                                            ? 'warning.light'
+                                                            : 'transparent',
                                                     borderLeft: '1px solid',
                                                     borderColor: 'divider',
+                                                    color: failed || passed ? 'text.primary' : undefined,
+                                                    fontWeight: 700,
                                                 }}
-                                                title={locked ? t('accountancy.lockPeriod.lockedCell') : undefined}
-                                            />
+                                                title={title}
+                                            >
+                                                {failed ? '!' : passed ? '✓' : ''}
+                                            </TableCell>
                                         );
                                     })}
                                 </TableRow>

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Beds24Connect } from '@/lib/beds24/Beds24Connect';
+import {
+    bookingsSyncArrivalFrom,
+    isBookingBeforeSyncWindow,
+} from '@/lib/beds24/bookingSyncWindow';
 import { getDB } from '@/lib/db/getDB';
 
-/** Широкое окно, чтобы повторный синк подтягивал годовые и уже начавшиеся брони. */
-const BOOKINGS_ARRIVAL_FROM = '2020-01-01';
 const BOOKINGS_ARRIVAL_TO = '2029-01-01';
 
 const SYNC_TYPES = new Set(['objects', 'prices', 'bookings']);
@@ -53,7 +55,36 @@ async function replaceCollection(collectionName: string, docs: Record<string, un
     await incoming.rename(collectionName, { dropTarget: true });
 }
 
-async function fetchBeds24Page(beds24: Beds24Connect, type: string, page: number) {
+async function mergeBookingsPreservingPast(
+    incoming: Record<string, unknown>[],
+    arrivalFrom: string,
+): Promise<{ kept: number; replaced: number }> {
+    const db = await getDB();
+    const existing = await db.collection('bookings').find({}).toArray();
+    const frozenIds = new Set<number>();
+    const frozen: Record<string, unknown>[] = [];
+
+    for (const doc of existing) {
+        if (!isBookingBeforeSyncWindow(doc.arrival, arrivalFrom)) continue;
+        frozen.push(doc as Record<string, unknown>);
+        if (typeof doc.id === 'number') frozenIds.add(doc.id);
+    }
+
+    const fresh = incoming.filter((doc) => {
+        if (typeof doc.id === 'number' && frozenIds.has(doc.id)) return false;
+        return !isBookingBeforeSyncWindow(doc.arrival, arrivalFrom);
+    });
+
+    await replaceCollection('bookings', [...frozen, ...fresh]);
+    return { kept: frozen.length, replaced: fresh.length };
+}
+
+async function fetchBeds24Page(
+    beds24: Beds24Connect,
+    type: string,
+    page: number,
+    bookingsArrivalFrom?: string,
+) {
     if (type === 'objects') {
         const objects = await beds24.get('properties', {
             includeAllRooms: true,
@@ -81,7 +112,7 @@ async function fetchBeds24Page(beds24: Beds24Connect, type: string, page: number
         includeInfoItems: true,
         includeGuests: true,
         includeBookingGroup: true,
-        arrivalFrom: BOOKINGS_ARRIVAL_FROM,
+        arrivalFrom: bookingsArrivalFrom,
         arrivalTo: BOOKINGS_ARRIVAL_TO,
         page,
     });
@@ -167,21 +198,29 @@ async function syncData(type: string) {
 
     const beds24 = new Beds24Connect();
     beds24.respectRateLimits = true;
+    const bookingsArrivalFrom = type === 'bookings' ? bookingsSyncArrivalFrom() : undefined;
     const all: Record<string, unknown>[] = [];
     let nextPageIsExist = true;
     let page = 1;
 
     while (nextPageIsExist) {
         console.log('start sync');
-        const pageResult = await fetchBeds24Page(beds24, type, page);
+        const pageResult = await fetchBeds24Page(beds24, type, page, bookingsArrivalFrom);
         all.push(...pageResult.data);
         nextPageIsExist = pageResult.nextPageExists;
         console.log(`Page ${page}: ${pageResult.data.length}. ${beds24.rateLimitStatus()}`);
         page++;
     }
 
-    await replaceCollection(type, all);
-    console.log(`${type} sync finished: replaced with ${all.length} documents`);
+    if (type === 'bookings' && bookingsArrivalFrom) {
+        const merged = await mergeBookingsPreservingPast(all, bookingsArrivalFrom);
+        console.log(
+            `bookings sync finished from ${bookingsArrivalFrom}: kept ${merged.kept} earlier bookings, replaced ${merged.replaced}`,
+        );
+    } else {
+        await replaceCollection(type, all);
+        console.log(`${type} sync finished: replaced with ${all.length} documents`);
+    }
 
     const db = await getDB();
     const beds24Collection = db.collection('beds24');
