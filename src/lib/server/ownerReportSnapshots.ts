@@ -307,7 +307,7 @@ export async function ensureOwnerReportSnapshots(
 
     const now = new Date();
     let saved = 0;
-    let skipped = 0;
+    const skipped = 0;
     let rechecked = 0;
     const existingByIdentity = new Map(
         existing.map((doc) => [`${doc.ownerId}:${doc.objectId}:${doc.roomKey}:${doc.locale}`, doc])
