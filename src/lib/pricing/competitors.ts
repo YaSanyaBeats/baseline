@@ -26,6 +26,15 @@ export function normalizeCompetitorUrl(raw: string): string {
     }
 }
 
+export async function blockedCompetitorUrlSet(): Promise<Set<string>> {
+    const db = await getDB();
+    const rows = await db
+        .collection(IP_COLLECTIONS.competitors)
+        .find({ status: 'blocked' }, { projection: { url: 1 } })
+        .toArray();
+    return new Set(rows.map((r) => normalizeCompetitorUrl(String(r.url || '')).toLowerCase()));
+}
+
 export function isBlockedListingUrl(url: string): boolean {
     const u = url.toLowerCase();
     return u.includes('holycow') || u.includes('holy-cow') || u.includes('holy_cow');

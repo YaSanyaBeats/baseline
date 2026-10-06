@@ -73,7 +73,8 @@ export default function ClustersPage() {
                             if (!newName.trim()) return;
                             await patchCluster({ createCluster: newName.trim() });
                             setNewName('');
-                            notify(t('pricing.clusterCreatedHint'), 'info');
+                            await load();
+                            notify(t('pricing.clusterCreatedHint'), 'success');
                         }}
                     >
                         {t('pricing.addCluster')}
@@ -185,6 +186,11 @@ export default function ClustersPage() {
                                     />
                                 </TableCell>
                                 <TableCell>
+                                    {!cl.rooms.length && (
+                                        <Typography variant="body2" color="text.secondary">
+                                            {t('pricing.emptyCluster')}
+                                        </Typography>
+                                    )}
                                     {cl.rooms.map((room: any) => (
                                         <Stack key={room.roomId} direction="row" spacing={1} alignItems="center" sx={{ mb: 0.5 }}>
                                             <Typography variant="body2" sx={{ flex: 1 }}>

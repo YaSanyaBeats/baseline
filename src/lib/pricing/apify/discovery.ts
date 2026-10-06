@@ -1,6 +1,6 @@
 import { getRooms } from '../seed';
 import type { CompetitorPlatform } from '../types';
-import { isBlockedListingUrl, normalizeCompetitorUrl, upsertClusterCompetitor } from '../competitors';
+import { blockedCompetitorUrlSet, isBlockedListingUrl, normalizeCompetitorUrl, upsertClusterCompetitor } from '../competitors';
 import { assertCanRun, recordCost } from './budget';
 import { runActorOnce } from './gateway';
 import { detectPlatform, discoveryActor } from './registry';
@@ -72,11 +72,11 @@ export function buildDiscoveryQuery(
     return [site, loc, br, extra, tier].filter(Boolean).join(' ');
 }
 
-function collectUrls(items: Record<string, unknown>[], platform: CompetitorPlatform): string[] {
+function collectUrls(items: Record<string, unknown>[], platform: CompetitorPlatform, blocked: Set<string>): string[] {
     const found = new Set<string>();
     const consider = (raw: string) => {
         const url = normalizeCompetitorUrl(raw);
-        if (!url || isBlockedListingUrl(url)) return;
+        if (!url || isBlockedListingUrl(url) || blocked.has(url.toLowerCase())) return;
         if (detectPlatform(url) !== platform) return;
         found.add(url);
     };
@@ -94,20 +94,29 @@ function collectUrls(items: Record<string, unknown>[], platform: CompetitorPlatf
     return [...found];
 }
 
+export const DISCOVERY_MIX: Array<{ platform: CompetitorPlatform; limit: number }> = [
+    { platform: 'trip', limit: 8 },
+    { platform: 'airbnb', limit: 6 },
+    { platform: 'booking', limit: 6 },
+];
+
 export async function runClusterDiscovery(params: {
     cluster: string;
     platform: CompetitorPlatform;
     userName: string;
+    limit?: number;
 }) {
     const actor = discoveryActor();
     if (!actor) throw new Error('Актор Discovery не в реестре');
 
+    const limit = params.limit ?? 8;
     const rooms = await getRooms();
     const { districtQuery: district, bedrooms, objectType, level } = parseClusterSearch(params.cluster, rooms);
     if (!district) throw new Error('Не удалось определить район кластера для поиска');
 
     const query = buildDiscoveryQuery(params.platform, district, bedrooms, objectType, level);
     const { settings } = await assertCanRun(actor.estimatedUsd);
+    const blocked = await blockedCompetitorUrlSet();
 
     const result = await runActorOnce({
         actorId: actor.id,
@@ -118,14 +127,14 @@ export async function runClusterDiscovery(params: {
         timeoutMs: settings.timeoutMs,
         input: {
             query,
-            maxResults: 5,
+            maxResults: Math.min(limit + 6, 16),
             outputFormats: ['markdown'],
             scrapingTool: 'raw-http',
             requestTimeoutSecs: 30,
         },
     });
 
-    const urls = collectUrls(result.items, params.platform).slice(0, 8);
+    const urls = collectUrls(result.items, params.platform, blocked).slice(0, limit);
     let inserted = 0;
     let skipped = 0;
     const added: string[] = [];
@@ -157,6 +166,7 @@ export async function runClusterDiscovery(params: {
 
     return {
         query,
+        platform: params.platform,
         costUsd: result.costUsd || actor.estimatedUsd,
         found: urls.length,
         inserted,
@@ -164,4 +174,35 @@ export async function runClusterDiscovery(params: {
         added,
         status: result.status,
     };
+}
+
+export async function runClusterDiscoveryMix(params: { cluster: string; userName: string }) {
+    const parts: Array<{ platform: CompetitorPlatform; inserted: number; found: number; query: string }> = [];
+    const added: string[] = [];
+    const errors: string[] = [];
+    let inserted = 0;
+    let skipped = 0;
+    let costUsd = 0;
+
+    for (const part of DISCOVERY_MIX) {
+        try {
+            const result = await runClusterDiscovery({
+                cluster: params.cluster,
+                platform: part.platform,
+                userName: params.userName,
+                limit: part.limit,
+            });
+            inserted += result.inserted;
+            skipped += result.skipped;
+            costUsd += result.costUsd;
+            added.push(...result.added);
+            parts.push({ platform: part.platform, inserted: result.inserted, found: result.found, query: result.query });
+        } catch (error) {
+            errors.push(`${part.platform}: ${error instanceof Error ? error.message : 'ошибка'}`);
+        }
+    }
+
+    if (!parts.length && errors.length) throw new Error(errors.join('; '));
+
+    return { inserted, skipped, added, costUsd, byPlatform: parts, errors };
 }

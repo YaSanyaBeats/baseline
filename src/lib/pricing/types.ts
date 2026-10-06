@@ -225,7 +225,7 @@ export type IpCompetitor = {
     lastRating: number | null;
     lastReviews: number | null;
     lastStayNights: number | null;
-    lastPriceByStay?: Partial<Record<14 | 20, number>>;
+    lastPriceByStay?: Partial<Record<7 | 20, number>>;
     lastWarnings: string[];
     lastScrapedAt: Date | null;
     updatedAt: Date | null;

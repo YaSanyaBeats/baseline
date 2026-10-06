@@ -1,4 +1,5 @@
 import { apiClient, getApiUrl } from '@/lib/api-client';
+import type { ChartPayload, EffectOptions, EffectScope, RecommendationSummary } from './effectTypes';
 import type { DeskPayload, TemperatureSettings, ChannelSettings } from './types';
 import type { PeriodId } from './periods';
 
@@ -23,13 +24,26 @@ export async function acceptRecommendation(payload: {
     price: number;
     reason?: string;
     previousPrice?: number | null;
+    rpi?: number | null;
+    regime?: string | null;
+    paceRatio?: number | null;
+    competitor?: number | null;
+    competitorCount?: number | null;
+    floored?: boolean;
+    daysToArrival?: number | null;
 }) {
     const { data } = await apiClient.post(getApiUrl('pricing/accept'), payload);
     return data;
 }
 
-export async function saveOverride(roomId: number, period: string, price: number, year?: number) {
-    const { data } = await apiClient.put(getApiUrl('pricing/overrides'), { roomId, period, price, year });
+export async function saveOverride(
+    roomId: number,
+    period: string,
+    price: number,
+    year?: number,
+    context?: Record<string, unknown>,
+) {
+    const { data } = await apiClient.put(getApiUrl('pricing/overrides'), { roomId, period, price, year, ...context });
     return data;
 }
 
@@ -123,7 +137,50 @@ export async function resetApifyLimits() {
     return data;
 }
 
-export async function discoverCluster(cluster: string, platform: string) {
-    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'discover', cluster, platform });
+export async function discoverCluster(cluster: string) {
+    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'discover', cluster });
+    return data;
+}
+
+export async function fetchEffectChart(params: {
+    scope: EffectScope;
+    scopeId: string;
+    period: string;
+    year: number;
+    dateFrom?: string;
+    dateTo?: string;
+    effectWindow: number;
+    compareYear?: number | null;
+}): Promise<{ chart: ChartPayload; summary: RecommendationSummary; options: EffectOptions }> {
+    const { data } = await apiClient.get(getApiUrl('pricing/effect-chart'), {
+        params: {
+            scope: params.scope,
+            scope_id: params.scopeId,
+            period: params.period,
+            year: params.year,
+            date_from: params.dateFrom,
+            date_to: params.dateTo,
+            effect_window: params.effectWindow,
+            compare_year: params.compareYear ?? undefined,
+        },
+    });
+    if (!data.success) throw new Error(data.message || 'effect chart error');
+    return { chart: data.data, summary: data.summary, options: data.options };
+}
+
+export async function rollbackPriceChange(changeId: string) {
+    const { data } = await apiClient.post(getApiUrl(`pricing/price-change/${encodeURIComponent(changeId)}/rollback`));
+    if (!data.success) throw new Error(data.message || 'rollback error');
+    return data as { success: boolean; message?: string };
+}
+
+export async function addChannelEvent(body: {
+    eventAt: string;
+    eventType: string;
+    description: string;
+    affectedScope: string;
+}) {
+    const { data } = await apiClient.post(getApiUrl('pricing/channel-events'), body);
+    if (!data.success) throw new Error(data.message || 'event error');
     return data;
 }

@@ -53,7 +53,7 @@ function isoToday(): string {
     return `${y}-${m}-${day}`;
 }
 
-async function loadCurrentRoomPrices(startIso: string, endIso: string): Promise<Map<number, number>> {
+export async function loadCurrentRoomPrices(startIso: string, endIso: string): Promise<Map<number, number>> {
     const db = await getDB();
     const docs = await db
         .collection<Beds24FixedPrice>('prices')

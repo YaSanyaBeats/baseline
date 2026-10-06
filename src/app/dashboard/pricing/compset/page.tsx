@@ -43,10 +43,6 @@ import {
     runApify,
     stopApify,
 } from '@/lib/pricing/client';
-import type { CompetitorPlatform } from '@/lib/pricing/types';
-
-const DISCOVERY_PLATFORMS: CompetitorPlatform[] = ['airbnb', 'booking', 'agoda', 'trip'];
-
 function formatScrapedAt(value: string | Date | null | undefined, language: string) {
     if (!value) return null;
     const d = new Date(value);
@@ -72,7 +68,8 @@ export default function CompsetPage() {
     const [period, setPeriod] = useState<PeriodId>(defaultPeriodForToday());
     const [busy, setBusy] = useState(false);
     const [discoverFor, setDiscoverFor] = useState<string | null>(null);
-    const [discoverPlatform, setDiscoverPlatform] = useState<CompetitorPlatform>('airbnb');
+    const [editFor, setEditFor] = useState<{ id: string; name: string; url: string } | null>(null);
+    const [moveFor, setMoveFor] = useState<{ id: string; from: string; to: string } | null>(null);
 
     const load = async () => {
         setLoading(true);
@@ -146,7 +143,7 @@ export default function CompsetPage() {
         }
         setBusy(true);
         try {
-            const res = await discoverCluster(discoverFor, discoverPlatform);
+            const res = await discoverCluster(discoverFor);
             if (!res.success) throw new Error(res.message);
             notify(
                 `${t('pricing.discoveryDone')}: ${res.data?.inserted ?? 0} · $${Number(res.data?.costUsd || 0).toFixed(3)}`,
@@ -299,14 +296,15 @@ export default function CompsetPage() {
                                                 {(cl.competitors || []).map((c: any) => {
                                                     const scrapedAt = formatScrapedAt(c.lastScrapedAt || c.updatedAt, language);
                                                     const byStay = c.lastPriceByStay || {};
-                                                    const p14 = Number(byStay[14] || 0) > 0 ? Number(byStay[14]) : null;
+                                                    const p7 = Number(byStay[7] || 0) > 0 ? Number(byStay[7]) : null;
                                                     const p20 = Number(byStay[20] || 0) > 0 ? Number(byStay[20]) : null;
                                                     const fallbackPrice = Number(c.lastPrice) > 0 ? Number(c.lastPrice) : null;
                                                     const money = (n: number) =>
                                                         Math.round(n).toLocaleString(language === 'en' ? 'en-US' : 'ru-RU');
+                                                    const night = language === 'en' ? 'nt' : 'н';
                                                     const priceText = [
-                                                        p14 != null ? `${money(p14)} ฿ / 14н` : null,
-                                                        p20 != null ? `${money(p20)} ฿ / 20н` : null,
+                                                        p7 != null ? `${money(p7)} ฿ / 7${night}` : null,
+                                                        p20 != null ? `${money(p20)} ฿ / 20${night}` : null,
                                                     ]
                                                         .filter(Boolean)
                                                         .join(' · ');
@@ -359,20 +357,51 @@ export default function CompsetPage() {
                                                                 {t('pricing.approveCandidate')}
                                                             </Button>
                                                         )}
+                                                        {c.status === 'candidate' && (
+                                                            <Button
+                                                                size="small"
+                                                                onClick={() =>
+                                                                    setMoveFor({
+                                                                        id: c._id,
+                                                                        from: cl.cluster,
+                                                                        to: clusters.find((x) => x.cluster !== cl.cluster)?.cluster || '',
+                                                                    })
+                                                                }
+                                                            >
+                                                                {t('pricing.moveCandidate')}
+                                                            </Button>
+                                                        )}
                                                         <Button
                                                             size="small"
-                                                            disabled={busy || !apify?.tokenConfigured}
-                                                            onClick={() => void scrape(c._id)}
+                                                            onClick={() => setEditFor({ id: c._id, name: c.name || '', url: c.url || '' })}
                                                         >
-                                                            {t('pricing.scrape')}
+                                                            {t('pricing.editUrl')}
                                                         </Button>
-                                                        <Button
-                                                            size="small"
-                                                            color="error"
-                                                            onClick={() => void patchCompetitor(c._id, { status: 'blocked' }).then(load)}
-                                                        >
-                                                            {t('common.delete')}
-                                                        </Button>
+                                                        {c.status !== 'blocked' && (
+                                                            <Button
+                                                                size="small"
+                                                                disabled={busy || !apify?.tokenConfigured}
+                                                                onClick={() => void scrape(c._id)}
+                                                            >
+                                                                {t('pricing.scrape')}
+                                                            </Button>
+                                                        )}
+                                                        {c.status === 'blocked' ? (
+                                                            <Button
+                                                                size="small"
+                                                                onClick={() => void patchCompetitor(c._id, { status: 'candidate' }).then(load)}
+                                                            >
+                                                                {t('pricing.unblockUrl')}
+                                                            </Button>
+                                                        ) : (
+                                                            <Button
+                                                                size="small"
+                                                                color="error"
+                                                                onClick={() => void patchCompetitor(c._id, { status: 'blocked' }).then(load)}
+                                                            >
+                                                                {t('pricing.blockUrl')}
+                                                            </Button>
+                                                        )}
                                                     </Stack>
                                                     );
                                                 })}
@@ -432,27 +461,96 @@ export default function CompsetPage() {
                     <Alert severity="info" sx={{ mt: 1, mb: 2 }}>
                         {t('pricing.discoveryHint')}
                     </Alert>
-                    <Typography variant="body2" sx={{ mb: 2 }}>
-                        {discoverFor}
-                    </Typography>
-                    <TextField
-                        select
-                        fullWidth
-                        label={t('pricing.channel')}
-                        value={discoverPlatform}
-                        onChange={(e) => setDiscoverPlatform(e.target.value as CompetitorPlatform)}
-                    >
-                        {DISCOVERY_PLATFORMS.map((p) => (
-                            <MenuItem key={p} value={p}>
-                                {t(`pricing.platforms.${p}`)}
-                            </MenuItem>
-                        ))}
-                    </TextField>
+                    <Typography variant="body2">{discoverFor}</Typography>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setDiscoverFor(null)}>{t('common.cancel')}</Button>
                     <Button variant="contained" disabled={busy} onClick={() => void runDiscovery()}>
                         {t('pricing.discovery')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={editFor != null} onClose={() => setEditFor(null)} fullWidth>
+                <DialogTitle>{t('pricing.editCompetitor')}</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        sx={{ mt: 1 }}
+                        fullWidth
+                        label={t('pricing.competitorName')}
+                        value={editFor?.name || ''}
+                        onChange={(e) => setEditFor((s) => (s ? { ...s, name: e.target.value } : s))}
+                    />
+                    <TextField
+                        sx={{ mt: 2 }}
+                        fullWidth
+                        label="URL"
+                        value={editFor?.url || ''}
+                        onChange={(e) => setEditFor((s) => (s ? { ...s, url: e.target.value } : s))}
+                    />
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setEditFor(null)}>{t('common.cancel')}</Button>
+                    <Button
+                        variant="contained"
+                        disabled={busy || !editFor?.url.trim()}
+                        onClick={() => {
+                            if (!editFor) return;
+                            setBusy(true);
+                            void patchCompetitor(editFor.id, { name: editFor.name, url: editFor.url })
+                                .then(async (res) => {
+                                    if (!res.success) throw new Error(res.message);
+                                    setEditFor(null);
+                                    await load();
+                                })
+                                .catch((e) => notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error'))
+                                .finally(() => setBusy(false));
+                        }}
+                    >
+                        {t('common.save')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={moveFor != null} onClose={() => setMoveFor(null)} fullWidth>
+                <DialogTitle>{t('pricing.moveCandidate')}</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        sx={{ mt: 1 }}
+                        select
+                        fullWidth
+                        label={t('pricing.moveTo')}
+                        value={moveFor?.to || ''}
+                        onChange={(e) => setMoveFor((s) => (s ? { ...s, to: e.target.value } : s))}
+                    >
+                        {clusters
+                            .filter((cl) => cl.cluster !== moveFor?.from)
+                            .map((cl) => (
+                                <MenuItem key={cl.cluster} value={cl.cluster}>
+                                    {cl.cluster}
+                                </MenuItem>
+                            ))}
+                    </TextField>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setMoveFor(null)}>{t('common.cancel')}</Button>
+                    <Button
+                        variant="contained"
+                        disabled={busy || !moveFor?.to}
+                        onClick={() => {
+                            if (!moveFor?.to) return;
+                            setBusy(true);
+                            void patchCompetitor(moveFor.id, { cluster: moveFor.to })
+                                .then(async (res) => {
+                                    if (!res.success) throw new Error(res.message);
+                                    setMoveFor(null);
+                                    await load();
+                                })
+                                .catch((e) => notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error'))
+                                .finally(() => setBusy(false));
+                        }}
+                    >
+                        {t('common.save')}
                     </Button>
                 </DialogActions>
             </Dialog>

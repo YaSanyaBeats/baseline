@@ -4,6 +4,7 @@ import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
 import { rebuildClustersFromMetadata } from '@/lib/pricing/clusterMeta';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
 import { writePricingJournal } from '@/lib/pricing/journal';
+import { listSavedClusterNames, rememberClusterName } from '@/lib/pricing/clusterNames';
 import { ensurePricingSeeded, getRooms } from '@/lib/pricing/seed';
 
 export async function GET() {
@@ -18,13 +19,22 @@ export async function GET() {
         list.push(room);
         byCluster.set(room.cluster, list);
     }
-    const clusters = [...byCluster.entries()].map(([name, members]) => ({
-        name,
-        rooms: members,
-        units: members.reduce((s, r) => s + r.units, 0),
-        floor: members.find((r) => r.floor)?.floor ?? null,
-    }));
-    return NextResponse.json({ success: true, data: { clusters, unassigned, allNames: clusters.map((c) => c.name) } });
+    const savedNames = await listSavedClusterNames();
+    for (const name of savedNames) {
+        if (!byCluster.has(name)) byCluster.set(name, []);
+    }
+    const clusters = [...byCluster.entries()]
+        .sort(([a], [b]) => a.localeCompare(b, 'ru'))
+        .map(([name, members]) => ({
+            name,
+            rooms: members,
+            units: members.reduce((s, r) => s + r.units, 0),
+            floor: members.find((r) => r.floor)?.floor ?? null,
+        }));
+    return NextResponse.json({
+        success: true,
+        data: { clusters, unassigned, allNames: clusters.map((c) => c.name) },
+    });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -49,28 +59,31 @@ export async function PATCH(request: NextRequest) {
 
     if (typeof body.roomId === 'number' && typeof body.cluster === 'string' && body.cluster.trim()) {
         const room = await col.findOne({ roomId: body.roomId });
+        const clusterName = body.cluster.trim();
+        await rememberClusterName(clusterName);
         await col.updateOne(
             { roomId: body.roomId },
-            { $set: { cluster: body.cluster.trim(), needsOnboarding: false } },
+            { $set: { cluster: clusterName, needsOnboarding: false } },
         );
         await writePricingJournal({
             userId: String(access.user._id || access.user.login),
             userName: access.user.name || access.user.login,
             type: 'кластер',
             target: `${room?.name || body.roomId}`,
-            detail: `${room?.cluster || 'без кластера'} → ${body.cluster.trim()}`,
+            detail: `${room?.cluster || 'без кластера'} → ${clusterName}`,
         });
         return NextResponse.json({ success: true });
     }
 
     if (typeof body.createCluster === 'string' && body.createCluster.trim()) {
         const name = body.createCluster.trim();
+        await rememberClusterName(name);
         await writePricingJournal({
             userId: String(access.user._id || access.user.login),
             userName: access.user.name || access.user.login,
             type: 'кластер',
             target: name,
-            detail: 'создан пустой кластер (появится после назначения комнаты)',
+            detail: 'создан кластер',
         });
         return NextResponse.json({ success: true, data: { name } });
     }

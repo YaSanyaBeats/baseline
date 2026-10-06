@@ -2,7 +2,15 @@ import { getDB } from '@/lib/db/getDB';
 import { IP_COLLECTIONS } from '../collections';
 import type { CompetitorPlatform } from '../types';
 import { assertCanRun, recordCost } from './budget';
-import { MONITOR_STAY_NIGHTS, actorById, extractNightlyPrice, extractRating, monitorActorFor, monitorInput } from './registry';
+import {
+    MONITOR_STAY_NIGHTS,
+    actorById,
+    extractNightlyPrice,
+    extractRating,
+    monitorActorFor,
+    monitorInput,
+    prepareTripListingUrl,
+} from './registry';
 import { ObjectId } from 'mongodb';
 
 const APIFY_BASE = 'https://api.apify.com/v2';
@@ -119,26 +127,31 @@ function toIso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-function pickCheckDates(periodStart: string, periodEnd: string, count = 1): string[] {
+const DATE_STEP_DAYS = 3;
+const MAX_DATE_TRIES = 4;
+
+/** Несколько заездов внутри периода. Если выбранные даты заняты, следующий заезд через несколько дней. */
+function candidateCheckIns(periodStart: string, periodEnd: string): string[] {
     const start = new Date(`${periodStart}T00:00:00`);
     const end = new Date(`${periodEnd}T00:00:00`);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const minStart = new Date(today);
     minStart.setDate(minStart.getDate() + 2);
-    const from = start > minStart ? start : minStart;
-    if (from > end) return [toIso(start)];
-    const span = Math.max(0, Math.round((end.getTime() - from.getTime()) / 86400000));
-    const offset = Math.min(3, Math.floor(span / 2));
-    const first = new Date(from);
-    first.setDate(first.getDate() + offset);
-    const out = [toIso(first)];
-    if (count > 1 && span > 10) {
-        const second = new Date(first);
-        second.setDate(second.getDate() + 8);
-        if (second <= end) out.push(toIso(second));
+    let from = start > minStart ? start : minStart;
+    let limit = end;
+    if (from > end) {
+        from = minStart;
+        limit = new Date(from);
+        limit.setDate(limit.getDate() + 21);
     }
-    return out.slice(0, count);
+    const out: string[] = [];
+    const cursor = new Date(from);
+    while (cursor <= limit && out.length < 8) {
+        out.push(toIso(cursor));
+        cursor.setDate(cursor.getDate() + DATE_STEP_DAYS);
+    }
+    return out.length ? out : [toIso(minStart)];
 }
 
 function classifyAvailability(item: Record<string, unknown>, checkIn: string, nightly: number | null): string {
@@ -169,35 +182,80 @@ export async function runMonitorForCompetitor(params: {
     if (!actorById(actor.id)) throw new Error('Актор не в реестре');
 
     const stays = params.stayNights ? [params.stayNights] : [...MONITOR_STAY_NIGHTS];
-    const dates = pickCheckDates(params.periodStart, params.periodEnd, 1);
+    const dates = candidateCheckIns(params.periodStart, params.periodEnd);
     if (!dates.length) throw new Error('Нет дат проверки внутри периода');
-    const jobs = dates.flatMap((checkIn) => stays.map((nights) => ({ checkIn, nights })));
-
-    const estimated = actor.estimatedUsd * jobs.length;
-    const { settings } = await assertCanRun(estimated);
 
     const db = await getDB();
+    let listingUrl = params.url;
+    if (params.platform === 'trip') {
+        const prepared = await prepareTripListingUrl(params.url);
+        if (!prepared.ok) {
+            const now = new Date();
+            await db.collection(IP_COLLECTIONS.competitors).updateOne(
+                { _id: new ObjectId(params.competitorId) },
+                { $set: { lastWarnings: ['bad_url'], lastScrapedAt: now, updatedAt: now } },
+            );
+            return {
+                dates: [],
+                stays,
+                snapshots: 0,
+                useful: 0,
+                costUsd: 0,
+                lastPrice: null,
+                lastRating: null,
+                lastReviews: null,
+                warnings: ['bad_url'],
+            };
+        }
+        listingUrl = prepared.url;
+        if (listingUrl !== params.url) {
+            const dup = await db.collection(IP_COLLECTIONS.competitors).findOne({
+                cluster: params.cluster || null,
+                url: listingUrl,
+                _id: { $ne: new ObjectId(params.competitorId) },
+            });
+            if (!dup) {
+                await db.collection(IP_COLLECTIONS.competitors).updateOne(
+                    { _id: new ObjectId(params.competitorId) },
+                    { $set: { url: listingUrl } },
+                );
+            }
+        }
+    }
+
+    const budget = await assertCanRun(actor.estimatedUsd * stays.length);
+    const settings = budget.settings;
+    let pendingUsd = actor.estimatedUsd * stays.length;
+
     const snapshots: Array<Record<string, unknown>> = [];
     let useful = 0;
     let costUsd = 0;
+    const usedDates: string[] = [];
+    let prepaid = stays.length;
 
-    for (const job of jobs) {
-        const checkIn = job.checkIn;
-        const stay = job.nights;
+    const affordAnother = () => {
+        const next = actor.estimatedUsd;
+        if (next > settings.perRunUsd) return false;
+        if (budget.daySpent + pendingUsd + next > settings.perDayUsd) return false;
+        if (budget.monthSpent + pendingUsd + next > settings.perMonthUsd) return false;
+        pendingUsd += next;
+        return true;
+    };
+
+    const scrapeOnce = async (checkIn: string, stay: number) => {
         const checkOut = addDays(checkIn, stay);
         const input = {
-            ...monitorInput(params.platform, params.url, checkIn, checkOut, settings.maxItems),
+            ...monitorInput(params.platform, listingUrl, checkIn, checkOut, settings.maxItems),
             previewOutput: false,
         };
-
         const started = await apifyPost(`/acts/${encodeURIComponent(actor.id)}/runs`, input);
         const runId = started.data?.id as string;
-        const runDoc = {
+        await db.collection(IP_COLLECTIONS.apifyRuns).insertOne({
             runId,
             actorId: actor.id,
             platform: params.platform,
             roomId: params.roomId,
-            url: params.url,
+            url: listingUrl,
             checkIn,
             checkOut,
             status: 'RUNNING',
@@ -206,8 +264,7 @@ export async function runMonitorForCompetitor(params: {
             abortedReason: null as string | null,
             itemsReturned: 0,
             userName: params.userName,
-        };
-        await db.collection(IP_COLLECTIONS.apifyRuns).insertOne(runDoc);
+        });
 
         const deadline = Date.now() + settings.timeoutMs;
         let run = started.data;
@@ -226,15 +283,15 @@ export async function runMonitorForCompetitor(params: {
         }
 
         const datasetId = run?.defaultDatasetId;
-        const usageUsd = Number(run?.usageTotalUsd || run?.stats?.costUsd || actor.estimatedUsd);
-        costUsd += usageUsd;
+        costUsd += Number(run?.usageTotalUsd || run?.stats?.costUsd || actor.estimatedUsd);
+        const batch: Array<Record<string, unknown>> = [];
 
         if (run?.status !== 'SUCCEEDED' || !datasetId) {
             await db.collection(IP_COLLECTIONS.apifyRuns).updateOne(
                 { runId },
                 { $set: { status: run?.status || 'FAILED', finishedAt: new Date(), itemsReturned: 0 } },
             );
-            continue;
+            return batch;
         }
 
         const dataset = await apifyGet(`/datasets/${datasetId}/items?clean=true&limit=${Math.max(settings.maxItems, 3)}`);
@@ -244,19 +301,19 @@ export async function runMonitorForCompetitor(params: {
                 { runId },
                 { $set: { status: 'EMPTY', finishedAt: new Date(), itemsReturned: 0 } },
             );
-            continue;
+            return batch;
         }
 
         useful += items.length;
         for (const item of items) {
             const price = extractNightlyPrice(params.platform, item, stay);
             const { rating, reviews } = extractRating(params.platform, item);
-            snapshots.push({
+            batch.push({
                 competitorId: params.competitorId,
                 cluster: params.cluster || null,
                 roomId: params.roomId ?? null,
                 platform: params.platform,
-                url: params.url,
+                url: listingUrl,
                 checkIn,
                 checkOut,
                 stayNights: stay,
@@ -270,15 +327,48 @@ export async function runMonitorForCompetitor(params: {
                 createdAt: new Date(),
             });
         }
-
         await db.collection(IP_COLLECTIONS.apifyRuns).updateOne(
             { runId },
             { $set: { status: 'SUCCEEDED', finishedAt: new Date(), itemsReturned: items.length } },
         );
+        return batch;
+    };
+
+    const hasNightly = (batch: Array<Record<string, unknown>>) =>
+        batch.some(
+            (s) =>
+                s.availabilityStatus === 'available' &&
+                typeof s.pricePerNightNorm === 'number' &&
+                Number(s.pricePerNightNorm) > 0,
+        );
+
+    for (const stay of stays) {
+        let won = false;
+        let lastBatch: Array<Record<string, unknown>> = [];
+        const tries = dates.slice(0, MAX_DATE_TRIES);
+        for (let i = 0; i < tries.length; i += 1) {
+            if (prepaid > 0) prepaid -= 1;
+            else if (!affordAnother()) break;
+            const checkIn = tries[i];
+            usedDates.push(checkIn);
+            const batch = await scrapeOnce(checkIn, stay);
+            lastBatch = batch;
+            if (hasNightly(batch)) {
+                snapshots.push(...batch);
+                won = true;
+                break;
+            }
+        }
+        if (!won && lastBatch.length) snapshots.push(...lastBatch);
     }
 
     const warnings: string[] = [];
-    const priced = snapshots.filter((s) => typeof s.pricePerNightNorm === 'number' && Number(s.pricePerNightNorm) > 0);
+    const priced = snapshots.filter(
+        (s) =>
+            s.availabilityStatus === 'available' &&
+            typeof s.pricePerNightNorm === 'number' &&
+            Number(s.pricePerNightNorm) > 0,
+    );
     const rated = [...snapshots].reverse().find((s) => typeof s.rating === 'number');
     const reviewed = [...snapshots].reverse().find((s) => typeof s.reviews === 'number');
     if (!snapshots.length) warnings.push('no_data');
@@ -288,13 +378,13 @@ export async function runMonitorForCompetitor(params: {
     if (snapshots.length && snapshots.every((s) => s.availabilityStatus !== 'available')) warnings.push('unavailable');
 
     const last = priced[priced.length - 1] || snapshots[snapshots.length - 1];
-    const priceByStay: Partial<Record<14 | 20, number>> = {};
+    const priceByStay: Partial<Record<7 | 20, number>> = {};
     for (const snap of priced) {
         const n = Number(snap.stayNights);
-        if (n === 14 || n === 20) priceByStay[n] = Number(snap.pricePerNightNorm);
+        if (n === 7 || n === 20) priceByStay[n] = Number(snap.pricePerNightNorm);
     }
-    const lastPrice = priceByStay[14] ?? priceByStay[20] ?? (last?.pricePerNightNorm as number | undefined) ?? null;
-    const lastStay = priceByStay[14] != null ? 14 : priceByStay[20] != null ? 20 : Number(last?.stayNights) || null;
+    const lastPrice = priceByStay[7] ?? priceByStay[20] ?? (last?.pricePerNightNorm as number | undefined) ?? null;
+    const lastStay = priceByStay[7] != null ? 7 : priceByStay[20] != null ? 20 : Number(last?.stayNights) || null;
     const now = new Date();
 
     if (snapshots.length) {
@@ -329,7 +419,7 @@ export async function runMonitorForCompetitor(params: {
     });
 
     return {
-        dates,
+        dates: usedDates,
         stays,
         snapshots: snapshots.length,
         useful,

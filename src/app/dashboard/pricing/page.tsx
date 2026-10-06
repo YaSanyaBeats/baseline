@@ -74,7 +74,19 @@ export default function PricingDeskPage() {
     const [loading, setLoading] = useState(true);
     const [desk, setDesk] = useState<DeskPayload | null>(null);
     const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-    const [accept, setAccept] = useState<{ cluster?: string; room?: DeskRoomRow; price: number; reason: string } | null>(null);
+    const [accept, setAccept] = useState<{
+        cluster?: string;
+        room?: DeskRoomRow;
+        price: number;
+        reason: string;
+        previousPrice: number | null;
+        rpi: number;
+        regime: string;
+        paceRatio: number | null;
+        competitor: number | null;
+        competitorCount: number;
+        floored: boolean;
+    } | null>(null);
     const [detail, setDetail] = useState<{ cluster: DeskClusterRow; room: DeskRoomRow } | null>(null);
     const [overrideValue, setOverrideValue] = useState('');
     const [busy, setBusy] = useState(false);
@@ -108,6 +120,14 @@ export default function PricingDeskPage() {
                 year: desk.year,
                 price: accept.price,
                 reason: accept.reason,
+                previousPrice: accept.previousPrice,
+                rpi: accept.rpi,
+                regime: accept.regime,
+                paceRatio: accept.paceRatio,
+                competitor: accept.competitor,
+                competitorCount: accept.competitorCount,
+                floored: accept.floored,
+                daysToArrival: desk.daysToArrival,
             });
             notify(res.message || t('pricing.acceptedLocal'), 'success');
             setAccept(null);
@@ -127,7 +147,18 @@ export default function PricingDeskPage() {
             if (!price) {
                 await clearOverride(detail.room.roomId, desk.period, desk.year);
             } else {
-                await saveOverride(detail.room.roomId, desk.period, price, desk.year);
+                await saveOverride(detail.room.roomId, desk.period, price, desk.year, {
+                    cluster: detail.cluster.cluster,
+                    previousPrice: detail.room.override ?? detail.room.currentPrice,
+                    reason: detail.room.recommendation.reason,
+                    rpi: detail.room.recommendation.rpi,
+                    regime: detail.room.recommendation.regime,
+                    paceRatio: detail.room.recommendation.paceRatio,
+                    competitor: detail.room.recommendation.competitor,
+                    competitorCount: detail.room.competitorCount,
+                    floored: detail.room.recommendation.floored,
+                    daysToArrival: desk.daysToArrival,
+                });
             }
             notify(t('common.save'), 'success');
             setDetail(null);
@@ -266,6 +297,13 @@ export default function PricingDeskPage() {
                                                         cluster: cluster.cluster,
                                                         price: cluster.recommendation.target,
                                                         reason: cluster.recommendation.reason,
+                                                        previousPrice: cluster.currentPrice,
+                                                        rpi: cluster.recommendation.rpi,
+                                                        regime: cluster.recommendation.regime,
+                                                        paceRatio: cluster.recommendation.paceRatio,
+                                                        competitor: cluster.recommendation.competitor,
+                                                        competitorCount: Math.max(0, ...cluster.rooms.map((item) => item.competitorCount)),
+                                                        floored: cluster.recommendation.floored,
                                                     });
                                                 }}
                                             >
@@ -327,8 +365,16 @@ export default function PricingDeskPage() {
                                                             onClick={() =>
                                                                 setAccept({
                                                                     room,
+                                                                    cluster: cluster.cluster,
                                                                     price,
                                                                     reason: room.recommendation.reason,
+                                                                    previousPrice: room.currentPrice,
+                                                                    rpi: room.recommendation.rpi,
+                                                                    regime: room.recommendation.regime,
+                                                                    paceRatio: room.recommendation.paceRatio,
+                                                                    competitor: room.recommendation.competitor,
+                                                                    competitorCount: room.competitorCount,
+                                                                    floored: room.recommendation.floored,
                                                                 })
                                                             }
                                                         >

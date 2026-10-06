@@ -3,6 +3,7 @@ import { getDB } from '@/lib/db/getDB';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
 import { writePricingJournal } from '@/lib/pricing/journal';
+import { recordPriceChange } from '@/lib/pricing/priceChanges';
 
 export async function PUT(request: NextRequest) {
     const access = await requirePricingAccess();
@@ -31,13 +32,37 @@ export async function PUT(request: NextRequest) {
         },
         { upsert: true },
     );
+    const userName = access.user.name || access.user.login;
     await writePricingJournal({
         userId: String(access.user._id || access.user.login),
-        userName: access.user.name || access.user.login,
+        userName,
         type: 'ручной оверрайд',
         target: `#${roomId} · ${period}`,
         detail: `цена ${price} ฿ (только в Baseline, Beds24 не меняется)`,
     });
+    try {
+        await recordPriceChange({
+            roomId,
+            cluster: body.cluster ? String(body.cluster) : null,
+            period,
+            year: yearFilter ?? new Date().getFullYear(),
+            priceAfter: price,
+            priceBefore: body.previousPrice == null ? null : Number(body.previousPrice),
+            initiator: `override:${userName}`,
+            userName,
+            reason: String(body.reason || ''),
+            rpi: body.rpi == null ? null : Number(body.rpi),
+            regime: body.regime ? String(body.regime) : null,
+            paceRatio: body.paceRatio == null ? null : Number(body.paceRatio),
+            competitor: body.competitor == null ? null : Number(body.competitor),
+            competitorCount: body.competitorCount == null ? null : Number(body.competitorCount),
+            floored: Boolean(body.floored),
+            daysToArrival: body.daysToArrival == null ? null : Number(body.daysToArrival),
+            complete: body.rpi != null,
+        });
+    } catch (error) {
+        console.error('recordPriceChange', error);
+    }
     return NextResponse.json({ success: true });
 }
 

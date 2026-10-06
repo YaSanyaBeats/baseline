@@ -75,11 +75,12 @@ export function monitorInput(platform: CompetitorPlatform, url: string, checkIn:
             };
         case 'trip':
             return {
-                hotelUrls: [{ url, name: '' }],
+                hotelUrls: [{ url, name: tripDisplayName(url) }],
                 checkinDate: checkIn,
                 checkoutDate: checkOut,
                 adults: 2,
                 rooms: 1,
+                children: 0,
             };
         default:
             return { startUrls: [{ url }], maxItems };
@@ -93,7 +94,46 @@ export const DATASET_FIELDS: Record<CompetitorPlatform, string> = {
     trip: 'priceInclVat,priceExclVat,roomName,hotelName,checkin,checkout,maxOccupancy,url,rating,score,commentScore,reviewCount',
 };
 
-export const MONITOR_STAY_NIGHTS = [14, 20] as const;
+export const MONITOR_STAY_NIGHTS = [7, 20] as const;
+
+export function tripDisplayName(url: string): string {
+    try {
+        const slug = new URL(url).pathname.split('/').filter(Boolean).pop() || '';
+        const name = decodeURIComponent(slug).replace(/-/g, ' ').trim();
+        return name || 'Trip.com';
+    } catch {
+        return 'Trip.com';
+    }
+}
+
+/** Короткие trip.com/w/… не открывают карточку отеля. Раскрываем редирект и берём th.trip.com, чтобы цена была в батах. */
+export async function prepareTripListingUrl(raw: string): Promise<{ url: string; ok: boolean }> {
+    let href = raw.trim();
+    if (/trip\.com\/w\//i.test(href)) {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 8000);
+        try {
+            const res = await fetch(href, { method: 'GET', redirect: 'follow', signal: ctrl.signal });
+            if (res.url) href = res.url;
+        } catch {
+            // оставляем исходную ссылку
+        } finally {
+            clearTimeout(timer);
+        }
+    }
+    try {
+        const u = new URL(href);
+        if (u.hostname.toLowerCase().includes('trip.com')) {
+            u.hostname = 'th.trip.com';
+            u.search = '';
+            u.hash = '';
+            href = u.toString().replace(/\/$/, '');
+        }
+    } catch {
+        return { url: raw, ok: false };
+    }
+    return { url: href, ok: /hotel-detail-\d+/i.test(href) };
+}
 
 export function parseMoney(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value) && value > 0) return value;
@@ -152,14 +192,15 @@ export function extractNightlyPrice(
     if (platform === 'booking') {
         const rooms = item.rooms as Array<Record<string, unknown>> | undefined;
         const roomPrice = rooms?.map((r) => parseMoney(r.price ?? r.priceAmount ?? r.minPrice)).find((n) => n != null);
-        return (
+        const total =
             parseMoney(item.price) ??
             parseMoney(item.priceFrom) ??
             parseMoney(item.minPrice) ??
             parseMoney(item.displayedPrice) ??
             roomPrice ??
-            null
-        );
+            null;
+        if (total == null) return null;
+        return nights > 0 ? Math.round(total / nights) : total;
     }
     if (platform === 'agoda') {
         return parseMoney(item.priceNightly) ?? parseMoney(item.price) ?? parseMoney(item.minPrice);

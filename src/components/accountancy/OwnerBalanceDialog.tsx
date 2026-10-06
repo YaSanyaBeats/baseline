@@ -32,7 +32,13 @@ import StackedBarChartIcon from '@mui/icons-material/StackedBarChart';
 import { BarChart } from '@mui/x-charts/BarChart';
 import { LineChart } from '@mui/x-charts/LineChart';
 import { ownerBalanceSignedLineAmount } from '@/lib/ownerViewSettlements';
-import { isOwnerBalanceCategory, ownerBalanceCategoryKind } from '@/lib/ownerBalanceCategories';
+import {
+    isHiddenFromOwnerBalanceTransactionsTable,
+    isOwnerBalanceCategory,
+    isOwnerOpeningBalanceAdjustment,
+    ownerBalanceCategoryKindFromRef,
+    resolveOwnerBalanceCanonicalCategoryName,
+} from '@/lib/ownerBalanceCategories';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import { isExcludedFromAccountancyRoomStatsSum } from '@/lib/noBookingCategorySubgroups';
@@ -42,6 +48,7 @@ export type OwnerBalanceLedgerRow = {
     _id: string;
     recordType: 'expense' | 'income';
     date: Date | string;
+    categoryId?: string | null;
     category: string;
     objectId: number;
     roomName?: string | null;
@@ -218,7 +225,9 @@ function isOwnerSettlementRecord(record: {
 }
 
 function signedLineAmount(row: OwnerBalanceLedgerRow): number {
-    return ownerBalanceSignedLineAmount(row.category, row);
+    const canonical =
+        resolveOwnerBalanceCanonicalCategoryName(row, EMPTY_CATEGORY_NAMES) ?? row.category;
+    return ownerBalanceSignedLineAmount(canonical, row);
 }
 
 function signedAmountColor(value: number): 'success.main' | 'error.main' | 'text.secondary' {
@@ -503,7 +512,7 @@ export default function OwnerBalanceDialog({
             if (!recordMatchesRoom(tx, selectedRoom, objects)) continue;
             const month = ledgerMonthFromRecord(tx.date, tx.reportMonth);
             if (!month) continue;
-            const kind = ownerBalanceCategoryKind(tx.category);
+            const kind = ownerBalanceCategoryKindFromRef(tx);
             const line = Math.abs((tx.quantity ?? 1) * (tx.amount ?? 0));
             if (kind === 'accrued') {
                 accruedByMonth.set(month, (accruedByMonth.get(month) ?? 0) + line);
@@ -531,17 +540,21 @@ export default function OwnerBalanceDialog({
             const month = ledgerMonthFromRecord(tx.date, tx.reportMonth);
             if (!month) continue;
             const signed = signedLineAmount(tx);
+            if (isOwnerOpeningBalanceAdjustment(tx)) {
+                if (month <= periodTo) opening += signed;
+                continue;
+            }
             if (month < periodFrom) {
                 opening += signed;
                 continue;
             }
             if (month > periodTo) continue;
             periodSigned += signed;
-            const kind = ownerBalanceCategoryKind(tx.category);
+            const kind = ownerBalanceCategoryKindFromRef(tx);
             const abs = Math.abs((tx.quantity ?? 1) * (tx.amount ?? 0));
-            if (kind === 'accrued' || kind === 'targetedIncomeFromOwner' || kind === 'openingPositive') {
+            if (kind === 'accrued' || kind === 'targetedIncomeFromOwner') {
                 accrued += abs;
-            } else if (kind === 'payout' || kind === 'debited' || kind === 'openingNegative') {
+            } else if (kind === 'payout' || kind === 'debited') {
                 paid += abs;
             }
         }
@@ -554,9 +567,14 @@ export default function OwnerBalanceDialog({
         };
     }, [sortedTx, periodFrom, periodTo]);
 
+    const visiblePeriodTx = useMemo(
+        () => periodTx.filter((tx) => !isHiddenFromOwnerBalanceTransactionsTable(tx)),
+        [periodTx]
+    );
+
     const total = useMemo(() => {
-        return periodTx.reduce((s, e) => s + signedLineAmount(e), 0);
-    }, [periodTx]);
+        return visiblePeriodTx.reduce((s, e) => s + signedLineAmount(e), 0);
+    }, [visiblePeriodTx]);
 
     const groupedTx = useMemo(() => {
         type Group = {
@@ -568,7 +586,7 @@ export default function OwnerBalanceDialog({
             total: number;
         };
         const map = new Map<string, Group>();
-        for (const tx of periodTx) {
+        for (const tx of visiblePeriodTx) {
             const obj = objects.find((o) => o.id === tx.objectId || o.propertyId === tx.objectId);
             const objectName = obj?.name ?? `${tx.objectId}`;
             const roomName = (tx.roomName ?? '').trim() || '—';
@@ -593,7 +611,7 @@ export default function OwnerBalanceDialog({
             if (byObj !== 0) return byObj;
             return a.roomName.localeCompare(b.roomName, 'ru');
         });
-    }, [periodTx, objects]);
+    }, [visiblePeriodTx, objects]);
 
     const handlePeriodFromChange = (value: string) => {
         const next = clampPeriodFrom(value, periodTo);
@@ -840,9 +858,9 @@ export default function OwnerBalanceDialog({
 
                     <Box>
                         <Typography variant="subtitle1" sx={{ mb: 1 }}>
-                            {t('accountancy.cashflow.transactionsList')} ({periodTx.length})
+                            {t('accountancy.cashflow.transactionsList')} ({visiblePeriodTx.length})
                         </Typography>
-                        {periodTx.length === 0 ? (
+                        {visiblePeriodTx.length === 0 ? (
                             <Paper variant="outlined" sx={{ p: 3 }}>
                                 <Typography color="text.secondary">
                                     {t('accountancy.cashflow.noTransactions')}

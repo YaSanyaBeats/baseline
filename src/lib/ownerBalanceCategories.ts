@@ -109,7 +109,7 @@ export function resolveOwnerBalanceCanonicalCategoryName(
     record: CategoryRecordRef,
     nameById: Map<string, string>
 ): string | null {
-    const id = record.categoryId != null ? normalizeMongoIdString(record.categoryId).trim() : '';
+    const id = record.categoryId != null ? normalizeMongoIdString(record.categoryId).trim().toLowerCase() : '';
     if (id && CANONICAL_NAME_BY_ID[id]) return CANONICAL_NAME_BY_ID[id];
 
     const resolved = resolveCategoryName(record, nameById);
@@ -125,4 +125,31 @@ export function isOwnerBalanceCategory(
 
 export function isOwnerBalanceCategoryName(name: string): boolean {
     return ownerBalanceCategoryKind(name) != null;
+}
+
+const EMPTY_CATEGORY_NAME_MAP = new Map<string, string>();
+
+/** Категории, которые не показываются отдельными строками в таблице «Транзакции». */
+const HIDDEN_FROM_OWNER_BALANCE_TRANSACTIONS_KINDS = new Set<OwnerBalanceCategoryKind>([
+    'payout',
+    'openingPositive',
+    'openingNegative',
+]);
+
+/** Вид категории баланса владельца: сначала по categoryId, затем по названию. */
+export function ownerBalanceCategoryKindFromRef(record: CategoryRecordRef): OwnerBalanceCategoryKind | null {
+    const canonical = resolveOwnerBalanceCanonicalCategoryName(record, EMPTY_CATEGORY_NAME_MAP);
+    if (!canonical) return null;
+    return ownerBalanceCategoryKind(canonical);
+}
+
+export function isHiddenFromOwnerBalanceTransactionsTable(record: CategoryRecordRef): boolean {
+    const kind = ownerBalanceCategoryKindFromRef(record);
+    return kind != null && HIDDEN_FROM_OWNER_BALANCE_TRANSACTIONS_KINDS.has(kind);
+}
+
+/** «Остаток на начало (положительный/отрицательный)» — только строка сводки, не движение периода. */
+export function isOwnerOpeningBalanceAdjustment(record: CategoryRecordRef): boolean {
+    const kind = ownerBalanceCategoryKindFromRef(record);
+    return kind === 'openingPositive' || kind === 'openingNegative';
 }

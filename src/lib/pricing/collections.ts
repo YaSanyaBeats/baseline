@@ -6,6 +6,8 @@ export const IP_COLLECTIONS = {
     overrides: 'ip_overrides',
     accepted: 'ip_accepted_prices',
     journal: 'ip_journal',
+    priceChanges: 'ip_price_changes',
+    channelEvents: 'ip_channel_events',
     competitors: 'ip_competitors',
     snapshots: 'ip_comp_snapshots',
     summaries: 'ip_comp_summaries',

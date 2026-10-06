@@ -7,6 +7,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 
 const TABS = [
     { href: '/dashboard/pricing', key: 'desk' },
+    { href: '/dashboard/pricing/effect', key: 'effect' },
     { href: '/dashboard/pricing/compset', key: 'compset' },
     { href: '/dashboard/pricing/clusters', key: 'clusters' },
     { href: '/dashboard/pricing/temperature', key: 'temperature' },

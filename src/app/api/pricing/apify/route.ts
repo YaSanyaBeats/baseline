@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
 import { abortAllRunning, runMonitorForCompetitor } from '@/lib/pricing/apify/gateway';
 import { actorById, monitorActorFor } from '@/lib/pricing/apify/registry';
-import { runClusterDiscovery } from '@/lib/pricing/apify/discovery';
+import { runClusterDiscoveryMix } from '@/lib/pricing/apify/discovery';
 import { spentSince } from '@/lib/pricing/apify/budget';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
@@ -115,32 +115,30 @@ export async function POST(request: NextRequest) {
             data: {
                 estimatedUsd: actor ? actor.estimatedUsd * 2 : 0,
                 actor: actor?.id,
-                stays: [14, 20],
+                stays: [7, 20],
             },
         });
     }
 
     if (body.action === 'discover') {
         const cluster = String(body.cluster || '').trim();
-        const platform = String(body.platform || 'airbnb') as CompetitorPlatform;
         if (!cluster) {
             return NextResponse.json({ success: false, message: 'Нужен cluster' }, { status: 400 });
         }
-        if (!['airbnb', 'booking', 'agoda', 'trip'].includes(platform)) {
-            return NextResponse.json({ success: false, message: 'Неизвестная площадка' }, { status: 400 });
-        }
         try {
-            const result = await runClusterDiscovery({
+            const result = await runClusterDiscoveryMix({
                 cluster,
-                platform,
                 userName: access.user.name || access.user.login,
             });
+            const mix = (result.byPlatform || [])
+                .map((p) => `${p.platform} +${p.inserted}`)
+                .join(', ');
             await writePricingJournal({
                 userId: String(access.user._id || access.user.login),
                 userName: access.user.name || access.user.login,
                 type: 'discovery',
                 target: cluster,
-                detail: `${platform}: +${result.inserted} кандидатов, $${result.costUsd.toFixed(3)}`,
+                detail: `${mix || 'пусто'}: +${result.inserted} кандидатов, $${result.costUsd.toFixed(3)}`,
             });
             return NextResponse.json({ success: true, data: result });
         } catch (error) {
@@ -154,6 +152,9 @@ export async function POST(request: NextRequest) {
         const competitor = await db.collection(IP_COLLECTIONS.competitors).findOne({ _id: new ObjectId(String(body.competitorId)) });
         if (!competitor) {
             return NextResponse.json({ success: false, message: 'Конкурент не найден' }, { status: 404 });
+        }
+        if (competitor.status === 'blocked') {
+            return NextResponse.json({ success: false, message: 'Ссылка заблокирована и не снимается' }, { status: 400 });
         }
         const rawPeriod = String(body.period || '');
         const period = (PERIOD_IDS as readonly string[]).includes(rawPeriod) ? (rawPeriod as PeriodId) : 'P1';
@@ -174,7 +175,7 @@ export async function POST(request: NextRequest) {
                 userName: access.user.name || access.user.login,
                 type: 'apify съём',
                 target: competitor.url,
-                detail: `снимков ${result.snapshots}, 14/20 ночей, $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
+                detail: `снимков ${result.snapshots}, 7/20 ночей, $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
             });
             return NextResponse.json({ success: true, data: result });
         } catch (error) {
