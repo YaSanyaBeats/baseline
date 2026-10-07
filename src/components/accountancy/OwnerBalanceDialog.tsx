@@ -40,6 +40,7 @@ import {
     resolveOwnerBalanceCanonicalCategoryName,
 } from '@/lib/ownerBalanceCategories';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
+import { useTranslation } from '@/i18n/useTranslation';
 import { getExpenseSum, getIncomeSum } from '@/lib/accountancyUtils';
 import { isExcludedFromAccountancyRoomStatsSum } from '@/lib/noBookingCategorySubgroups';
 import type { User, Object as PropertyObject, Income, Expense } from '@/lib/types';
@@ -68,8 +69,9 @@ type OwnerRoomTab = {
 };
 
 interface OwnerBalanceDialogProps {
-    open: boolean;
-    onClose: () => void;
+    presentation?: 'dialog' | 'page';
+    open?: boolean;
+    onClose?: () => void;
     owner: User | null;
     transactions: OwnerBalanceLedgerRow[];
     incomes: Income[];
@@ -373,7 +375,8 @@ function RoomMetricChart({
 }
 
 export default function OwnerBalanceDialog({
-    open,
+    presentation = 'dialog',
+    open = false,
     onClose,
     owner,
     transactions,
@@ -382,6 +385,9 @@ export default function OwnerBalanceDialog({
     objects,
     t,
 }: OwnerBalanceDialogProps) {
+    const isPage = presentation === 'page';
+    const visible = isPage || open;
+    const { language } = useTranslation();
     const defaultPeriod = defaultAnalysisPeriod();
     const [selectedRoomKey, setSelectedRoomKey] = useState('');
     const [chartViewMode, setChartViewMode] = useState<ChartViewMode>('columns');
@@ -449,19 +455,19 @@ export default function OwnerBalanceDialog({
     }, [owner, objects, sortedTx, incomes, expenses]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!visible) return;
         const period = defaultAnalysisPeriod();
         setPeriodFrom(period.from);
         setPeriodTo(period.to);
-    }, [open, owner?._id]);
+    }, [visible, owner?._id]);
 
     useEffect(() => {
-        if (!open) return;
+        if (!visible) return;
         setSelectedRoomKey((prev) => {
             if (prev && roomTabs.some((r) => r.key === prev)) return prev;
             return roomTabs[0]?.key ?? '';
         });
-    }, [open, owner?._id, roomTabs]);
+    }, [visible, owner?._id, roomTabs]);
 
     const selectedRoom = useMemo(
         () => roomTabs.find((r) => r.key === selectedRoomKey) ?? null,
@@ -625,19 +631,21 @@ export default function OwnerBalanceDialog({
         setPeriodTo(next.to);
     };
 
+    const transactionCategoryLabel = (row: OwnerBalanceLedgerRow): string => {
+        if (language !== 'en') return row.category;
+        const kind = ownerBalanceCategoryKindFromRef(row);
+        if (kind === 'accrued') return t('accountancy.cashflow.categoryAccruedToOwner');
+        if (kind === 'debited') return t('accountancy.cashflow.categoryDebitedFromOwner');
+        return row.category;
+    };
+
     const monthOptionLabel = (monthKey: string) => {
         const monthNum = Number(monthKey.slice(5, 7));
         const year = monthKey.slice(0, 4);
         return `${t(`accountancy.months.${monthNum}`)} ${year}`;
     };
 
-    return (
-        <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
-            <DialogTitle>
-                {t('accountancy.cashflow.ownerDetailsTitle')}
-                {owner ? `: ${owner.name}` : ''}
-            </DialogTitle>
-            <DialogContent dividers>
+    const content = (
                 <Stack spacing={3}>
                     <Box>
                         <Typography variant="subtitle1" sx={{ mb: 1 }}>
@@ -923,7 +931,7 @@ export default function OwnerBalanceDialog({
                                                             <TableCell>
                                                                 {formatDate(e.date)}
                                                             </TableCell>
-                                                            <TableCell>{e.category}</TableCell>
+                                                            <TableCell>{transactionCategoryLabel(e)}</TableCell>
                                                             <TableCell>
                                                                 {e.reportMonth ?? '—'}
                                                             </TableCell>
@@ -990,7 +998,26 @@ export default function OwnerBalanceDialog({
                         )}
                     </Box>
                 </Stack>
-            </DialogContent>
+    );
+
+    if (isPage) {
+        return (
+            <Box>
+                <Typography variant="h5" sx={{ mb: 2 }}>
+                    {t('menu.statistics')}
+                </Typography>
+                {content}
+            </Box>
+        );
+    }
+
+    return (
+        <Dialog open={open} onClose={onClose} maxWidth="lg" fullWidth>
+            <DialogTitle>
+                {t('accountancy.cashflow.ownerDetailsTitle')}
+                {owner ? `: ${owner.name}` : ''}
+            </DialogTitle>
+            <DialogContent dividers>{content}</DialogContent>
             <DialogActions>
                 <Button onClick={onClose}>{t('common.close')}</Button>
             </DialogActions>

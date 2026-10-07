@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Description, Reply, Payments, PriceChange } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Description, Reply, Payments, PriceChange, QueryStats } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { User } from '@/lib/types';
@@ -29,7 +29,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { useSession } from 'next-auth/react';
 import Button from '@mui/material/Button';
 import { stopImpersonation } from '@/lib/auth';
-import { canAccessReports } from '@/lib/impersonationAccess';
+import { canAccessReports, isAdminImpersonatingOwner } from '@/lib/impersonationAccess';
 import type { Session } from 'next-auth';
 
 const drawerWidth = 240;
@@ -43,6 +43,8 @@ type MenuItem = {
     showOnlyWhenHasCashflow?: boolean;
     /** Только для владельца или админа, вошедшего под владельцем. */
     showOnlyWhenCanAccessReports?: boolean;
+    /** Пункт только у пользователей с типом аккаунта premium. */
+    showForPremium?: boolean;
 };
 
 
@@ -133,8 +135,9 @@ function DrawerMenu(props: {
     user: User | null;
     session: Session | null;
     isOwner: boolean;
+    isPremiumAccount: boolean;
 }) {
-    const { open, setOpen, user, session, isOwner } = props;
+    const { open, setOpen, user, session, isOwner, isPremiumAccount } = props;
     const { t } = useTranslation();
     
     const menu: MenuItem[] = [
@@ -143,6 +146,13 @@ function DrawerMenu(props: {
             icon: <Dashboard fontSize="small" />, 
             link: '/dashboard',
             roles: ['admin', 'accountant', 'owner']
+        },
+        {
+            text: t('menu.statistics'),
+            icon: <QueryStats fontSize="small" />,
+            link: '/dashboard/statistics',
+            roles: [],
+            showForPremium: true,
         },
         {
             text: t('menu.reports'),
@@ -155,7 +165,7 @@ function DrawerMenu(props: {
             text: t('menu.analytics'), 
             icon: <Analytics fontSize="small" />, 
             link: '/dashboard/analytics',
-            roles: ['admin']
+            roles: ['admin'],
         },
         {
             text: t('menu.pricing'),
@@ -223,6 +233,12 @@ function DrawerMenu(props: {
                 return canAccessReports(session, { isOwner });
             }
             if (menuElem.showOnlyWhenHasCashflow) return Boolean(user.hasCashflow);
+            if (
+                menuElem.showForPremium &&
+                (isPremiumAccount || isAdminImpersonatingOwner(session))
+            ) {
+                return true;
+            }
             if (menuElem.roles.length === 0) return false;
             return menuElem.roles.includes(user.role);
         })
@@ -290,6 +306,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
     const [stoppingImpersonation, setStoppingImpersonation] = React.useState(false);
     const isMobile = !useMediaQuery('(min-width:768px)');
     const { user, isOwner } = useUser();
+    const isPremiumAccount = user?.accountType === 'premium';
     const { data: session } = useSession();
     const { t } = useTranslation();
     const impersonatedBy = session?.impersonatedBy;
@@ -377,7 +394,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} isPremiumAccount={isPremiumAccount} />
                 </DesktopDrawer>
             ) : (
                 <Drawer
@@ -404,7 +421,7 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     </DrawerHeader>
                     <Divider />
 
-                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} />
+                    <DrawerMenu open={open} setOpen={setOpen} user={user} session={drawerSession} isOwner={isOwner} isPremiumAccount={isPremiumAccount} />
                 </Drawer>
             )}
 

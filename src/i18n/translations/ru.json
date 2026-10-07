@@ -43,6 +43,7 @@
   },
   "menu": {
     "home": "Главная",
+    "statistics": "Статистика",
     "reports": "Отчёты",
     "analytics": "Аналитика",
     "users": "Пользователи",
@@ -62,6 +63,10 @@
     "basic": "Базовый",
     "greeting": "Здравствуйте",
     "exitImpersonation": "Вернуться к админу"
+  },
+  "statistics": {
+    "noAccess": "Статистика доступна пользователям со статусом «Премиум».",
+    "loadError": "Не удалось загрузить статистику"
   },
   "reports": {
     "noAccess": "Отчёты доступны владельцам со статусом «Премиум» или администратору, вошедшему под аккаунтом владельца.",
@@ -719,6 +724,8 @@
       "noTransactions": "Транзакции не найдены",
       "transactionDate": "Дата",
       "transactionCategory": "Категория",
+      "categoryAccruedToOwner": "Начислено владельцу",
+      "categoryDebitedFromOwner": "Списано со счета владельца",
       "transactionRoom": "Объект / комната",
       "transactionReportMonth": "Месяц отчёта",
       "transactionStatus": "Статус",

@@ -43,6 +43,7 @@
   },
   "menu": {
     "home": "Home",
+    "statistics": "Statistics",
     "reports": "Reports",
     "analytics": "Analytics",
     "users": "Users",
@@ -62,6 +63,10 @@
     "basic": "Basic",
     "greeting": "Hello",
     "exitImpersonation": "Return to admin"
+  },
+  "statistics": {
+    "noAccess": "Statistics is available to Premium users.",
+    "loadError": "Could not load statistics"
   },
   "reports": {
     "noAccess": "Reports are available to Premium owners or an administrator signed in as an owner.",
@@ -720,6 +725,8 @@
       "noTransactions": "No transactions found",
       "transactionDate": "Date",
       "transactionCategory": "Category",
+      "categoryAccruedToOwner": "Accrued to owner",
+      "categoryDebitedFromOwner": "Debited from owner account",
       "transactionRoom": "Object / room",
       "transactionReportMonth": "Report month",
       "transactionStatus": "Status",
