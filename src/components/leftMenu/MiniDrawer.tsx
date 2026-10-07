@@ -43,7 +43,7 @@ type MenuItem = {
     showOnlyWhenHasCashflow?: boolean;
     /** Только для владельца или админа, вошедшего под владельцем. */
     showOnlyWhenCanAccessReports?: boolean;
-    /** Пункт только у пользователей с типом аккаунта premium. */
+    /** Пункт у владельца Premium и у админа, вошедшего под владельцем. */
     showForPremium?: boolean;
 };
 
@@ -235,7 +235,7 @@ function DrawerMenu(props: {
             if (menuElem.showOnlyWhenHasCashflow) return Boolean(user.hasCashflow);
             if (
                 menuElem.showForPremium &&
-                (isPremiumAccount || isAdminImpersonatingOwner(session))
+                ((isOwner && isPremiumAccount) || isAdminImpersonatingOwner(session))
             ) {
                 return true;
             }

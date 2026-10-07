@@ -26,7 +26,9 @@ export default function StatisticsPage() {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(false);
 
-    const canAccess = user?.accountType === 'premium' || isAdminImpersonatingOwner(session);
+    const canAccess =
+        (user?.role === 'owner' && user?.accountType === 'premium') ||
+        isAdminImpersonatingOwner(session);
 
     useEffect(() => {
         if (!canAccess) {

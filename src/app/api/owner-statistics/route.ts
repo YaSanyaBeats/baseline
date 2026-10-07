@@ -74,7 +74,8 @@ export async function GET() {
                 { status: 404 }
             );
         }
-        if (user.accountType !== 'premium' && !isAdminImpersonatingOwner(session)) {
+        const isPremiumOwner = user.role === 'owner' && user.accountType === 'premium';
+        if (!isPremiumOwner && !isAdminImpersonatingOwner(session)) {
             return NextResponse.json(
                 { success: false, message: 'Недостаточно прав' },
                 { status: 403 }
