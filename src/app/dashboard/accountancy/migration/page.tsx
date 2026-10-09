@@ -173,6 +173,20 @@ export default function Page() {
     return (
         <Box>
             <Typography variant="h4" sx={{ mb: 2 }}>
+                Автотранзакции с сентября 2026
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                Запускает автоучёт для броней с заездом с 1 сентября 2026 и дальше, только если по брони
+                автоучёт ещё не запускался. Транзакции групп без брони («Общие расходы» и остальные)
+                не создаются.
+            </Alert>
+            <Box sx={{ mb: 4 }}>
+                <Link href="/dashboard/accountancy/migration/auto-transactions">
+                    <Button variant="contained">Открыть миграцию автотранзакций</Button>
+                </Link>
+            </Box>
+
+            <Typography variant="h4" sx={{ mb: 2 }}>
                 Миграция: комнаты (unit id → имя)
             </Typography>
             <Alert severity="info" sx={{ mb: 2 }}>

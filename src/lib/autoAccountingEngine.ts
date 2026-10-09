@@ -160,8 +160,9 @@ function buildAutoBookingLinkFields(
 
 export async function runRulesForBookings(
     bookingIds: number[],
-    accountantId: string | null
-): Promise<{ expensesCreated: number; incomesCreated: number; errors: string[] }> {
+    accountantId: string | null,
+    options?: { bookingLinkedOnly?: boolean },
+): Promise<{ expensesCreated: number; incomesCreated: number; errors: string[]; rulesSkipped: number }> {
     const db = await getDB();
     const rulesCollection = db.collection<AutoAccountingRule & { _id?: ObjectId }>('autoAccountingRules');
     const bookingsCollection = db.collection<BookingDoc>('bookings');
@@ -189,8 +190,15 @@ export async function runRulesForBookings(
         if (user) accountantName = (user as { name?: string }).name ?? accountantName;
     }
 
+    const bookingLinkedOnly = options?.bookingLinkedOnly === true;
+
     if (!effectiveAccountantId) {
-        return { expensesCreated: 0, incomesCreated: 0, errors: ['Не найден пользователь для создания записей (нужен хотя бы один администратор).'] };
+        return {
+            expensesCreated: 0,
+            incomesCreated: 0,
+            errors: ['Не найден пользователь для создания записей (нужен хотя бы один администратор).'],
+            rulesSkipped: 0,
+        };
     }
 
     const rules = await rulesCollection.find({}).sort({ order: 1 }).toArray();
@@ -223,7 +231,7 @@ export async function runRulesForBookings(
 
     if (rules.length === 0) {
         await markBookingsAsProcessed(bookingIds);
-        return { expensesCreated: 0, incomesCreated: 0, errors: [] };
+        return { expensesCreated: 0, incomesCreated: 0, errors: [], rulesSkipped: 0 };
     }
 
     const bookings = await bookingsCollection.find({ id: { $in: bookingIds } }).toArray();
@@ -437,6 +445,7 @@ export async function runRulesForBookings(
     const errors: string[] = [];
     let expensesCreated = 0;
     let incomesCreated = 0;
+    let rulesSkipped = 0;
 
     for (const bid of bookingIds) {
         const booking = bookingMap.get(bid);
@@ -468,9 +477,14 @@ export async function runRulesForBookings(
             if (ruleRoomName !== undefined && ruleRoomName !== 'all' && ruleRoomName !== bookingUnitName) continue;
             if (!matchRoomMetadata(rule, bookingPropertyId, accountingObjectId, bookingUnitName)) continue;
 
+            const categoryDoc = await resolveRuleCategoryDoc(rule);
+            if (bookingLinkedOnly && categoryHasNoBookingGroupBinding(categoryDoc)) {
+                rulesSkipped++;
+                continue;
+            }
+
             const quantity = resolveQuantity(rule, booking);
             const categoryFields = await resolveRuleCategory(rule);
-            const categoryDoc = await resolveRuleCategoryDoc(rule);
             const amount = await resolveAmount(
                 rule,
                 categoryFields,
@@ -686,7 +700,7 @@ export async function runRulesForBookings(
     // Сохраняем в БД: все переданные брони отмечены как обработанные
     await markBookingsAsProcessed(bookingIds);
 
-    return { expensesCreated, incomesCreated, errors };
+    return { expensesCreated, incomesCreated, errors, rulesSkipped };
 }
 
 /** Возвращает ID бронирований, для которых ещё не запускался автоучёт */
