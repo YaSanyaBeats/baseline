@@ -34,8 +34,9 @@ const SignInContainer = styled(Stack)(({ theme }) => ({
         position: 'absolute',
         zIndex: -1,
         inset: 0,
+        backgroundColor: '#F5F3EF',
         backgroundImage:
-            'radial-gradient(ellipse at 50% 50%, hsl(210, 100%, 97%), hsl(0, 0%, 100%))',
+            'radial-gradient(ellipse at 50% 0%, #E4F2EE, #F5F3EF 58%)',
         backgroundRepeat: 'no-repeat',
         ...theme.applyStyles('dark', {
             backgroundImage:

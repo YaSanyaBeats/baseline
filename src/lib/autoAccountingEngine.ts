@@ -27,6 +27,7 @@ import {
 } from '@/lib/roomBinding';
 import { parseAutoAccountingDistrictsStored } from '@/lib/autoAccountingDistricts';
 import { hasDuplicateForForbidCategory } from '@/lib/accountancyDuplicateGuard';
+import { allocateTransactionNumber } from '@/lib/transactionNumber';
 import {
     normalizeTransactionCategoryFields,
     type NormalizedTransactionCategory,
@@ -545,6 +546,7 @@ export async function runRulesForBookings(
                             accountantId: effectiveAccountantId,
                             accountantName,
                             createdAt: new Date(),
+                            transactionNumber: await allocateTransactionNumber(db),
                         } as any);
                         expensesCreated++;
                     } catch (e) {
@@ -592,6 +594,7 @@ export async function runRulesForBookings(
                                 accountantId: effectiveAccountantId,
                                 accountantName,
                                 createdAt: new Date(),
+                                transactionNumber: await allocateTransactionNumber(db),
                             } as any);
                             expensesCreated++;
                         } catch (e) {
@@ -639,6 +642,7 @@ export async function runRulesForBookings(
                             accountantId: effectiveAccountantId,
                             accountantName,
                             createdAt: new Date(),
+                            transactionNumber: await allocateTransactionNumber(db),
                         } as any);
                         incomesCreated++;
                     } catch (e) {
@@ -686,6 +690,7 @@ export async function runRulesForBookings(
                                 accountantId: effectiveAccountantId,
                                 accountantName,
                                 createdAt: new Date(),
+                                transactionNumber: await allocateTransactionNumber(db),
                             } as any);
                             incomesCreated++;
                         } catch (e) {

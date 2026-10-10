@@ -57,9 +57,10 @@ export async function updateObjectMetadata(objectId: number, data: Partial<Objec
     }
 }
 
-/** null в internetProviderCounterpartyId сбрасывает поле на сервере */
-export type RoomMetadataPatch = Omit<Partial<RoomMetadata>, 'internetProviderCounterpartyId'> & {
+/** null в internetProviderCounterpartyId или bedrooms сбрасывает поле на сервере */
+export type RoomMetadataPatch = Omit<Partial<RoomMetadata>, 'internetProviderCounterpartyId' | 'bedrooms'> & {
     internetProviderCounterpartyId?: string | null;
+    bedrooms?: number | null;
 };
 
 export async function updateRoomMetadata(

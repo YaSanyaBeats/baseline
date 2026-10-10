@@ -50,7 +50,9 @@ export async function PUT(
 
         const data: Record<string, unknown> = {};
         const unsetFields: (keyof RoomMetadataDoc)[] = [];
-        if (body.bedrooms !== undefined) {
+        if (body.bedrooms === null) {
+            unsetFields.push('bedrooms');
+        } else if (body.bedrooms !== undefined) {
             const v = Number(body.bedrooms);
             if (!Number.isInteger(v) || v < 0) {
                 return NextResponse.json(

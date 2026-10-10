@@ -1,6 +1,6 @@
 'use client'
 
-import { MenuItem, IconButton, Chip, Stack, Select, FormControl } from "@mui/material";
+import { MenuItem, IconButton, Chip, Stack, Select } from "@mui/material";
 import Menu from '@mui/material/Menu';
 import React from "react";
 import AccountCircleIcon from '@mui/icons-material/AccountCircle';
@@ -24,48 +24,72 @@ export default function HeaderMenu() {
     const isPremium = accountType === 'premium';
     const label = isPremium ? t('header.premium') : t('header.basic');
 
+    const pill = {
+        height: 32,
+        borderRadius: '999px',
+        bgcolor: 'rgba(255,255,255,0.12)',
+        border: '1px solid rgba(255,255,255,0.22)',
+        color: '#F5F3EF',
+        '&:hover': {
+            bgcolor: 'rgba(255,255,255,0.18)',
+        },
+    };
+
     return (
         <div>
-            <Stack direction="row" spacing={1} alignItems="center">
-                <FormControl size="small" sx={{ minWidth: 80 }}>
-                    <Select
-                        value={language}
-                        onChange={(e) => setLanguage(e.target.value as 'ru' | 'en')}
-                        sx={{
-                            color: 'white',
-                            '& .MuiOutlinedInput-notchedOutline': {
-                                borderColor: 'rgba(255, 255, 255, 0.5)',
-                            },
-                            '&:hover .MuiOutlinedInput-notchedOutline': {
-                                borderColor: 'rgba(255, 255, 255, 0.8)',
-                            },
-                            '& .MuiSvgIcon-root': {
-                                color: 'white',
-                            },
-                        }}
-                    >
-                        <MenuItem value="ru">RU</MenuItem>
-                        <MenuItem value="en">EN</MenuItem>
-                    </Select>
-                </FormControl>
+            <Stack direction="row" spacing={0.75} alignItems="center">
                 <Chip
                     label={label}
                     size="small"
                     sx={{
+                        ...pill,
                         fontWeight: 700,
-                        letterSpacing: 0.2,
-                        color: isPremium ? '#4a2e00' : '#1f2a3d',
-                        background: isPremium
-                            ? 'linear-gradient(135deg, #FFB347 0%, #FFCC33 50%, #FFD86F 100%)'
-                            : '#e6e8ed',
-                        border: isPremium ? '1px solid #e6b800' : '1px solid #c4c8d0',
-                        boxShadow: isPremium
-                            ? '0 0 10px rgba(255, 204, 51, 0.5), 0 4px 12px rgba(0,0,0,0.12)'
-                            : 'none'
+                        fontSize: 13,
+                        letterSpacing: '0.02em',
+                        ...(isPremium
+                            ? {
+                                color: '#3A2508',
+                                bgcolor: '#F0B429',
+                                background: 'linear-gradient(180deg, #FFE08A 0%, #F0B429 100%)',
+                                border: '1px solid #FFE7A8',
+                                boxShadow: '0 0 14px rgba(240, 180, 41, 0.55)',
+                            }
+                            : {}),
+                        '& .MuiChip-label': { px: 1.5 },
                     }}
                 />
-                <IconButton size="large" onClick={handleClick}>
-                    <AccountCircleIcon fontSize="inherit" sx={{color: 'white'}} />
+                <Select
+                    value={language}
+                    variant="standard"
+                    disableUnderline
+                    onChange={(e) => setLanguage(e.target.value as 'ru' | 'en')}
+                    sx={{
+                        ...pill,
+                        minWidth: 68,
+                        fontSize: 13,
+                        fontWeight: 600,
+                        letterSpacing: '0.04em',
+                        '& .MuiSelect-select': {
+                            py: 0,
+                            pl: 1.5,
+                            pr: '26px !important',
+                            height: 32,
+                            minHeight: '0 !important',
+                            display: 'flex',
+                            alignItems: 'center',
+                            boxSizing: 'border-box',
+                        },
+                        '& .MuiSvgIcon-root': {
+                            color: 'rgba(245, 243, 239, 0.9)',
+                            right: 2,
+                        },
+                    }}
+                >
+                    <MenuItem value="ru">RU</MenuItem>
+                    <MenuItem value="en">EN</MenuItem>
+                </Select>
+                <IconButton onClick={handleClick} sx={{ ...pill, width: 32, p: 0 }}>
+                    <AccountCircleIcon sx={{ fontSize: 20, color: '#F5F3EF' }} />
                 </IconButton>
             </Stack>
             <Menu

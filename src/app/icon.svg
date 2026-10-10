@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32.00 32.00"><title>Baseline icon 32px and below</title>
+<g transform="translate(0 0) scale(0.26666666666666666)">
+<defs><clipPath id="bclip7"><path clip-rule="evenodd" d="M30 20 H62 A21 21 0 0 1 80 51.8 A21 21 0 0 1 68 90 H30 Z M46 34 H62 A7 7 0 0 1 62 48 H46 Z M46 62 H68 A7 7 0 0 1 68 76 H46 Z"/></clipPath></defs>
+<rect width="120" height="120" rx="24" fill="#6FB5A4"/>
+<g transform="translate(60 60) scale(0.98) translate(-59.5 -55)">
+<path fill-rule="evenodd" fill="#FFFFFF" d="M30 20 H62 A21 21 0 0 1 80 51.8 A21 21 0 0 1 68 90 H30 Z M46 34 H62 A7 7 0 0 1 62 48 H46 Z M46 62 H68 A7 7 0 0 1 68 76 H46 Z"/>
+<g clip-path="url(#bclip7)"><path d="M20 100 V87 L34 83 L46 85 L60 79 L72 81 L84 58 L90 48 L100 20 V100 Z" fill="#2F7A6B"/><path d="M20 87 L34 83 L46 85 L60 79 L72 81 L84 58 L90 48 L100 20" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/></g>
+</g></g>
+</svg>

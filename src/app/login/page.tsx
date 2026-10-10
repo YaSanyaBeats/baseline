@@ -9,6 +9,7 @@ import Snackbar from '@mui/material/Snackbar'
 import TextField from '@mui/material/TextField'
 import Typography from '@mui/material/Typography'
 
+import Image from 'next/image'
 import { handleSignIn } from '../../lib/auth'
 import { Card, SignInContainer } from '../../components/styled/Card'
 
@@ -80,11 +81,14 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
 
     return (
         <SignInContainer direction="column" justifyContent="space-between">
-            <Card variant="outlined">
+            <Card variant="outlined" sx={{ borderColor: '#E4E0DA' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+                    <Image src="/baseline-logo-horizontal.svg" alt="Baseline" width={250} height={57} priority />
+                </Box>
                 <Typography
                     component="h1"
-                    variant="h4"
-                    sx={{ width: '100%', fontSize: 'clamp(2rem, 10vw, 2.15rem)' }}
+                    variant="h5"
+                    sx={{ width: '100%', textAlign: 'center', color: '#1F1A17', fontWeight: 600 }}
                 >
                     Sign in
                 </Typography>
@@ -134,7 +138,13 @@ export default function SignIn(/*props: { disableCustomTheme?: boolean }*/) {
                             onChange={handleChange}
                         />
                     </FormControl>
-                    <Button type="submit" fullWidth variant="contained" disabled={submitting}>
+                    <Button
+                        type="submit"
+                        fullWidth
+                        variant="contained"
+                        disabled={submitting}
+                        sx={{ bgcolor: '#2F7A6B', '&:hover': { bgcolor: '#26685B' } }}
+                    >
                         Sign in
                     </Button>
                 </Box>

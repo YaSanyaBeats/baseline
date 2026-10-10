@@ -30,6 +30,9 @@ export async function GET(request: NextRequest) {
         const action = searchParams.get('action') as AuditLogAction | null;
         const userId = searchParams.get('userId') || undefined;
         const entityId = searchParams.get('entityId') || undefined;
+        const author = searchParams.get('author') || undefined;
+        const amount = searchParams.get('amount') || undefined;
+        const category = searchParams.get('category') || undefined;
         const startDateStr = searchParams.get('startDate');
         const endDateStr = searchParams.get('endDate');
         const limit = parseInt(searchParams.get('limit') || '50', 10);
@@ -47,6 +50,9 @@ export async function GET(request: NextRequest) {
             action: action || undefined,
             userId,
             entityId,
+            author,
+            amount,
+            category,
             startDate,
             endDate,
             limit,

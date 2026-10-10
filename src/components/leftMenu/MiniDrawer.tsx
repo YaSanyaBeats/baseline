@@ -55,6 +55,8 @@ easing: theme.transitions.easing.sharp,
 duration: theme.transitions.duration.enteringScreen,
 }),
 overflowX: 'hidden',
+backgroundColor: '#F5F3EF',
+borderRight: '1px solid #E4E0DA',
 });
 
 const closedMixin = (theme: Theme): CSSObject => ({
@@ -67,6 +69,8 @@ width: `calc(${theme.spacing(7)} + 1px)`,
 [theme.breakpoints.up('sm')]: {
     width: `calc(${theme.spacing(8)} + 1px)`,
 },
+backgroundColor: '#F5F3EF',
+borderRight: '1px solid #E4E0DA',
 });
 
 const DrawerHeader = styled('div')(({ theme }) => ({
@@ -258,6 +262,8 @@ function DrawerMenu(props: {
                             open
                             ? {
                                 justifyContent: 'initial',
+                                alignItems: 'flex-start',
+                                py: 1.25,
                                 }
                             : {
                                 justifyContent: 'center',
@@ -272,7 +278,8 @@ function DrawerMenu(props: {
                             },
                             open
                                 ? {
-                                    mr: 3,
+                                    mr: 2,
+                                    mt: '2px',
                                 }
                                 : {
                                     mr: 'auto',
@@ -287,6 +294,12 @@ function DrawerMenu(props: {
                             open
                                 ? {
                                     opacity: 1,
+                                    my: 0,
+                                    whiteSpace: 'normal',
+                                    '& .MuiListItemText-primary': {
+                                        whiteSpace: 'normal',
+                                        lineHeight: 1.3,
+                                    },
                                 }
                                 : {
                                     opacity: 0,
@@ -334,8 +347,28 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
 
     return (
         <Box sx={{ display: 'flex', width: '100%' }}>
-            <AppBar position="fixed" open={open && !isMobile}>
-                <Toolbar>
+            <AppBar
+                position="fixed"
+                color="transparent"
+                elevation={0}
+                open={open && !isMobile}
+                sx={{
+                    color: '#F5F3EF',
+                    backgroundColor: '#2F7A6B',
+                    backgroundImage: 'linear-gradient(105deg, #24685B 0%, #2F7A6B 48%, #3C917E 100%)',
+                    boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.22)',
+                    '&::after': {
+                        content: '""',
+                        position: 'absolute',
+                        inset: 0,
+                        pointerEvents: 'none',
+                        opacity: 0.16,
+                        mixBlendMode: 'overlay',
+                        backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
+                    },
+                }}
+            >
+                <Toolbar sx={{ position: 'relative', zIndex: 1 }}>
                     <IconButton
                         color="inherit"
                         onClick={handleDrawerOpen}
@@ -350,12 +383,47 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                         <MenuIcon />
                     </IconButton>
                     <Box sx={{ flexGrow: 1, display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
-                        <Link href="/dashboard" >
-                            <Image src="/logo-new.svg" alt="HolyCow logo" width={90} height={40}></Image>
+                        <Link href="/dashboard" style={{ display: 'flex', alignItems: 'center', lineHeight: 0 }}>
+                            <Image src="/baseline-logo-header.svg" alt="Baseline" width={153} height={40} />
                         </Link>
-                        <Typography variant="body1" component="span" sx={{ color: 'white' }}>
-                            {user?.name ? `${t('header.greeting')}, ${user.name}` : t('header.greeting')}
-                        </Typography>
+                        <Box
+                            sx={{
+                                display: { xs: 'none', sm: 'flex' },
+                                alignItems: 'baseline',
+                                gap: 0.75,
+                                minWidth: 0,
+                                pl: 2,
+                                borderLeft: '1px solid rgba(245, 243, 239, 0.28)',
+                            }}
+                        >
+                            <Typography
+                                component="span"
+                                sx={{
+                                    fontSize: 13,
+                                    fontWeight: 500,
+                                    color: 'rgba(245, 243, 239, 0.68)',
+                                    whiteSpace: 'nowrap',
+                                }}
+                            >
+                                {t('header.greeting')}
+                            </Typography>
+                            {user?.name ? (
+                                <Typography
+                                    component="span"
+                                    sx={{
+                                        fontSize: 15,
+                                        fontWeight: 650,
+                                        letterSpacing: '-0.01em',
+                                        color: '#F5F3EF',
+                                        whiteSpace: 'nowrap',
+                                        overflow: 'hidden',
+                                        textOverflow: 'ellipsis',
+                                    }}
+                                >
+                                    {user.name}
+                                </Typography>
+                            ) : null}
+                        </Box>
                     </Box>
                     {impersonatedBy && (
                         <Button
@@ -365,13 +433,17 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                             onClick={handleStopImpersonation}
                             disabled={stoppingImpersonation}
                             sx={{
-                                color: 'white',
-                                borderColor: 'rgba(255,255,255,0.6)',
+                                height: 32,
                                 mr: 1,
+                                px: 1.25,
+                                color: '#F5F3EF',
+                                borderColor: 'rgba(255,255,255,0.22)',
+                                borderRadius: '999px',
+                                bgcolor: 'rgba(255,255,255,0.12)',
                                 whiteSpace: 'nowrap',
                                 '&:hover': {
-                                    borderColor: 'white',
-                                    bgcolor: 'rgba(255,255,255,0.08)',
+                                    borderColor: 'rgba(255,255,255,0.4)',
+                                    bgcolor: 'rgba(255,255,255,0.18)',
                                 },
                             }}
                         >
@@ -406,7 +478,11 @@ export default function MiniDrawer({ children }: { children: React.ReactNode }) 
                     sx={{
                         zIndex: 9999,
                         display: { xs: 'block', sm: 'none' },
-                        '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+                        '& .MuiDrawer-paper': {
+                            boxSizing: 'border-box',
+                            width: drawerWidth,
+                            backgroundColor: '#F5F3EF',
+                        },
                     }}
                     slotProps={{
                         root: {

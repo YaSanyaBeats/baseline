@@ -38,6 +38,7 @@ import SourceRecipientSelect, {
 import { useObjects } from '@/providers/ObjectsProvider';
 import { getEffectiveReportAmount } from '@/lib/accountancyUtils';
 import { ReportAmountDeltaBodyCells } from './ReportAmountDeltaCells';
+import TransactionLogHint from './TransactionLogHint';
 
 /** Строка операции в сводке /dashboard/accountancy (таблица без брони / с бронью). */
 export type AccountancyOverviewOperationRowModel = {
@@ -59,6 +60,12 @@ export type AccountancyOverviewOperationRowModel = {
     autoCreated?: boolean;
     /** Подпись брони-источника для Tooltip badge «Авто» */
     autoCreatedBookingLabel?: string;
+    /** Аккаунт, создавший транзакцию */
+    accountantName?: string;
+    createdAt?: Date | string;
+    /** Последнее ручное изменение, если уже записано в документ */
+    updatedAt?: Date | string;
+    updatedByName?: string;
     bookingId?: number;
     /** Учитывать в расчёте синтетических транзакций (только расходы в группах броней) */
     includeInSynthetic?: boolean;
@@ -95,6 +102,11 @@ export type AccountancyOverviewOperationTableRowProps = {
     row: AccountancyOverviewOperationRowModel;
     /** Показать чекбокс «Делимость» (брони — расходы; «Общие расходы» без брони — расходы и приходы) */
     showDivisibilityCheckbox?: boolean;
+    /**
+     * Доли агентства / гостя / владельца для группы «Общие расходы».
+     * null — ячейки с «—» (другие группы). Не сохраняется и в отчёт не входит.
+     */
+    commonExpenseShares?: { agency: number; guest: number; owner: number } | null;
     t: (key: string) => string;
     language: import('@/lib/accountancyCategoryResolve').AppLanguage;
     opTableSelectFormSx: object;
@@ -174,6 +186,39 @@ export type AccountancyOverviewOperationTableRowProps = {
 };
 
 const COMMISSION_TOOLTIP_LINE_CAP = 14;
+
+function CommonExpenseShareCells({
+    shares,
+    formatAmount,
+}: {
+    shares?: { agency: number; guest: number; owner: number } | null;
+    formatAmount: (n: number) => string;
+}) {
+    const values = shares ? [shares.agency, shares.guest, shares.owner] : [null, null, null];
+    return (
+        <>
+            {values.map((value, index) => (
+                <TableCell
+                    key={index}
+                    align="right"
+                    sx={{
+                        px: 0.25,
+                        whiteSpace: 'nowrap',
+                        fontSize: '0.6875rem',
+                        color:
+                            value == null || value === 0
+                                ? 'text.secondary'
+                                : value > 0
+                                  ? 'success.main'
+                                  : 'error.main',
+                    }}
+                >
+                    {value == null ? '—' : formatAmount(value)}
+                </TableCell>
+            ))}
+        </>
+    );
+}
 
 const readOnlyCellTypographySx = {
     fontSize: '0.6875rem',
@@ -918,6 +963,7 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                     </Stack>
                 ) : null}
             </TableCell>
+            <CommonExpenseShareCells shares={p.commonExpenseShares} formatAmount={p.formatAmount} />
             <TableCell sx={{ px: 0.25, verticalAlign: 'middle' }}>
                 {isSynthetic ? (
                     <Typography variant="body2" sx={readOnlyCellTypographySx}>
@@ -987,7 +1033,21 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                 )}
             </TableCell>
             <TableCell align="right" sx={{ px: 0.25, whiteSpace: 'nowrap' }}>
-                {ro ? null : pending ? (
+                {isSynthetic ? null : (
+                <Stack direction="row" alignItems="center" justifyContent="flex-end" spacing={0.25}>
+                    {!pending && row.entityId ? (
+                        <TransactionLogHint
+                            entity={row.type}
+                            entityId={row.entityId}
+                            authorName={row.accountantName}
+                            createdAt={row.createdAt}
+                            updatedAt={row.updatedAt}
+                            updatedByName={row.updatedByName}
+                            t={t}
+                            language={p.language}
+                        />
+                    ) : null}
+                    {ro ? null : pending ? (
                     <Stack direction="row" alignItems="center" justifyContent="flex-end" spacing={0}>
                         <Tooltip title={t('common.save')}>
                             <span>
@@ -1069,6 +1129,8 @@ function AccountancyOverviewOperationTableRowInner(p: AccountancyOverviewOperati
                             </IconButton>
                         </span>
                     </Tooltip>
+                </Stack>
+                )}
                 </Stack>
                 )}
             </TableCell>

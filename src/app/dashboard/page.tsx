@@ -104,7 +104,9 @@ function Row(
                                     <TableCell component="th">
                                         {room.name ? room.name : t('dashboard.unnamed')}
                                     </TableCell>
-                                    <TableCell>{room.bedrooms ?? '—'}</TableCell>
+                                    <TableCell>
+                                        {room.bedrooms === 0 ? t('dashboard.studio') : (room.bedrooms ?? '—')}
+                                    </TableCell>
                                     <TableCell>{room.bathrooms ?? '—'}</TableCell>
                                     <TableCell>{room.livingRoomSofas ?? '—'}</TableCell>
                                     <TableCell>{room.kitchen ? t(`dashboard.kitchen${room.kitchen === 'yes' ? 'Yes' : 'No'}`) : '—'}</TableCell>

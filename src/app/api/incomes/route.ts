@@ -18,6 +18,7 @@ import {
     assertTransactionMutationAllowed,
     type TransactionLedgerFields,
 } from '@/lib/accountancyClosedMonth';
+import { allocateTransactionNumber } from '@/lib/transactionNumber';
 
 function normalizeCommissionPercent(value: unknown): 15 | 20 | 25 | 30 {
     const num = Number(value);
@@ -454,7 +455,9 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const result = await incomesCollection.insertOne(incomeToInsert as any);
+        const transactionNumber = await allocateTransactionNumber(db);
+        const incomeDocument = { ...incomeToInsert, transactionNumber };
+        const result = await incomesCollection.insertOne(incomeDocument as any);
 
         if (parentExpenseIdBin) {
             await expensesCollection.updateOne(
@@ -478,7 +481,7 @@ export async function POST(request: NextRequest) {
             userName: accountant.name,
             userRole: userRole,
             description: `Создан доход: ${incomeData.category}, сумма ${quantity * incomeData.amount}`,
-            newData: incomeToInsert,
+            newData: incomeDocument,
             metadata: {
                 objectId: incomeData.objectId,
                 bookingId: incomeData.bookingId,

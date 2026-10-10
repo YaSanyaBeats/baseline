@@ -8,6 +8,8 @@ import {
     Button,
     TextField,
     FormControl,
+    FormControlLabel,
+    Checkbox,
     InputLabel,
     Select,
     MenuItem,
@@ -36,7 +38,7 @@ interface RoomEditDialogProps {
         objectId: number,
         roomName: string,
         data: {
-            bedrooms?: number;
+            bedrooms?: number | null;
             bathrooms?: number;
             livingRoomSofas?: number;
             kitchen?: 'yes' | 'no';
@@ -97,7 +99,7 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
                     ? String(room.name).trim()
                     : `Unit ${room.id}`;
             await onSave(getMetadataPropertyId(object), roomName, {
-                bedrooms: bedrooms !== '' ? parseInt(bedrooms, 10) : undefined,
+                bedrooms: bedrooms === '' ? null : parseInt(bedrooms, 10),
                 bathrooms: bathrooms !== '' ? parseInt(bathrooms, 10) : undefined,
                 livingRoomSofas: livingRoomSofas !== '' ? parseInt(livingRoomSofas, 10) : undefined,
                 kitchen: kitchen || undefined,
@@ -120,12 +122,28 @@ export default function RoomEditDialog({ open, onClose, object, room, onSave }: 
             <DialogTitle>{t('dashboard.editRoom')}</DialogTitle>
             <DialogContent>
                 <Stack spacing={2} sx={{ mt: 1 }}>
+                    <FormControlLabel
+                        control={
+                            <Checkbox
+                                checked={bedrooms === '0'}
+                                onChange={(e) => {
+                                    if (e.target.checked) {
+                                        setBedrooms('0');
+                                    } else {
+                                        setBedrooms((prev) => (prev === '0' ? '' : prev));
+                                    }
+                                }}
+                            />
+                        }
+                        label={t('dashboard.studio')}
+                    />
                     <TextField
                         label={t('dashboard.bedrooms')}
                         type="number"
                         inputProps={{ min: 0, step: 1 }}
                         value={bedrooms}
                         onChange={(e) => setBedrooms(e.target.value)}
+                        disabled={bedrooms === '0'}
                         fullWidth
                     />
                     <TextField

@@ -123,6 +123,10 @@ import {
 } from "@/lib/holyCowExpenseShareCalculation";
 import { isManagementCommissionExpenseCategory } from "@/lib/ownerViewExpenses";
 import {
+    signedCommonExpenseShares,
+    subtransactionTotalByParentId,
+} from "@/lib/commonExpenseShares";
+import {
     NO_BOOKING_SUBGROUP_ORDER,
     isExcludedFromAccountancyRoomStatsSum,
     resolveNoBookingSubgroupForTransaction,
@@ -203,7 +207,7 @@ const OP_TABLE_SELECT_WIDTH_PX = 104;
 /** Колонки «От кого» / «Кому» (Autocomplete) */
 const OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX = 220;
 /** Колонка действий (подтранзакция, просмотр, удаление) */
-const OP_TABLE_ACTIONS_COL_WIDTH_PX = 88;
+const OP_TABLE_ACTIONS_COL_WIDTH_PX = 120;
 /** Ширина Select «Категория» (max-width текста в ячейке) */
 const OP_TABLE_CAT_SELECT_WIDTH_PX = 260;
 /** Колонка «Категория» */
@@ -214,11 +218,13 @@ const OP_TABLE_QTY_COL_WIDTH_PX = 58;
 const OP_TABLE_COMMENT_COL_WIDTH_PX = 240;
 /** Колонка «Делимость» (чекбокс + % комиссии для no-booking) */
 const OP_TABLE_DIVISIBILITY_COL_WIDTH_PX = 80;
+/** Колонки долей «Общие расходы»: агентство, гость, владелец */
+const OP_TABLE_SHARE_COL_WIDTH_PX = 108;
 /** Колонки «Сумма для отчёта» и «Дельта» */
 const OP_TABLE_REPORT_AMOUNT_COL_WIDTH_PX = 128;
 const OP_TABLE_DELTA_COL_WIDTH_PX = 96;
 /** Число колонок таблицы операций (для group header colSpan) */
-const OP_TABLE_COL_COUNT = 13;
+const OP_TABLE_COL_COUNT = 16;
 /** Минимальная ширина таблицы (сумма колонок), чтобы колонки не схлопывались до нуля */
 const OP_TABLE_MIN_WIDTH_PX =
     44 +
@@ -231,6 +237,7 @@ const OP_TABLE_MIN_WIDTH_PX =
     OP_TABLE_REPORT_AMOUNT_COL_WIDTH_PX +
     OP_TABLE_DELTA_COL_WIDTH_PX +
     OP_TABLE_DIVISIBILITY_COL_WIDTH_PX +
+    OP_TABLE_SHARE_COL_WIDTH_PX * 3 +
     OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX * 2 +
     OP_TABLE_ACTIONS_COL_WIDTH_PX;
 
@@ -1348,6 +1355,10 @@ export default function Page() {
                     recipient: e.recipient,
                     autoCreated: !!(e as Expense & { autoCreated?: unknown }).autoCreated,
                     autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(e, bookingsForAutoLabels, objects),
+                    accountantName: e.accountantName,
+                    createdAt: e.createdAt,
+                    updatedAt: e.updatedAt,
+                    updatedByName: e.updatedByName,
                     includeInSynthetic: e.includeInSynthetic,
                     commissionPercent: e.commissionPercent ?? 30,
                     reportAmount: e.reportAmount ?? null,
@@ -1394,6 +1405,10 @@ export default function Page() {
                     recipient: i.recipient,
                     autoCreated: !!(i as Income & { autoCreated?: unknown }).autoCreated,
                     autoCreatedBookingLabel: resolveAutoCreatedBookingLabel(i, bookingsForAutoLabels, objects),
+                    accountantName: i.accountantName,
+                    createdAt: i.createdAt,
+                    updatedAt: i.updatedAt,
+                    updatedByName: i.updatedByName,
                     includeInSynthetic: i.includeInSynthetic,
                     commissionPercent: i.commissionPercent ?? 30,
                     reportAmount: i.reportAmount ?? null,
@@ -1430,6 +1445,11 @@ export default function Page() {
         if (selectedRoomId === 'all') return objectScopedOperationRows;
         return objectScopedOperationRows.filter((row) => row.resolvedRoomKey === selectedRoomId);
     }, [objectScopedOperationRows, selectedRoomId]);
+
+    const subtransactionTotalsByParentId = useMemo(
+        () => subtransactionTotalByParentId(filteredOperations),
+        [filteredOperations],
+    );
 
     const bookingsMergedForLabels = useMemo(() => {
         const byId = new Map<number, Booking>();
@@ -4267,8 +4287,8 @@ export default function Page() {
                                                 mt: 0.5,
                                                 width: '100%',
                                                 maxWidth: '100%',
-                                                overflowX: 'auto',
-                                                overflowY: 'visible',
+                                                maxHeight: 'calc(100vh - 96px)',
+                                                overflow: 'auto',
                                             }}
                                         >
                                         <Table
@@ -4292,6 +4312,12 @@ export default function Page() {
                                                     fontWeight: 600,
                                                     lineHeight: 1.1,
                                                     backgroundColor: 'background.paper',
+                                                },
+                                                '& .MuiTableCell-stickyHeader': {
+                                                    top: 0,
+                                                    zIndex: 3,
+                                                    backgroundColor: 'background.paper',
+                                                    boxShadow: (theme) => `inset 0 -1px 0 ${theme.palette.divider}`,
                                                 },
                                                 '& .MuiSwitch-root': { transform: 'scale(0.62)' },
                                                 '& .MuiIconButton-root': { p: 0.2 },
@@ -4328,6 +4354,15 @@ export default function Page() {
                                                     </TableCell>
                                                     <TableCell align="center" sx={{ width: OP_TABLE_DIVISIBILITY_COL_WIDTH_PX }}>
                                                         {t('accountancy.divisibility')}
+                                                    </TableCell>
+                                                    <TableCell align="right" sx={{ width: OP_TABLE_SHARE_COL_WIDTH_PX }}>
+                                                        {t('accountancy.agencyShareColumn')}
+                                                    </TableCell>
+                                                    <TableCell align="right" sx={{ width: OP_TABLE_SHARE_COL_WIDTH_PX }}>
+                                                        {t('accountancy.guestShareColumn')}
+                                                    </TableCell>
+                                                    <TableCell align="right" sx={{ width: OP_TABLE_SHARE_COL_WIDTH_PX }}>
+                                                        {t('accountancy.ownerShareColumn')}
                                                     </TableCell>
                                                     <TableCell sx={{ width: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX }}>{t('accountancy.source')}</TableCell>
                                                     <TableCell sx={{ width: OP_TABLE_SOURCE_RECIPIENT_COL_WIDTH_PX }}>{t('accountancy.recipient')}</TableCell>
@@ -4567,6 +4602,16 @@ export default function Page() {
                                                                         group.key,
                                                                         row,
                                                                     )}
+                                                                    commonExpenseShares={
+                                                                        DIVISIBILITY_NOBOOK_GROUP_KEYS.has(group.key) &&
+                                                                        !row.readOnlySynthetic &&
+                                                                        !row.isPendingDraft
+                                                                            ? signedCommonExpenseShares(
+                                                                                  row,
+                                                                                  subtransactionTotalsByParentId,
+                                                                              )
+                                                                            : null
+                                                                    }
                                                                     shouldShowCommissionPercentSelect={(r) =>
                                                                         operationRowShowsCommissionPercentSelect(group.key, r)
                                                                     }

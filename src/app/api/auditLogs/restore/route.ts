@@ -5,6 +5,7 @@ import { getDB } from '@/lib/db/getDB';
 import { ObjectId } from 'mongodb';
 import { AuditLogEntity } from '@/lib/types';
 import { assertLedgerMonthOpen } from '@/lib/accountancyClosedMonth';
+import { allocateTransactionNumber, raiseTransactionNumberCounter } from '@/lib/transactionNumber';
 
 function collectionForDeletedEntity(
     entity: AuditLogEntity,
@@ -151,6 +152,12 @@ export async function POST(request: NextRequest) {
                     { success: false, message: ledgerCheck.message, code: ledgerCheck.code },
                     { status: 403 },
                 );
+            }
+            const existingNumber = Number((doc as { transactionNumber?: unknown }).transactionNumber);
+            if (Number.isFinite(existingNumber) && existingNumber > 0) {
+                await raiseTransactionNumberCounter(db, existingNumber);
+            } else {
+                (doc as { transactionNumber?: number }).transactionNumber = await allocateTransactionNumber(db);
             }
         }
 

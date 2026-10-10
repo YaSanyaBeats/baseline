@@ -1,6 +1,51 @@
 import { getDB } from './db/getDB';
 import { AuditLog, AuditLogAction, AuditLogEntity, AuditLogMetadata } from './types';
 
+function escapeRegex(value: string): string {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function parseSearchAmount(raw: string): number | null {
+    const cleaned = raw.trim().replace(/\s/g, '').replace(',', '.');
+    if (!cleaned || !/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+    const amount = Math.abs(Number(cleaned));
+    if (!Number.isFinite(amount)) return null;
+    return Math.round(amount * 100) / 100;
+}
+
+function amountMatchClause(amount: number): Record<string, unknown> {
+    const signed = [amount, -amount];
+    const fields = ['metadata.amount', 'newData.amount', 'oldData.amount', 'newData.reportAmount', 'oldData.reportAmount'];
+    const or: Record<string, unknown>[] = fields.map((field) => ({ [field]: { $in: signed } }));
+    for (const prefix of ['newData', 'oldData']) {
+        or.push({
+            $expr: {
+                $eq: [
+                    {
+                        $round: [
+                            {
+                                $abs: {
+                                    $multiply: [
+                                        { $ifNull: [`$${prefix}.quantity`, 1] },
+                                        { $convert: { input: `$${prefix}.amount`, to: 'double', onError: 0, onNull: 0 } },
+                                    ],
+                                },
+                            },
+                            2,
+                        ],
+                    },
+                    amount,
+                ],
+            },
+        });
+    }
+    const token = String(amount);
+    const tokenComma = token.replace('.', ',');
+    const pattern = `(^|[^\\d])(${escapeRegex(token)}|${escapeRegex(tokenComma)})([^\\d]|$)`;
+    or.push({ description: { $regex: pattern } });
+    return { $or: or };
+}
+
 /**
  * Записывает изменение в лог аудита
  */
@@ -51,6 +96,12 @@ export async function getAuditLogs(params: {
     startDate?: Date;
     endDate?: Date;
     entityId?: string;
+    /** Часть имени автора */
+    author?: string;
+    /** Сумма транзакции: поле amount, количество × цена или текст «сумма …» */
+    amount?: string;
+    /** Часть названия категории */
+    category?: string;
     limit?: number;
     skip?: number;
     sortField?: string;
@@ -76,6 +127,34 @@ export async function getAuditLogs(params: {
 
     if (params.entityId) {
         filter.entityId = params.entityId;
+    }
+
+    const and: Record<string, unknown>[] = [];
+    const author = params.author?.trim();
+    if (author) {
+        and.push({ userName: { $regex: escapeRegex(author), $options: 'i' } });
+    }
+    const category = params.category?.trim();
+    if (category) {
+        const categoryRegex = { $regex: escapeRegex(category), $options: 'i' };
+        and.push({
+            $or: [
+                { 'metadata.category': categoryRegex },
+                { 'newData.category': categoryRegex },
+                { 'oldData.category': categoryRegex },
+                { description: categoryRegex },
+            ],
+        });
+    }
+    const amount = params.amount?.trim() ? parseSearchAmount(params.amount) : null;
+    if (params.amount?.trim() && amount == null) {
+        return { logs: [], total: 0, limit: params.limit || 50, skip: params.skip || 0 };
+    }
+    if (amount != null) {
+        and.push(amountMatchClause(amount));
+    }
+    if (and.length > 0) {
+        filter.$and = and;
     }
     
     if (params.startDate || params.endDate) {

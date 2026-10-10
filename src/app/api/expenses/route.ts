@@ -14,6 +14,7 @@ import {
     verifyCashflowIdForTransactionList,
 } from '@/lib/accountancyCashflowIdQueryAuth';
 import { assertTransactionDocEditable, assertTransactionMutationAllowed, type TransactionLedgerFields } from '@/lib/accountancyClosedMonth';
+import { allocateTransactionNumber } from '@/lib/transactionNumber';
 
 function normalizeCommissionPercent(value: unknown): 15 | 20 | 25 | 30 {
     const num = Number(value);
@@ -450,7 +451,9 @@ export async function POST(request: NextRequest) {
             });
         }
 
-        const result = await expensesCollection.insertOne(expenseToInsert as any);
+        const transactionNumber = await allocateTransactionNumber(db);
+        const expenseDocument = { ...expenseToInsert, transactionNumber };
+        const result = await expensesCollection.insertOne(expenseDocument as any);
 
         if (parentExpenseIdBin) {
             await expensesCollection.updateOne(
@@ -474,7 +477,7 @@ export async function POST(request: NextRequest) {
             userName: accountant.name,
             userRole: userRole,
             description: `Создан расход: ${expenseData.category}, сумма ${quantity * expenseData.amount}`,
-            newData: expenseToInsert,
+            newData: expenseDocument,
             metadata: {
                 objectId: expenseData.objectId,
                 bookingId: expenseData.bookingId,

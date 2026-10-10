@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        const userName = (session.user as any).name || session.user.name || 'Unknown';
         const updateData: any = {
             recordType: 'income',
             objectId: incomeData.objectId,
@@ -181,6 +182,9 @@ export async function POST(request: NextRequest) {
             autoCreated: null,
             includeInSynthetic: incomeData.includeInSynthetic !== false,
             commissionPercent: normalizeCommissionPercent(incomeData.commissionPercent),
+            updatedAt: new Date(),
+            updatedBy: userId,
+            updatedByName: userName,
         };
 
         await incomesCollection.updateOne(
@@ -188,8 +192,6 @@ export async function POST(request: NextRequest) {
             { $set: updateData },
         );
 
-        // Логируем обновление дохода
-        const userName = (session.user as any).name || session.user.name || 'Unknown';
         await logAuditAction({
             entity: 'income',
             entityId: incomeData._id,

@@ -392,6 +392,10 @@ export interface Expense {
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
     createdAt?: Date;              // Дата создания записи
+    /** Последнее ручное изменение */
+    updatedAt?: Date;
+    updatedBy?: string;
+    updatedByName?: string;
     /** Запись создана автоучётом; при ручном редактировании сбрасывается */
     autoCreated?: AutoCreatedMeta | null;
     /** ID родительского расхода (Mongo), если запись — подтранзакция при делимости */
@@ -406,6 +410,8 @@ export interface Expense {
     includeInSynthetic?: boolean;
     /** Ручной процент комиссии для транзакций без брони с включённой делимостью. */
     commissionPercent?: TransactionCommissionPercent;
+    /** Сквозной числовой ID транзакции (общий с доходами): 1, 2, 3… */
+    transactionNumber?: number;
 }
 
 export interface Income {
@@ -436,6 +442,10 @@ export interface Income {
     accountantId: string;          // ID бухгалтера/админа, создавшего запись
     accountantName?: string;       // Имя бухгалтера
     createdAt?: Date;              // Дата создания записи
+    /** Последнее ручное изменение */
+    updatedAt?: Date;
+    updatedBy?: string;
+    updatedByName?: string;
     /** Запись создана автоучётом; при ручном редактировании сбрасывается */
     autoCreated?: AutoCreatedMeta | null;
     /** ID родительского расхода (Mongo), если доход создан как подтранзакция при делимости расхода */
@@ -450,6 +460,8 @@ export interface Income {
     includeInSynthetic?: boolean;
     /** Ручной процент комиссии для транзакций без брони с включённой делимостью. */
     commissionPercent?: TransactionCommissionPercent;
+    /** Сквозной числовой ID транзакции (общий с расходами): 1, 2, 3… */
+    transactionNumber?: number;
 }
 
 /** Ручной процент авторасчёта «Комиссия за управление» для конкретной брони. */

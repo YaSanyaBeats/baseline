@@ -182,14 +182,36 @@ export default function AuditLogsPage() {
     const [actionFilter, setActionFilter] = useState<AuditLogAction | 'all'>('all');
     const [dateFromFilter, setDateFromFilter] = useState<string>('');
     const [dateToFilter, setDateToFilter] = useState<string>('');
+    const [authorFilter, setAuthorFilter] = useState('');
+    const [amountFilter, setAmountFilter] = useState('');
+    const [categoryFilter, setCategoryFilter] = useState('');
 
     const { hasAccess } = useMemo(() => {
         const hasAccess = isAdmin || isAccountant;
         return { hasAccess };
     }, [isAdmin, isAccountant]);
 
-    const loadLogs = useCallback(async (reset: boolean = false) => {
+    const loadLogs = useCallback(async (
+        reset: boolean = false,
+        overrides?: {
+            entityFilter?: AuditLogEntity | 'all';
+            actionFilter?: AuditLogAction | 'all';
+            dateFromFilter?: string;
+            dateToFilter?: string;
+            authorFilter?: string;
+            amountFilter?: string;
+            categoryFilter?: string;
+        },
+    ) => {
         if (!hasAccess) return;
+
+        const entity = overrides?.entityFilter ?? entityFilter;
+        const action = overrides?.actionFilter ?? actionFilter;
+        const dateFrom = overrides?.dateFromFilter ?? dateFromFilter;
+        const dateTo = overrides?.dateToFilter ?? dateToFilter;
+        const author = overrides?.authorFilter ?? authorFilter;
+        const amount = overrides?.amountFilter ?? amountFilter;
+        const category = overrides?.categoryFilter ?? categoryFilter;
 
         try {
             setLoading(true);
@@ -202,17 +224,26 @@ export default function AuditLogsPage() {
                 sortOrder: 'desc',
             };
 
-            if (entityFilter !== 'all') {
-                params.entity = entityFilter;
+            if (entity !== 'all') {
+                params.entity = entity;
             }
-            if (actionFilter !== 'all') {
-                params.action = actionFilter;
+            if (action !== 'all') {
+                params.action = action;
             }
-            if (dateFromFilter) {
-                params.startDate = new Date(dateFromFilter).toISOString();
+            if (dateFrom) {
+                params.startDate = new Date(dateFrom).toISOString();
             }
-            if (dateToFilter) {
-                params.endDate = new Date(dateToFilter).toISOString();
+            if (dateTo) {
+                params.endDate = new Date(dateTo).toISOString();
+            }
+            if (author.trim()) {
+                params.author = author.trim();
+            }
+            if (amount.trim()) {
+                params.amount = amount.trim();
+            }
+            if (category.trim()) {
+                params.category = category.trim();
             }
 
             const response = await axios.get('/api/auditLogs', { params });
@@ -231,7 +262,7 @@ export default function AuditLogsPage() {
         } finally {
             setLoading(false);
         }
-    }, [hasAccess, skip, limit, entityFilter, actionFilter, dateFromFilter, dateToFilter]);
+    }, [hasAccess, skip, limit, entityFilter, actionFilter, dateFromFilter, dateToFilter, authorFilter, amountFilter, categoryFilter]);
 
     useEffect(() => {
         if (hasAccess) {
@@ -249,7 +280,18 @@ export default function AuditLogsPage() {
         setActionFilter('all');
         setDateFromFilter('');
         setDateToFilter('');
-        setTimeout(() => loadLogs(true), 100);
+        setAuthorFilter('');
+        setAmountFilter('');
+        setCategoryFilter('');
+        void loadLogs(true, {
+            entityFilter: 'all',
+            actionFilter: 'all',
+            dateFromFilter: '',
+            dateToFilter: '',
+            authorFilter: '',
+            amountFilter: '',
+            categoryFilter: '',
+        });
     };
 
     const handleLoadMore = () => {
@@ -383,6 +425,27 @@ export default function AuditLogsPage() {
                                 <MenuItem value="delete">{t('auditLogs.actionTypes.delete')}</MenuItem>
                             </Select>
                         </FormControl>
+                    </Stack>
+
+                    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                        <TextField
+                            fullWidth
+                            label={t('auditLogs.searchAuthor')}
+                            value={authorFilter}
+                            onChange={(e) => setAuthorFilter(e.target.value)}
+                        />
+                        <TextField
+                            fullWidth
+                            label={t('auditLogs.searchAmount')}
+                            value={amountFilter}
+                            onChange={(e) => setAmountFilter(e.target.value)}
+                        />
+                        <TextField
+                            fullWidth
+                            label={t('auditLogs.searchExpenseCategory')}
+                            value={categoryFilter}
+                            onChange={(e) => setCategoryFilter(e.target.value)}
+                        />
                     </Stack>
 
                     <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>

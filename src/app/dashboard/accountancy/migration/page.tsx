@@ -173,6 +173,18 @@ export default function Page() {
     return (
         <Box>
             <Typography variant="h4" sx={{ mb: 2 }}>
+                Числовые ID транзакций
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                Проставляет существующим расходам и доходам номера 1, 2, 3… Новые транзакции получают номер сами.
+            </Alert>
+            <Box sx={{ mb: 4 }}>
+                <Link href="/dashboard/accountancy/migration/transaction-numbers">
+                    <Button variant="contained">Открыть миграцию номеров</Button>
+                </Link>
+            </Box>
+
+            <Typography variant="h4" sx={{ mb: 2 }}>
                 Автотранзакции с сентября 2026
             </Typography>
             <Alert severity="info" sx={{ mb: 2 }}>
