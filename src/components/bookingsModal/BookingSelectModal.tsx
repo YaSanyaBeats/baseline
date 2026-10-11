@@ -100,23 +100,30 @@ export default function BookingSelectModal({
     const [results, setResults] = useState<Booking[]>([]);
     const wasOpenRef = useRef(false);
 
-    /** В коллекции bookings поле propertyId совпадает с object.propertyId (Beds24), а не всегда с object.id из списка объектов. */
-    const bookingPropertyIdForApi = useCallback(
-        (internalObjectId?: number): number | undefined => {
-            if (internalObjectId == null) return undefined;
-            const o = objects.find((x) => x.id === internalObjectId);
-            if (o) return o.propertyId ?? o.id;
-            return internalObjectId;
+    /**
+     * В коллекции bookings propertyId — Beds24 property, roomId — room type.
+     * Строка объекта в UI часто равна room type (id !== propertyId).
+     * roomId фильтра — unitId; у разных типов он часто совпадает (все с 1).
+     */
+    const toApiSearchParams = useCallback(
+        (f: BookingSearchParams): BookingSearchParams => {
+            if (f.objectId == null) return f;
+            const o = objects.find((x) => x.id === f.objectId);
+            if (!o) return { ...f, objectId: f.objectId };
+            const propertyId = o.propertyId ?? o.id;
+            const roomTypeId = o.id !== propertyId ? o.id : undefined;
+            return {
+                ...f,
+                objectId: propertyId,
+                roomTypeId,
+            };
         },
         [objects],
     );
 
     const runSearchWithFilters = useCallback(
         async (f: BookingSearchParams) => {
-            const apiParams: BookingSearchParams = {
-                ...f,
-                objectId: bookingPropertyIdForApi(f.objectId),
-            };
+            const apiParams = toApiSearchParams(f);
             setLoading(true);
             try {
                 const data = await searchBookings(apiParams);
@@ -127,7 +134,7 @@ export default function BookingSelectModal({
                 setLoading(false);
             }
         },
-        [bookingPropertyIdForApi],
+        [toApiSearchParams],
     );
 
     useEffect(() => {

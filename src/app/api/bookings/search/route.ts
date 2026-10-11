@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/lib/auth-options';
 import { getDB } from '@/lib/db/getDB';
+import { bookingRoomFilterClauses } from '@/lib/server/bookingsQuery';
 
 /** `type="date"` отдаёт YYYY-MM-DD; инклюзивный календарный диапазон в UTC (без схлопывания «один день» в один момент времени). */
 function startOfUtcDayFromIsoDate(iso: string): Date {
@@ -58,8 +59,10 @@ export async function GET(request: NextRequest) {
         /** Пересечение проживания с [overlapFrom, overlapTo] (инкл. по календарным дням UTC); приоритетнее фильтра `from`/`to` по дате заезда. */
         const overlapFrom = searchParams.get('overlapFrom');
         const overlapTo = searchParams.get('overlapTo');
-        /** ID комнаты (room type / unit в справочнике объекта): совпадение с unitId или roomId в документе брони */
+        /** ID юнита в справочнике. Вместе с roomTypeId — точное совпадение unitId. */
         const roomIdParam = searchParams.get('roomId');
+        /** Beds24 room type: в бронях это roomId/roomID. Отделяет комнаты с одинаковым unitId. */
+        const roomTypeIdParam = searchParams.get('roomTypeId');
 
         const bookingsCollection = db.collection('bookings');
 
@@ -84,14 +87,12 @@ export async function GET(request: NextRequest) {
             andParts.push({ propertyId: Number(objectIdParam) });
         }
 
-        if (roomIdParam) {
-            const rid = Number(roomIdParam);
-            if (Number.isFinite(rid)) {
-                andParts.push({
-                    $or: [{ unitId: rid }, { roomId: rid }, { roomID: rid }],
-                });
-            }
-        }
+        andParts.push(
+            ...bookingRoomFilterClauses(
+                roomIdParam != null && roomIdParam !== '' ? Number(roomIdParam) : undefined,
+                roomTypeIdParam != null && roomTypeIdParam !== '' ? Number(roomTypeIdParam) : undefined,
+            ),
+        );
 
         /** В Mongo после синка Beds24 даты часто строки (YYYY-MM-DD); прямое $gte/$lte с BSON Date не совпадает по типу. */
         if (overlapFrom && overlapTo) {

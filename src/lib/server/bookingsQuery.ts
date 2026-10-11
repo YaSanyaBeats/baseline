@@ -24,11 +24,42 @@ function escapeRegExp(s: string): string {
     return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Фильтр комнаты.
+ * roomTypeId — Beds24 room type (поле roomId/roomID брони).
+ * roomId — id юнита. У разных room type unitId часто совпадает (все начинаются с 1),
+ * поэтому при известном типе unitId добавляется через AND, а не через OR с roomId.
+ */
+export function bookingRoomFilterClauses(
+    roomId: number | undefined,
+    roomTypeId: number | undefined,
+): object[] {
+    const clauses: object[] = [];
+    const rtid = roomTypeId != null ? Number(roomTypeId) : NaN;
+    const hasRoomType = Number.isFinite(rtid);
+    if (hasRoomType) {
+        clauses.push({ $or: [{ roomId: rtid }, { roomID: rtid }] });
+    }
+    if (roomId != null) {
+        const rid = Number(roomId);
+        if (Number.isFinite(rid)) {
+            if (hasRoomType) {
+                clauses.push({ unitId: rid });
+            } else {
+                clauses.push({
+                    $or: [{ unitId: rid }, { roomId: rid }, { roomID: rid }],
+                });
+            }
+        }
+    }
+    return clauses;
+}
+
 export async function searchBookingsFromDb(
     db: Db,
     params: BookingSearchParams
 ): Promise<Booking[]> {
-    const { objectId, objectIds, roomId, query, text, from, to, overlapFrom, overlapTo } = params;
+    const { objectId, objectIds, roomId, roomTypeId, query, text, from, to, overlapFrom, overlapTo } = params;
     const searchStr = (text ?? query)?.trim();
     const bookingsCollection = db.collection('bookings');
     const andParts: object[] = [];
@@ -49,14 +80,7 @@ export async function searchBookingsFromDb(
         andParts.push({ propertyId: Number(objectId) });
     }
 
-    if (roomId != null) {
-        const rid = Number(roomId);
-        if (Number.isFinite(rid)) {
-            andParts.push({
-                $or: [{ unitId: rid }, { roomId: rid }, { roomID: rid }],
-            });
-        }
-    }
+    andParts.push(...bookingRoomFilterClauses(roomId, roomTypeId));
 
     if (overlapFrom && overlapTo) {
         const arrivalDate = {
