@@ -22,9 +22,11 @@ import { normalizeMongoIdString } from '@/lib/mongoId';
 import { getReportLineTotal, getReportUnitPrice } from '@/lib/accountancyUtils';
 import {
     isCoAgentCommissionCategoryId,
+    isHolyCowExpenseShareIncomeCategoryId,
     isOtaCommissionCategoryId,
     MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID,
 } from '@/lib/accountancyCategoryIds';
+import { holyCowShareFromLineTotal } from '@/lib/holyCowExpenseShareCalculation';
 import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
 
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
@@ -242,7 +244,10 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
     // Подтранзакции родительского расхода: дочерние расходы и приходы с parentExpenseId.
     const childExpenseTotalsByParentId = new Map<string, number>();
-    const childIncomeSubtransactionTotalsByParentId = new Map<string, number>();
+    /** Приходы-подтранзакции кроме «Доля расходов HC». */
+    const childGuestIncomeTotalsByParentId = new Map<string, number>();
+    /** Приходы «Доля расходов HC» (по categoryId) — явная доля агентства. */
+    const childHolyCowExpenseShareByParentId = new Map<string, number>();
 
     for (const child of allExpenses) {
         if (child.objectId !== objectReport.objectId) continue;
@@ -286,11 +291,12 @@ export function buildOwnerViewExpenseGroupsForRoom(
             continue;
         }
 
-        addSubtransactionTotal(
-            childIncomeSubtransactionTotalsByParentId,
-            parentId,
-            getReportLineTotal(child)
-        );
+        const amount = getReportLineTotal(child);
+        if (isHolyCowExpenseShareIncomeCategoryId(child.categoryId)) {
+            addSubtransactionTotal(childHolyCowExpenseShareByParentId, parentId, amount);
+        } else {
+            addSubtransactionTotal(childGuestIncomeTotalsByParentId, parentId, amount);
+        }
     }
 
     for (const expense of allExpenses) {
@@ -309,10 +315,15 @@ export function buildOwnerViewExpenseGroupsForRoom(
         const isChildExpense = normalizeMongoId(expense.parentExpenseId) !== '';
         const expenseId = normalizeMongoId(expense._id);
         const childExpenseTotal = expenseId ? childExpenseTotalsByParentId.get(expenseId) ?? 0 : 0;
-        const childIncomeSubtransactionTotal = expenseId
-            ? childIncomeSubtransactionTotalsByParentId.get(expenseId) ?? 0
+        const childGuestIncomeTotal = expenseId
+            ? childGuestIncomeTotalsByParentId.get(expenseId) ?? 0
             : 0;
-        const commissionSubtransactionTotal = childExpenseTotal + childIncomeSubtransactionTotal;
+        const childHolyCowExpenseShareTotal = expenseId
+            ? childHolyCowExpenseShareByParentId.get(expenseId) ?? 0
+            : 0;
+        const childIncomeSubtransactionTotal =
+            childGuestIncomeTotal + childHolyCowExpenseShareTotal;
+        const guestSubtransactionTotal = childExpenseTotal + childGuestIncomeTotal;
 
         const isAgency =
             isOtaCommissionCategoryId(expense.categoryId) ||
@@ -343,18 +354,23 @@ export function buildOwnerViewExpenseGroupsForRoom(
             const hasCommissionDeduction =
                 meta != null && includeInCommissionShare && !isManagementCommission && !isChildExpense;
             let expenseShare = 0;
-            if (hasCommissionDeduction && meta) {
-                const nights =
-                    meta.nights > 0
-                        ? meta.nights
-                        : getNightsCount(meta.booking.arrival, meta.booking.departure);
-                const percent = getManagementPercentForBooking(
-                    meta.booking,
-                    meta.roomsForObject,
-                    nights,
+            if (hasCommissionDeduction || childHolyCowExpenseShareTotal > 0) {
+                const percent =
+                    meta != null
+                        ? getManagementPercentForBooking(
+                              meta.booking,
+                              meta.roomsForObject,
+                              meta.nights > 0
+                                  ? meta.nights
+                                  : getNightsCount(meta.booking.arrival, meta.booking.departure),
+                          )
+                        : commissionPercentForNoBookingTransaction(expense);
+                expenseShare = holyCowShareFromLineTotal(
+                    lineTotal,
+                    guestSubtransactionTotal,
+                    percent,
+                    childHolyCowExpenseShareTotal,
                 );
-                const commissionBase = Math.max(0, lineTotal - commissionSubtransactionTotal);
-                expenseShare = commissionBase * (percent / 100);
             }
 
             pending.push({
@@ -372,7 +388,8 @@ export function buildOwnerViewExpenseGroupsForRoom(
                 isCommonOrOwnerLine: false,
                 isIncome: false,
                 includeInCommissionShare,
-                hasCommissionDeduction,
+                hasCommissionDeduction:
+                    hasCommissionDeduction || childHolyCowExpenseShareTotal > 0,
                 bookingId: expense.bookingId,
                 sortDate: String(expense.date),
             });
@@ -395,16 +412,23 @@ export function buildOwnerViewExpenseGroupsForRoom(
             shouldApplyNoBookingCommissionShare(subgroup, expense.includeInSynthetic) &&
             !isChildExpense;
 
+        const expenseShare =
+            hasCommissionDeduction || childHolyCowExpenseShareTotal > 0
+                ? holyCowShareFromLineTotal(
+                      lineTotal,
+                      guestSubtransactionTotal,
+                      commissionPercentForNoBookingTransaction(expense),
+                      childHolyCowExpenseShareTotal,
+                  )
+                : 0;
+
         pending.push({
             key: expenseLineKey(expense, lineTotal),
             description: transactionDescription(expense, displayCategoryName),
             quantity: expense.quantity ?? 1,
             unitPrice: getReportUnitPrice(expense),
             lineTotal,
-            expenseShare: hasCommissionDeduction
-                ? Math.max(0, lineTotal - commissionSubtransactionTotal) *
-                  (commissionPercentForNoBookingTransaction(expense) / 100)
-                : 0,
+            expenseShare,
             childExpenseTotal,
             childIncomeSubtransactionTotal,
             isAgency,
@@ -413,7 +437,8 @@ export function buildOwnerViewExpenseGroupsForRoom(
             isCommonOrOwnerLine: subgroup === 'common' || subgroup === 'owner',
             isIncome: false,
             includeInCommissionShare,
-            hasCommissionDeduction,
+            hasCommissionDeduction:
+                hasCommissionDeduction || childHolyCowExpenseShareTotal > 0,
             bookingId: null,
             sortDate: String(expense.date),
             noBookingSubgroup: subgroup,

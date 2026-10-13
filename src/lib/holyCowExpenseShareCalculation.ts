@@ -1,4 +1,3 @@
-import { resolveCategoryName } from '@/lib/accountancyCategoryResolve';
 import {
     HOLY_COW_EXPENSE_SHARE_INCOME_CATEGORY_ID,
     isExcludedCommissionCalcExpenseCategoryId,
@@ -35,7 +34,10 @@ function addSubtransactionTotal(map: Map<string, number>, parentId: string, amou
 
 export type ParentSubtransactionTotals = {
     childExpenseByParentId: Map<string, number>;
+    /** Приходы-подтранзакции кроме «Доля расходов HC». */
     childIncomeByParentId: Map<string, number>;
+    /** Приходы «Доля расходов HC» (по categoryId) — явная доля агентства. */
+    holyCowExpenseShareByParentId: Map<string, number>;
 };
 
 /** Суммы подтранзакций (расходы и приходы с parentExpenseId) по id родительского расхода. */
@@ -43,10 +45,11 @@ export function buildParentSubtransactionTotals(
     expenses: Expense[],
     incomes: Income[],
     matchesRecord: (record: Expense | Income) => boolean,
-    categoryNameById: Map<string, string>,
+    _categoryNameById: Map<string, string>,
 ): ParentSubtransactionTotals {
     const childExpenseByParentId = new Map<string, number>();
     const childIncomeByParentId = new Map<string, number>();
+    const holyCowExpenseShareByParentId = new Map<string, number>();
 
     for (const child of expenses) {
         if (!matchesRecord(child)) continue;
@@ -60,12 +63,18 @@ export function buildParentSubtransactionTotals(
         if (!matchesRecord(child)) continue;
         const parentId = normalizeMongoIdString(child.parentExpenseId).trim();
         if (!parentId) continue;
-        addSubtransactionTotal(childIncomeByParentId, parentId, getIncomeSum(child));
+        const amount = getIncomeSum(child);
+        if (isHolyCowExpenseShareIncomeCategoryId(child.categoryId)) {
+            addSubtransactionTotal(holyCowExpenseShareByParentId, parentId, amount);
+        } else {
+            addSubtransactionTotal(childIncomeByParentId, parentId, amount);
+        }
     }
 
-    return { childExpenseByParentId, childIncomeByParentId };
+    return { childExpenseByParentId, childIncomeByParentId, holyCowExpenseShareByParentId };
 }
 
+/** Сумма «гостевых» подтранзакций (без явной доли HC). */
 export function commissionSubtransactionTotalForParent(
     parentEntityId: string,
     totals: ParentSubtransactionTotals,
@@ -78,12 +87,26 @@ export function commissionSubtransactionTotalForParent(
     );
 }
 
-/** Доля Holy Cow: (сумма − подтранзакции) × % комиссии. */
+export function holyCowExpenseShareSubtotalForParent(
+    parentEntityId: string,
+    totals: ParentSubtransactionTotals,
+): number {
+    const id = normalizeMongoIdString(parentEntityId).trim();
+    if (!id) return 0;
+    return totals.holyCowExpenseShareByParentId.get(id) ?? 0;
+}
+
+/**
+ * Доля Holy Cow: явные подтранзакции «Доля расходов HC», иначе (сумма − прочие подтранзакции) × %.
+ */
 export function holyCowShareFromLineTotal(
     lineTotalAbs: number,
     subtransactionTotal: number,
     percent: number,
+    agencySubtransactionTotal = 0,
 ): number {
+    const explicitAgency = Math.max(0, agencySubtransactionTotal);
+    if (explicitAgency > 0) return explicitAgency;
     const base = Math.max(0, lineTotalAbs - subtransactionTotal);
     return base * (percent / 100);
 }

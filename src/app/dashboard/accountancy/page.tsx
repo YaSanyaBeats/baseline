@@ -119,6 +119,7 @@ import {
 import {
     buildParentSubtransactionTotals,
     commissionSubtransactionTotalForParent,
+    holyCowExpenseShareSubtotalForParent,
     holyCowShareFromLineTotal,
 } from "@/lib/holyCowExpenseShareCalculation";
 import { isManagementCommissionExpenseCategory } from "@/lib/ownerViewExpenses";
@@ -1744,7 +1745,16 @@ export default function Page() {
                 const bid = row.bookingId!;
                 const percent = getPercentForBooking(bid);
                 const subTotal = commissionSubtransactionTotalForParent(row.entityId, subtransactionTotals);
-                const share = holyCowShareFromLineTotal(Math.abs(row.amount), subTotal, percent);
+                const agencySubTotal = holyCowExpenseShareSubtotalForParent(
+                    row.entityId,
+                    subtransactionTotals,
+                );
+                const share = holyCowShareFromLineTotal(
+                    Math.abs(row.amount),
+                    subTotal,
+                    percent,
+                    agencySubTotal,
+                );
                 bookingExpenseShare += share;
                 return {
                     kind: 'expense' as const,
@@ -1760,7 +1770,16 @@ export default function Page() {
             const noBookingShareLineItems = noBookingHolyCowRows.map((row) => {
                 const percent = operationRowCommissionPercent(row);
                 const subTotal = commissionSubtransactionTotalForParent(row.entityId, subtransactionTotals);
-                const share = holyCowShareFromLineTotal(Math.abs(row.amount), subTotal, percent);
+                const agencySubTotal = holyCowExpenseShareSubtotalForParent(
+                    row.entityId,
+                    subtransactionTotals,
+                );
+                const share = holyCowShareFromLineTotal(
+                    Math.abs(row.amount),
+                    subTotal,
+                    percent,
+                    agencySubTotal,
+                );
                 noBookingExpenseShare += share;
                 return {
                     kind: row.type,
