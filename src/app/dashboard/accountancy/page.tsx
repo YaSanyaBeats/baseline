@@ -525,13 +525,23 @@ type OperationListGroup = {
     bookingGroupLine?: BookingGroupLineModel;
 };
 
-/** Группа «Общие расходы» без брони — чекбокс «Делимость» у расходов и приходов. «Расходы гостя» — без делимости. */
+/**
+ * Группы с колонками «Делимость» / доли агентства·гостя·владельца
+ * (те же правила, что у «Общих расходов»: HC-подтранзакция → доля агентства).
+ * Брони — только расходы; «Общие» — расходы и приходы. «Расходы гостя» — без делимости.
+ */
 const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common']);
 
 function operationRowShowsDivisibilityCheckbox(groupKey: string, row: OperationRow): boolean {
     if (row.readOnlySynthetic) return false;
     if (groupKey.startsWith('b-')) return row.type === 'expense';
     return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey);
+}
+
+/** Колонки долей — для тех же строк, где доступна «Делимость». */
+function operationRowShowsCommonExpenseShares(groupKey: string, row: OperationRow): boolean {
+    if (row.readOnlySynthetic || row.isPendingDraft) return false;
+    return operationRowShowsDivisibilityCheckbox(groupKey, row);
 }
 
 function operationRowShowsCommissionPercentSelect(groupKey: string, row: OperationRow): boolean {
@@ -4622,9 +4632,10 @@ export default function Page() {
                                                                         row,
                                                                     )}
                                                                     commonExpenseShares={
-                                                                        DIVISIBILITY_NOBOOK_GROUP_KEYS.has(group.key) &&
-                                                                        !row.readOnlySynthetic &&
-                                                                        !row.isPendingDraft
+                                                                        operationRowShowsCommonExpenseShares(
+                                                                            group.key,
+                                                                            row,
+                                                                        )
                                                                             ? signedCommonExpenseShares(
                                                                                   row,
                                                                                   subtransactionTotalsByParentId,
