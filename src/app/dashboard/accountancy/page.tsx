@@ -528,9 +528,9 @@ type OperationListGroup = {
 /**
  * Группы с колонками «Делимость» / доли агентства·гостя·владельца
  * (те же правила, что у «Общих расходов»: HC-подтранзакция → доля агентства).
- * Брони — только расходы; «Общие» — расходы и приходы. «Расходы гостя» — без делимости.
+ * Брони — только расходы; «Общие» и «Прочее» — расходы и приходы.
  */
-const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common']);
+const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common', 'nobook-other']);
 
 function operationRowShowsDivisibilityCheckbox(groupKey: string, row: OperationRow): boolean {
     if (row.readOnlySynthetic) return false;
