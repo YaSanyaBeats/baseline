@@ -420,9 +420,6 @@ export async function buildDesk(
         window: { start: window.startIso, end: window.endIso, nights: window.nights },
         daysToArrival: D,
         companyOtbPct,
-        // companyMerged оставлен на будущее (инвентарь/black); % берём из averageOtbPctByUnits
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        ...(false ? { _companyMerged: companyMerged } : {}),
         useCompetitors,
         temperature,
         clusters,
