@@ -122,6 +122,11 @@ import {
     holyCowExpenseShareSubtotalForParent,
     holyCowShareFromLineTotal,
 } from "@/lib/holyCowExpenseShareCalculation";
+import {
+    buildHolyCowExpenseShareIncomePayload,
+    findHolyCowExpenseShareChildren,
+} from "@/lib/holyCowExpenseShareAutoSubtransaction";
+import { resolveDistrictForObjectId } from "@/lib/sourceRecipientDistrictFunds";
 import { isManagementCommissionExpenseCategory } from "@/lib/ownerViewExpenses";
 import {
     signedCommonExpenseShares,
@@ -663,6 +668,8 @@ export default function Page() {
     const [commissionRatesByBookingId, setCommissionRatesByBookingId] = useState<Record<number, BookingManagementCommissionRate>>({});
     const [commissionPercentUpdatingBookingId, setCommissionPercentUpdatingBookingId] = useState<number | null>(null);
     const [includeInSyntheticUpdatingId, setIncludeInSyntheticUpdatingId] = useState<string | null>(null);
+    const [divisibilityHcDialogOpen, setDivisibilityHcDialogOpen] = useState(false);
+    const [divisibilityHcDialogRow, setDivisibilityHcDialogRow] = useState<OperationRow | null>(null);
     const [commissionPercentUpdatingId, setCommissionPercentUpdatingId] = useState<string | null>(null);
     const [commentDraftByRowId, setCommentDraftByRowId] = useState<Record<string, string>>({});
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
@@ -3664,58 +3671,148 @@ export default function Page() {
         }
     };
 
-    const handleIncludeInSyntheticChange = async (row: OperationRow, included: boolean) => {
-        if (row.readOnlySynthetic || !row.entityId) return;
-        setIncludeInSyntheticUpdatingId(row.id);
-        try {
-            if (row.type === 'expense') {
-                const expense = expenses.find((e) => e._id === row.entityId);
-                if (!expense) return;
-                const payload: Expense = {
-                    ...expense,
-                    includeInSynthetic: included,
-                    commissionPercent: expense.commissionPercent ?? 30,
-                    date: expense.date
-                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
-                        : new Date(),
-                };
-                const res = await updateExpense(payload);
-                setSnackbar({
-                    open: true,
-                    message: res.message || t('accountancy.expenseUpdated'),
-                    severity: res.success ? 'success' : 'error',
-                });
-                if (res.success) {
-                    setExpenses((prev) =>
-                        prev.map((e) =>
-                            e._id === row.entityId ? { ...e, includeInSynthetic: included } : e,
-                        ),
-                    );
-                }
-                return;
-            }
-            const income = incomes.find((i) => i._id === row.entityId);
-            if (!income) return;
-            const payload: Income = {
-                ...income,
+    const persistIncludeInSynthetic = async (
+        row: OperationRow,
+        included: boolean,
+    ): Promise<boolean> => {
+        if (!row.entityId) return false;
+        if (row.type === 'expense') {
+            const expense = expenses.find((e) => e._id === row.entityId);
+            if (!expense) return false;
+            const payload: Expense = {
+                ...expense,
                 includeInSynthetic: included,
-                commissionPercent: income.commissionPercent ?? 30,
-                date: income.date
-                    ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                commissionPercent: expense.commissionPercent ?? 30,
+                date: expense.date
+                    ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
                     : new Date(),
             };
-            const res = await updateIncome(payload);
+            const res = await updateExpense(payload);
             setSnackbar({
                 open: true,
-                message: res.message || t('accountancy.incomeUpdated'),
+                message: res.message || t('accountancy.expenseUpdated'),
                 severity: res.success ? 'success' : 'error',
             });
             if (res.success) {
-                setIncomes((prev) =>
-                    prev.map((i) =>
-                        i._id === row.entityId ? { ...i, includeInSynthetic: included } : i,
+                setExpenses((prev) =>
+                    prev.map((e) =>
+                        e._id === row.entityId
+                            ? { ...e, includeInSynthetic: included, commissionPercent: payload.commissionPercent }
+                            : e,
                     ),
                 );
+            }
+            return Boolean(res.success);
+        }
+
+        const income = incomes.find((i) => i._id === row.entityId);
+        if (!income) return false;
+        const payload: Income = {
+            ...income,
+            includeInSynthetic: included,
+            commissionPercent: income.commissionPercent ?? 30,
+            date: income.date
+                ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                : new Date(),
+        };
+        const res = await updateIncome(payload);
+        setSnackbar({
+            open: true,
+            message: res.message || t('accountancy.incomeUpdated'),
+            severity: res.success ? 'success' : 'error',
+        });
+        if (res.success) {
+            setIncomes((prev) =>
+                prev.map((i) =>
+                    i._id === row.entityId
+                        ? { ...i, includeInSynthetic: included, commissionPercent: payload.commissionPercent }
+                        : i,
+                ),
+            );
+        }
+        return Boolean(res.success);
+    };
+
+    const createHolyCowExpenseShareForParent = async (row: OperationRow): Promise<void> => {
+        if (!row.entityId) return;
+        const existing = findHolyCowExpenseShareChildren(row.entityId, row.type, incomes);
+        if (existing.length > 0) return;
+
+        const parentRecord: Expense | Income | undefined =
+            row.type === 'expense'
+                ? expenses.find((e) => e._id === row.entityId)
+                : incomes.find((i) => i._id === row.entityId);
+        if (!parentRecord) return;
+
+        const categoryContext = {
+            objectId: parentRecord.objectId,
+            roomName: parentRecord.roomName ?? undefined,
+            district: resolveDistrictForObjectId(objects, parentRecord.objectId),
+            objects,
+        };
+        const payload = buildHolyCowExpenseShareIncomePayload(
+            parentRecord,
+            row.type,
+            categoriesIncome,
+            categoryContext,
+        );
+        if (!payload) return;
+
+        const res = await addIncome(payload, { allowDuplicate: true });
+        if (!res.success || !res.id) {
+            setSnackbar({
+                open: true,
+                message: res.message || t('common.serverError'),
+                severity: 'error',
+            });
+            return;
+        }
+        setIncomes((prev) => [...prev, { ...payload, _id: res.id }]);
+    };
+
+    const deleteHolyCowExpenseShareChildren = async (row: OperationRow): Promise<boolean> => {
+        if (!row.entityId) return true;
+        const children = findHolyCowExpenseShareChildren(row.entityId, row.type, incomes);
+        if (children.length === 0) return true;
+
+        for (const child of children) {
+            if (!child._id) continue;
+            const res = await deleteIncome(child._id);
+            if (!res.success) {
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('common.serverError'),
+                    severity: 'error',
+                });
+                return false;
+            }
+        }
+        const deletedIds = new Set(
+            children.map((c) => normalizeMongoIdString(c._id).trim()).filter(Boolean),
+        );
+        setIncomes((prev) =>
+            prev.filter((i) => !deletedIds.has(normalizeMongoIdString(i._id).trim())),
+        );
+        return true;
+    };
+
+    const handleIncludeInSyntheticChange = async (row: OperationRow, included: boolean) => {
+        if (row.readOnlySynthetic || !row.entityId) return;
+
+        if (!included) {
+            const children = findHolyCowExpenseShareChildren(row.entityId, row.type, incomes);
+            if (children.length > 0) {
+                setDivisibilityHcDialogRow(row);
+                setDivisibilityHcDialogOpen(true);
+                return;
+            }
+        }
+
+        setIncludeInSyntheticUpdatingId(row.id);
+        try {
+            const ok = await persistIncludeInSynthetic(row, included);
+            if (ok && included) {
+                await createHolyCowExpenseShareForParent(row);
             }
         } catch (error) {
             console.error('Error updating includeInSynthetic:', error);
@@ -3726,6 +3823,60 @@ export default function Page() {
             });
         } finally {
             setIncludeInSyntheticUpdatingId(null);
+        }
+    };
+
+    const handleDivisibilityHcDialogClose = () => {
+        if (includeInSyntheticUpdatingId) return;
+        setDivisibilityHcDialogOpen(false);
+        setDivisibilityHcDialogRow(null);
+    };
+
+    const handleDivisibilityHcDialogKeep = async () => {
+        const row = divisibilityHcDialogRow;
+        if (!row?.entityId) {
+            handleDivisibilityHcDialogClose();
+            return;
+        }
+        setIncludeInSyntheticUpdatingId(row.id);
+        try {
+            await persistIncludeInSynthetic(row, false);
+        } catch (error) {
+            console.error('Error updating includeInSynthetic:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setIncludeInSyntheticUpdatingId(null);
+            setDivisibilityHcDialogOpen(false);
+            setDivisibilityHcDialogRow(null);
+        }
+    };
+
+    const handleDivisibilityHcDialogDelete = async () => {
+        const row = divisibilityHcDialogRow;
+        if (!row?.entityId) {
+            handleDivisibilityHcDialogClose();
+            return;
+        }
+        setIncludeInSyntheticUpdatingId(row.id);
+        try {
+            const deleted = await deleteHolyCowExpenseShareChildren(row);
+            if (!deleted) return;
+            await persistIncludeInSynthetic(row, false);
+        } catch (error) {
+            console.error('Error removing HC share on divisibility off:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setIncludeInSyntheticUpdatingId(null);
+            setDivisibilityHcDialogOpen(false);
+            setDivisibilityHcDialogRow(null);
         }
     };
 
@@ -4796,6 +4947,40 @@ export default function Page() {
                     <Button onClick={handleOperationDeleteCancel}>{t('common.cancel')}</Button>
                     <Button onClick={handleOperationDeleteConfirm} color="error" variant="contained">
                         {t('common.delete')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={divisibilityHcDialogOpen}
+                onClose={handleDivisibilityHcDialogClose}
+            >
+                <DialogTitle>{t('accountancy.divisibilityHcShareDialogTitle')}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t('accountancy.divisibilityHcShareDialogMessage')}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button
+                        onClick={handleDivisibilityHcDialogClose}
+                        disabled={Boolean(includeInSyntheticUpdatingId)}
+                    >
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        onClick={() => void handleDivisibilityHcDialogKeep()}
+                        disabled={Boolean(includeInSyntheticUpdatingId)}
+                    >
+                        {t('accountancy.divisibilityHcShareKeep')}
+                    </Button>
+                    <Button
+                        onClick={() => void handleDivisibilityHcDialogDelete()}
+                        color="error"
+                        variant="contained"
+                        disabled={Boolean(includeInSyntheticUpdatingId)}
+                    >
+                        {t('accountancy.divisibilityHcShareDelete')}
                     </Button>
                 </DialogActions>
             </Dialog>

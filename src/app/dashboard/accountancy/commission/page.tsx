@@ -27,9 +27,16 @@ import type { User } from '@/lib/types';
 
 const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
 
+type CommissionReportVersion = 1 | 2;
+
+function parseReportVersion(value: unknown): CommissionReportVersion {
+    return Number(value) === 2 ? 2 : 1;
+}
+
 function loadCommissionFiltersPayload(): {
     selectedOwnerId: string;
     selectedMonth: string;
+    reportVersion: CommissionReportVersion;
 } | null {
     if (typeof window === 'undefined') return null;
     try {
@@ -39,13 +46,18 @@ function loadCommissionFiltersPayload(): {
         return {
             selectedOwnerId: String(parsed.selectedOwnerId ?? ''),
             selectedMonth: String(parsed.selectedMonth ?? ''),
+            reportVersion: parseReportVersion(parsed.reportVersion),
         };
     } catch {
         return null;
     }
 }
 
-function saveCommissionFilters(state: { selectedOwnerId: string; selectedMonth: string }) {
+function saveCommissionFilters(state: {
+    selectedOwnerId: string;
+    selectedMonth: string;
+    reportVersion: CommissionReportVersion;
+}) {
     if (typeof window === 'undefined') return;
     try {
         localStorage.setItem(COMMISSION_FILTERS_KEY, JSON.stringify(state));
@@ -72,6 +84,7 @@ export default function Page() {
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedOwnerId, setSelectedOwnerId] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
+    const [reportVersion, setReportVersion] = useState<CommissionReportVersion>(1);
 
     const hasAccess = isAdmin || isAccountant;
 
@@ -81,6 +94,7 @@ export default function Page() {
         if (s) {
             setSelectedOwnerId(s.selectedOwnerId);
             setSelectedMonth(s.selectedMonth);
+            setReportVersion(s.reportVersion);
         }
         commissionFiltersLoadedRef.current = true;
         setFiltersHydrated(true);
@@ -88,8 +102,8 @@ export default function Page() {
 
     useEffect(() => {
         if (!filtersHydrated) return;
-        saveCommissionFilters({ selectedOwnerId, selectedMonth });
-    }, [filtersHydrated, selectedOwnerId, selectedMonth]);
+        saveCommissionFilters({ selectedOwnerId, selectedMonth, reportVersion });
+    }, [filtersHydrated, selectedOwnerId, selectedMonth, reportVersion]);
 
     const selectedOwner = selectedOwnerId
         ? owners.find((o) => o._id === selectedOwnerId)
@@ -132,6 +146,7 @@ export default function Page() {
         const qs = new URLSearchParams({
             ownerId: selectedOwnerId,
             month: selectedMonth,
+            version: String(reportVersion),
         });
         router.push(`/dashboard/accountancy/commission/owner-view?${qs.toString()}`);
     };
@@ -230,6 +245,20 @@ export default function Page() {
                                     {o.label}
                                 </MenuItem>
                             ))}
+                        </Select>
+                    </FormControl>
+
+                    <FormControl sx={{ minWidth: 140 }} size="small">
+                        <InputLabel>{t('accountancy.commission.reportVersion')}</InputLabel>
+                        <Select
+                            label={t('accountancy.commission.reportVersion')}
+                            value={reportVersion}
+                            onChange={(e) =>
+                                setReportVersion(parseReportVersion(e.target.value))
+                            }
+                        >
+                            <MenuItem value={1}>{t('accountancy.commission.reportVersionV1')}</MenuItem>
+                            <MenuItem value={2}>{t('accountancy.commission.reportVersionV2')}</MenuItem>
                         </Select>
                     </FormControl>
 

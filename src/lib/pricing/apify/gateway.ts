@@ -2,13 +2,16 @@ import { getDB } from '@/lib/db/getDB';
 import { IP_COLLECTIONS } from '../collections';
 import type { CompetitorPlatform } from '../types';
 import { assertCanRun, recordCost } from './budget';
+import { normalizeCompetitorUrl } from '../competitors';
 import {
     MONITOR_STAY_NIGHTS,
+    MONITOR_STAY_PRIMARY,
     actorById,
     extractNightlyPrice,
     extractRating,
     monitorActorFor,
     monitorInput,
+    monitorInputForUrls,
     prepareTripListingUrl,
 } from './registry';
 import { ObjectId } from 'mongodb';
@@ -164,6 +167,28 @@ function classifyAvailability(item: Record<string, unknown>, checkIn: string, ni
     }
     if (nightly == null && available == null) return 'unavailable';
     return 'available';
+}
+
+/** Ключ для сопоставления URL конкурента с результатом Apify. */
+export function listingMatchKey(raw: string): string {
+    const n = normalizeCompetitorUrl(raw).toLowerCase();
+    const airbnb = n.match(/\/rooms\/(\d+)/);
+    if (airbnb) return `airbnb:${airbnb[1]}`;
+    const booking = n.match(/booking\.com\/hotel\/[^/]+\/([^.?/]+)/);
+    if (booking) return `booking:${booking[1]}`;
+    return n;
+}
+
+function itemListingUrl(item: Record<string, unknown>): string {
+    const candidates = [item.url, item.listingUrl, item.hotelUrl, item.shareUrl, item.link];
+    for (const c of candidates) {
+        if (typeof c === 'string' && c.trim()) return c.trim();
+    }
+    if (typeof item.id === 'number' || typeof item.id === 'string') {
+        const id = String(item.id);
+        if (/^\d+$/.test(id)) return `https://www.airbnb.com/rooms/${id}`;
+    }
+    return '';
 }
 
 export async function runMonitorForCompetitor(params: {
@@ -381,10 +406,19 @@ export async function runMonitorForCompetitor(params: {
     const priceByStay: Partial<Record<7 | 20, number>> = {};
     for (const snap of priced) {
         const n = Number(snap.stayNights);
-        if (n === 7 || n === 20) priceByStay[n] = Number(snap.pricePerNightNorm);
+        if (n === MONITOR_STAY_PRIMARY || n === 20) priceByStay[n as 7 | 20] = Number(snap.pricePerNightNorm);
     }
-    const lastPrice = priceByStay[7] ?? priceByStay[20] ?? (last?.pricePerNightNorm as number | undefined) ?? null;
-    const lastStay = priceByStay[7] != null ? 7 : priceByStay[20] != null ? 20 : Number(last?.stayNights) || null;
+    const lastPrice =
+        priceByStay[MONITOR_STAY_PRIMARY] ??
+        priceByStay[20] ??
+        (last?.pricePerNightNorm as number | undefined) ??
+        null;
+    const lastStay =
+        priceByStay[MONITOR_STAY_PRIMARY] != null
+            ? MONITOR_STAY_PRIMARY
+            : priceByStay[20] != null
+              ? 20
+              : Number(last?.stayNights) || null;
     const now = new Date();
 
     if (snapshots.length) {
@@ -397,6 +431,8 @@ export async function runMonitorForCompetitor(params: {
                 lastPrice,
                 lastStayNights: lastStay,
                 lastPriceByStay: priceByStay,
+                lastCheckIn: (last?.checkIn as string) || null,
+                lastCheckOut: (last?.checkOut as string) || null,
                 lastAvailability: last?.availabilityStatus ?? null,
                 lastRating: rated?.rating ?? null,
                 lastReviews: reviewed?.reviews ?? rated?.reviews ?? null,
@@ -421,6 +457,8 @@ export async function runMonitorForCompetitor(params: {
     return {
         dates: usedDates,
         stays,
+        checkIn: (last?.checkIn as string) || null,
+        checkOut: (last?.checkOut as string) || null,
         snapshots: snapshots.length,
         useful,
         costUsd,
@@ -428,6 +466,306 @@ export async function runMonitorForCompetitor(params: {
         lastRating: rated?.rating ?? null,
         lastReviews: reviewed?.reviews ?? null,
         warnings,
+    };
+}
+
+type ClusterCompetitor = {
+    _id: string;
+    url: string;
+    platform: CompetitorPlatform;
+    name?: string;
+    roomId?: number | null;
+    cluster?: string | null;
+};
+
+/**
+ * Съём одобренных конкурентов кластера: URL одной площадки — в одном Apify run.
+ * Stay = 7 ночей. При занятости — следующий check-in, батч только по неуспешным.
+ */
+export async function runMonitorForCluster(params: {
+    cluster: string;
+    competitors: ClusterCompetitor[];
+    periodStart: string;
+    periodEnd: string;
+    userName: string;
+}) {
+    const stay = MONITOR_STAY_PRIMARY;
+    const dates = candidateCheckIns(params.periodStart, params.periodEnd);
+    if (!dates.length) throw new Error('Нет дат проверки внутри периода');
+
+    const byPlatform = new Map<CompetitorPlatform, ClusterCompetitor[]>();
+    for (const c of params.competitors) {
+        const list = byPlatform.get(c.platform) || [];
+        list.push(c);
+        byPlatform.set(c.platform, list);
+    }
+
+    const db = await getDB();
+    let costUsd = 0;
+    let useful = 0;
+    let done = 0;
+    const total = params.competitors.length;
+    const results: Array<{
+        competitorId: string;
+        success: boolean;
+        costUsd: number;
+        checkIn: string | null;
+        checkOut: string | null;
+        lastPrice: number | null;
+        warnings: string[];
+    }> = [];
+
+    for (const [platform, comps] of byPlatform) {
+        const actor = monitorActorFor(platform);
+        if (!actor || !actorById(actor.id)) {
+            for (const c of comps) {
+                results.push({
+                    competitorId: c._id,
+                    success: false,
+                    costUsd: 0,
+                    checkIn: null,
+                    checkOut: null,
+                    lastPrice: null,
+                    warnings: ['no_data'],
+                });
+            }
+            continue;
+        }
+
+        const prepared: Array<ClusterCompetitor & { listingUrl: string }> = [];
+        for (const c of comps) {
+            let listingUrl = c.url;
+            if (platform === 'trip') {
+                const prep = await prepareTripListingUrl(c.url);
+                if (!prep.ok) {
+                    const now = new Date();
+                    await db.collection(IP_COLLECTIONS.competitors).updateOne(
+                        { _id: new ObjectId(c._id) },
+                        { $set: { lastWarnings: ['bad_url'], lastScrapedAt: now, updatedAt: now } },
+                    );
+                    results.push({
+                        competitorId: c._id,
+                        success: false,
+                        costUsd: 0,
+                        checkIn: null,
+                        checkOut: null,
+                        lastPrice: null,
+                        warnings: ['bad_url'],
+                    });
+                    done += 1;
+                    continue;
+                }
+                listingUrl = prep.url;
+            }
+            prepared.push({ ...c, listingUrl });
+        }
+
+        let remaining = [...prepared];
+        const won = new Map<string, Record<string, unknown>>();
+        const tries = dates.slice(0, MAX_DATE_TRIES);
+        let platformCost = 0;
+        let platformUseful = 0;
+
+        for (const checkIn of tries) {
+            if (!remaining.length) break;
+            const checkOut = addDays(checkIn, stay);
+            const budget = await assertCanRun(actor.estimatedUsd);
+            const settings = budget.settings;
+            const urls = remaining.map((c) => c.listingUrl);
+            const input = {
+                ...monitorInputForUrls(platform, urls, checkIn, checkOut, settings.maxItems),
+                previewOutput: false,
+            };
+
+            const started = await apifyPost(`/acts/${encodeURIComponent(actor.id)}/runs`, input);
+            const runId = started.data?.id as string;
+            await db.collection(IP_COLLECTIONS.apifyRuns).insertOne({
+                runId,
+                actorId: actor.id,
+                platform,
+                cluster: params.cluster,
+                roomId: null,
+                url: urls.join(' | '),
+                urls,
+                checkIn,
+                checkOut,
+                status: 'RUNNING',
+                startedAt: new Date(),
+                finishedAt: null as Date | null,
+                abortedReason: null as string | null,
+                itemsReturned: 0,
+                userName: params.userName,
+            });
+
+            const deadline = Date.now() + Math.max(settings.timeoutMs, settings.timeoutMs * Math.ceil(urls.length / 5));
+            let run = started.data;
+            while (run?.status === 'RUNNING' || run?.status === 'READY') {
+                if (Date.now() > deadline) {
+                    await abortRun(runId);
+                    await db.collection(IP_COLLECTIONS.apifyRuns).updateOne(
+                        { runId },
+                        { $set: { status: 'ABORTED', abortedReason: 'timeout', finishedAt: new Date() } },
+                    );
+                    throw new Error(`Таймаут Apify, прогон ${runId} остановлен`);
+                }
+                await new Promise((r) => setTimeout(r, 4000));
+                const polled = await apifyGet(`/actor-runs/${runId}`);
+                run = polled.data;
+            }
+
+            const runCost = Number(run?.usageTotalUsd || run?.stats?.costUsd || actor.estimatedUsd);
+            platformCost += runCost;
+            const datasetId = run?.defaultDatasetId;
+
+            if (run?.status !== 'SUCCEEDED' || !datasetId) {
+                await db.collection(IP_COLLECTIONS.apifyRuns).updateOne(
+                    { runId },
+                    { $set: { status: run?.status || 'FAILED', finishedAt: new Date(), itemsReturned: 0 } },
+                );
+                continue;
+            }
+
+            const dataset = await apifyGet(
+                `/datasets/${datasetId}/items?clean=true&limit=${Math.max(settings.maxItems, urls.length * 2, 10)}`,
+            );
+            const items: Record<string, unknown>[] = Array.isArray(dataset) ? dataset : dataset.items || [];
+            platformUseful += items.length;
+            await db.collection(IP_COLLECTIONS.apifyRuns).updateOne(
+                { runId },
+                { $set: { status: 'SUCCEEDED', finishedAt: new Date(), itemsReturned: items.length } },
+            );
+
+            const byKey = new Map<string, Record<string, unknown>>();
+            for (const item of items) {
+                const key = listingMatchKey(itemListingUrl(item));
+                if (key) byKey.set(key, item);
+            }
+
+            const still: typeof remaining = [];
+            const snapshots: Array<Record<string, unknown>> = [];
+            for (const c of remaining) {
+                const item = byKey.get(listingMatchKey(c.listingUrl));
+                if (!item) {
+                    still.push(c);
+                    continue;
+                }
+                const price = extractNightlyPrice(platform, item, stay);
+                const { rating, reviews } = extractRating(platform, item);
+                const availabilityStatus = classifyAvailability(item, checkIn, price);
+                const snap = {
+                    competitorId: c._id,
+                    cluster: params.cluster,
+                    roomId: c.roomId ?? null,
+                    platform,
+                    url: c.listingUrl,
+                    checkIn,
+                    checkOut,
+                    stayNights: stay,
+                    priceRaw: item.price ?? item.priceNightly ?? item.priceInclVat ?? null,
+                    pricePerNightNorm: price,
+                    rating,
+                    reviews,
+                    availabilityStatus,
+                    sourceField: platform === 'trip' ? 'priceInclVat' : 'price',
+                    runId,
+                    createdAt: new Date(),
+                };
+                snapshots.push(snap);
+                if (availabilityStatus === 'available' && typeof price === 'number' && price > 0) {
+                    won.set(c._id, snap);
+                } else {
+                    still.push(c);
+                }
+            }
+            if (snapshots.length) {
+                await db.collection(IP_COLLECTIONS.snapshots).insertMany(snapshots);
+            }
+            remaining = still;
+        }
+
+        costUsd += platformCost;
+        useful += platformUseful;
+
+        const now = new Date();
+        for (const c of prepared) {
+            if (results.some((r) => r.competitorId === c._id)) continue;
+            const snap = won.get(c._id);
+            if (snap) {
+                const price = Number(snap.pricePerNightNorm);
+                await db.collection(IP_COLLECTIONS.competitors).updateOne(
+                    { _id: new ObjectId(c._id) },
+                    {
+                        $set: {
+                            lastPrice: price,
+                            lastStayNights: stay,
+                            lastPriceByStay: { [stay]: price },
+                            lastCheckIn: snap.checkIn,
+                            lastCheckOut: snap.checkOut,
+                            lastAvailability: snap.availabilityStatus,
+                            lastRating: snap.rating ?? null,
+                            lastReviews: snap.reviews ?? null,
+                            lastWarnings: [],
+                            lastScrapedAt: now,
+                            updatedAt: now,
+                            ...(c.listingUrl !== c.url ? { url: c.listingUrl } : {}),
+                        },
+                    },
+                );
+                results.push({
+                    competitorId: c._id,
+                    success: true,
+                    costUsd: 0,
+                    checkIn: String(snap.checkIn),
+                    checkOut: String(snap.checkOut),
+                    lastPrice: price,
+                    warnings: [],
+                });
+            } else {
+                const warnings = ['no_price'];
+                await db.collection(IP_COLLECTIONS.competitors).updateOne(
+                    { _id: new ObjectId(c._id) },
+                    {
+                        $set: {
+                            lastWarnings: warnings,
+                            lastScrapedAt: now,
+                            updatedAt: now,
+                        },
+                    },
+                );
+                results.push({
+                    competitorId: c._id,
+                    success: false,
+                    costUsd: 0,
+                    checkIn: null,
+                    checkOut: null,
+                    lastPrice: null,
+                    warnings,
+                });
+            }
+        }
+
+        await recordCost({
+            runId: `cluster:${params.cluster}:${platform}:${Date.now()}`,
+            actorId: actor.id,
+            platform,
+            costUsd: platformCost,
+            usefulItems: platformUseful,
+            runType: 'manual',
+            cluster: params.cluster,
+        });
+    }
+
+    done = results.filter((r) => r.success).length;
+
+    return {
+        cluster: params.cluster,
+        stayNights: stay,
+        dates,
+        done,
+        total,
+        costUsd,
+        useful,
+        results,
     };
 }
 

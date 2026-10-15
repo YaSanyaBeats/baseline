@@ -8,6 +8,7 @@ import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { loadCommissionOwnerViewPayload } from '@/lib/commissionOwnerViewLoader';
 import type { CommissionOwnerViewStoredPayload } from '@/lib/commissionOwnerView';
+import type { CommissionOwnerReportVersion } from '@/lib/ownerViewRoomEarnings';
 import CommissionOwnerViewReport from '@/components/accountancy/CommissionOwnerViewReport';
 
 export type CommissionOwnerViewPanelProps = {
@@ -15,6 +16,7 @@ export type CommissionOwnerViewPanelProps = {
     monthKey: string;
     backLink?: { href: string; label: string } | null;
     title?: string;
+    reportVersion?: CommissionOwnerReportVersion;
 };
 
 export default function CommissionOwnerViewPanel({
@@ -22,6 +24,7 @@ export default function CommissionOwnerViewPanel({
     monthKey,
     backLink,
     title,
+    reportVersion = 1,
 }: CommissionOwnerViewPanelProps) {
     const { t, language } = useTranslation();
     const { objects } = useObjects();
@@ -151,6 +154,7 @@ export default function CommissionOwnerViewPanel({
                 displayLocale={displayLocale}
                 t={t}
                 title={title}
+                reportVersion={reportVersion}
             />
         </Box>
     );

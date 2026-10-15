@@ -14,6 +14,7 @@ function OwnerViewPageContent() {
 
     const ownerId = searchParams.get('ownerId') ?? '';
     const monthKey = searchParams.get('month') ?? '';
+    const reportVersion = Number(searchParams.get('version')) === 2 ? 2 : 1;
     const hasAccess = isAdmin || isAccountant;
 
     if (!hasAccess) {
@@ -31,6 +32,7 @@ function OwnerViewPageContent() {
         <CommissionOwnerViewPanel
             ownerId={ownerId}
             monthKey={monthKey}
+            reportVersion={reportVersion}
             backLink={{
                 href: '/dashboard/accountancy/commission',
                 label: t('accountancy.commission.ownerViewBackToCommission'),

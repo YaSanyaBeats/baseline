@@ -43,10 +43,22 @@ export function detectPlatform(url: string): CompetitorPlatform | null {
 }
 
 export function monitorInput(platform: CompetitorPlatform, url: string, checkIn: string, checkOut: string, maxItems: number) {
+    return monitorInputForUrls(platform, [url], checkIn, checkOut, maxItems);
+}
+
+/** Один Apify run на несколько URL одной площадки (общие checkIn/checkOut). */
+export function monitorInputForUrls(
+    platform: CompetitorPlatform,
+    urls: string[],
+    checkIn: string,
+    checkOut: string,
+    maxItems: number,
+) {
+    const unique = [...new Set(urls.map((u) => u.trim()).filter(Boolean))];
     switch (platform) {
         case 'airbnb':
             return {
-                startUrls: [{ url }],
+                startUrls: unique.map((url) => ({ url })),
                 checkIn,
                 checkOut,
                 currency: 'THB',
@@ -55,27 +67,27 @@ export function monitorInput(platform: CompetitorPlatform, url: string, checkIn:
             };
         case 'booking':
             return {
-                startUrls: [{ url }],
+                startUrls: unique.map((url) => ({ url })),
                 checkIn,
                 checkOut,
                 adults: 2,
                 rooms: 1,
                 currency: 'THB',
-                maxItems,
+                maxItems: Math.max(maxItems, unique.length),
                 extractAdditionalHotelData: false,
             };
         case 'agoda':
             return {
-                startUrls: [url],
+                startUrls: unique,
                 checkIn,
                 checkOut,
                 currency: 'THB',
-                searchMaxResults: maxItems,
+                searchMaxResults: Math.max(maxItems, unique.length),
                 sortBy: 'PriceAsc',
             };
         case 'trip':
             return {
-                hotelUrls: [{ url, name: tripDisplayName(url) }],
+                hotelUrls: unique.map((url) => ({ url, name: tripDisplayName(url) })),
                 checkinDate: checkIn,
                 checkoutDate: checkOut,
                 adults: 2,
@@ -83,7 +95,7 @@ export function monitorInput(platform: CompetitorPlatform, url: string, checkIn:
                 children: 0,
             };
         default:
-            return { startUrls: [{ url }], maxItems };
+            return { startUrls: unique.map((url) => ({ url })), maxItems: Math.max(maxItems, unique.length) };
     }
 }
 
@@ -94,7 +106,9 @@ export const DATASET_FIELDS: Record<CompetitorPlatform, string> = {
     trip: 'priceInclVat,priceExclVat,roomName,hotelName,checkin,checkout,maxOccupancy,url,rating,score,commentScore,reviewCount',
 };
 
-export const MONITOR_STAY_NIGHTS = [7, 20] as const;
+/** Пока снимаем только 7 ночей; 20 отключены. */
+export const MONITOR_STAY_NIGHTS = [7] as const;
+export const MONITOR_STAY_PRIMARY = 7;
 
 export function tripDisplayName(url: string): string {
     try {

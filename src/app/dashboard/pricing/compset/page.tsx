@@ -31,9 +31,17 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import StarIcon from '@mui/icons-material/Star';
 import { useTranslation } from '@/i18n/useTranslation';
 import { usePricingNotify } from '@/components/pricing/usePricingNotify';
-import { PERIOD_IDS, defaultPeriodForToday, type PeriodId } from '@/lib/pricing/periods';
+import {
+    PERIOD_IDS,
+    defaultPeriodForToday,
+    formatPeriodRange,
+    resolvePeriodWindow,
+    seasonYearForDate,
+    type PeriodId,
+} from '@/lib/pricing/periods';
 import {
     addCompetitors,
+    deleteCompetitor,
     discoverCluster,
     enableApify,
     fetchApifyStatus,
@@ -41,8 +49,11 @@ import {
     patchCompetitor,
     resetApifyLimits,
     runApify,
+    runClusterApify,
+    saveApifySettings,
     stopApify,
 } from '@/lib/pricing/client';
+
 function formatScrapedAt(value: string | Date | null | undefined, language: string) {
     if (!value) return null;
     const d = new Date(value);
@@ -55,6 +66,24 @@ function formatScrapedAt(value: string | Date | null | undefined, language: stri
         minute: '2-digit',
     });
 }
+
+function formatStayDates(checkIn?: string | null, checkOut?: string | null, language?: string) {
+    if (!checkIn || !checkOut) return null;
+    const loc = language === 'en' ? 'en-GB' : 'ru-RU';
+    const a = new Date(`${checkIn.slice(0, 10)}T00:00:00`);
+    const b = new Date(`${checkOut.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return `${checkIn} – ${checkOut}`;
+    const fmt = (d: Date) =>
+        d.toLocaleDateString(loc, { day: '2-digit', month: '2-digit', year: 'numeric' });
+    return `${fmt(a)} – ${fmt(b)}`;
+}
+
+type ClusterScrapeProgress = {
+    cluster: string;
+    done: number;
+    total: number;
+    currentName: string;
+};
 
 export default function CompsetPage() {
     const { t, language } = useTranslation();
@@ -70,6 +99,10 @@ export default function CompsetPage() {
     const [discoverFor, setDiscoverFor] = useState<string | null>(null);
     const [editFor, setEditFor] = useState<{ id: string; name: string; url: string } | null>(null);
     const [moveFor, setMoveFor] = useState<{ id: string; from: string; to: string } | null>(null);
+    const [deleteFor, setDeleteFor] = useState<{ id: string; name: string; url: string } | null>(null);
+    const [clusterScrape, setClusterScrape] = useState<ClusterScrapeProgress | null>(null);
+
+    const seasonYear = seasonYearForDate();
 
     const load = async () => {
         setLoading(true);
@@ -77,6 +110,10 @@ export default function CompsetPage() {
             const [comp, status] = await Promise.all([fetchCompetitors(), fetchApifyStatus()]);
             setClusters(comp);
             setApify(status);
+            const saved = status?.settings?.scrapePeriod;
+            if (saved && (PERIOD_IDS as readonly string[]).includes(saved)) {
+                setPeriod(saved as PeriodId);
+            }
         } catch {
             notify(t('pricing.loadError'), 'error');
         } finally {
@@ -88,6 +125,16 @@ export default function CompsetPage() {
         void load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
+    const changePeriod = async (next: PeriodId) => {
+        setPeriod(next);
+        try {
+            await saveApifySettings({ scrapePeriod: next });
+            setApify((s: any) => (s ? { ...s, settings: { ...s.settings, scrapePeriod: next } } : s));
+        } catch {
+            notify(t('pricing.saveError'), 'error');
+        }
+    };
 
     const handleAdd = async () => {
         if (!addFor) return;
@@ -135,6 +182,52 @@ export default function CompsetPage() {
         }
     };
 
+    const scrapeCluster = async (cluster: string, competitors: any[]) => {
+        if (!apify?.tokenConfigured) {
+            notify(t('pricing.apifyNoToken'), 'warning');
+            return;
+        }
+        const approved = (competitors || []).filter((c) => c.status === 'approved');
+        if (!approved.length) {
+            notify(t('pricing.scrapeApprovedOnly'), 'warning');
+            return;
+        }
+        setBusy(true);
+        setClusterScrape({
+            cluster,
+            done: 0,
+            total: approved.length,
+            currentName: t('pricing.scrapeCluster'),
+        });
+        try {
+            const res = await runClusterApify(cluster, period);
+            if (!res.success) throw new Error(res.message);
+            const done = Number(res.data?.done || 0);
+            const total = Number(res.data?.total || approved.length);
+            const costSum = Number(res.data?.costUsd || 0);
+            setClusterScrape({
+                cluster,
+                done,
+                total,
+                currentName: t('pricing.scrapeCluster'),
+            });
+            if (done < total) {
+                notify(
+                    `${t('pricing.scrapeProgress')} ${done} ${t('pricing.scrapeProgressOf')} ${total} · $${costSum.toFixed(3)}`,
+                    'warning',
+                );
+            } else {
+                notify(`${t('pricing.apifyDone')} $${costSum.toFixed(3)}`, 'success');
+            }
+            await load();
+        } catch (e) {
+            notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error');
+        } finally {
+            setClusterScrape(null);
+            setBusy(false);
+        }
+    };
+
     const runDiscovery = async () => {
         if (!discoverFor) return;
         if (!apify?.tokenConfigured) {
@@ -158,6 +251,22 @@ export default function CompsetPage() {
         }
     };
 
+    const confirmDelete = async () => {
+        if (!deleteFor) return;
+        setBusy(true);
+        try {
+            const res = await deleteCompetitor(deleteFor.id);
+            if (!res.success) throw new Error(res.message);
+            setDeleteFor(null);
+            await load();
+            notify(t('pricing.deleteCompetitorDone'), 'success');
+        } catch (e) {
+            notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error');
+        } finally {
+            setBusy(false);
+        }
+    };
+
     if (loading) {
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -172,6 +281,27 @@ export default function CompsetPage() {
                 <Typography variant="h6" gutterBottom>
                     {t('pricing.apifyBudget')}
                 </Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} sx={{ mb: 2 }}>
+                    <TextField
+                        select
+                        size="small"
+                        label={t('pricing.scrapePeriod')}
+                        value={period}
+                        disabled={busy}
+                        onChange={(e) => void changePeriod(e.target.value as PeriodId)}
+                        sx={{ minWidth: 220 }}
+                        helperText={t('pricing.scrapePeriodHint')}
+                    >
+                        {PERIOD_IDS.map((id) => {
+                            const w = resolvePeriodWindow(id, seasonYear);
+                            return (
+                                <MenuItem key={id} value={id}>
+                                    {id} · {formatPeriodRange(w.start, w.end)}
+                                </MenuItem>
+                            );
+                        })}
+                    </TextField>
+                </Stack>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
                     <Box sx={{ flex: 1 }}>
                         <Typography variant="caption">{t('pricing.apifyDay')}</Typography>
@@ -282,12 +412,27 @@ export default function CompsetPage() {
                                                     <Button
                                                         size="small"
                                                         variant="outlined"
+                                                        disabled={busy || !apify?.tokenConfigured || !(cl.approved > 0)}
+                                                        onClick={() => void scrapeCluster(cl.cluster, cl.competitors || [])}
+                                                    >
+                                                        {t('pricing.scrapeCluster')}
+                                                    </Button>
+                                                    <Button
+                                                        size="small"
+                                                        variant="outlined"
                                                         disabled={busy || !apify?.tokenConfigured}
                                                         onClick={() => setDiscoverFor(cl.cluster)}
                                                     >
                                                         {t('pricing.discovery')}
                                                     </Button>
                                                 </Stack>
+                                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                                                    {t('pricing.scrapeClusterHint')} · {t('pricing.scrapePeriod')}: {period} ·{' '}
+                                                    {formatPeriodRange(
+                                                        resolvePeriodWindow(period, seasonYear).start,
+                                                        resolvePeriodWindow(period, seasonYear).end,
+                                                    )}
+                                                </Typography>
                                                 <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap sx={{ mb: 2 }}>
                                                     {cl.rooms.map((room: any) => (
                                                         <Chip key={room.roomId} size="small" label={`${room.name} #${room.roomId}`} />
@@ -297,17 +442,17 @@ export default function CompsetPage() {
                                                     const scrapedAt = formatScrapedAt(c.lastScrapedAt || c.updatedAt, language);
                                                     const byStay = c.lastPriceByStay || {};
                                                     const p7 = Number(byStay[7] || 0) > 0 ? Number(byStay[7]) : null;
-                                                    const p20 = Number(byStay[20] || 0) > 0 ? Number(byStay[20]) : null;
                                                     const fallbackPrice = Number(c.lastPrice) > 0 ? Number(c.lastPrice) : null;
                                                     const money = (n: number) =>
                                                         Math.round(n).toLocaleString(language === 'en' ? 'en-US' : 'ru-RU');
                                                     const night = language === 'en' ? 'nt' : 'н';
-                                                    const priceText = [
-                                                        p7 != null ? `${money(p7)} ฿ / 7${night}` : null,
-                                                        p20 != null ? `${money(p20)} ฿ / 20${night}` : null,
-                                                    ]
-                                                        .filter(Boolean)
-                                                        .join(' · ');
+                                                    const priceText =
+                                                        p7 != null
+                                                            ? `${money(p7)} ฿ / 7${night}`
+                                                            : fallbackPrice != null
+                                                              ? `${money(fallbackPrice)} ฿ / 7${night}`
+                                                              : '—';
+                                                    const stayDates = formatStayDates(c.lastCheckIn, c.lastCheckOut, language);
                                                     const warnings: string[] = Array.isArray(c.lastWarnings) ? c.lastWarnings : [];
                                                     return (
                                                     <Stack
@@ -334,7 +479,12 @@ export default function CompsetPage() {
                                                             {c.name}
                                                         </Typography>
                                                         <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                                                            {priceText || (fallbackPrice != null ? `${money(fallbackPrice)} ฿` : '—')}
+                                                            {priceText}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                                                            {stayDates
+                                                                ? `${t('pricing.scrapeDates')}: ${stayDates}`
+                                                                : `${t('pricing.scrapeDates')}: —`}
                                                         </Typography>
                                                         {warnings.length > 0 && (
                                                             <Chip
@@ -377,7 +527,7 @@ export default function CompsetPage() {
                                                         >
                                                             {t('pricing.editUrl')}
                                                         </Button>
-                                                        {c.status !== 'blocked' && (
+                                                        {c.status === 'approved' && (
                                                             <Button
                                                                 size="small"
                                                                 disabled={busy || !apify?.tokenConfigured}
@@ -402,6 +552,20 @@ export default function CompsetPage() {
                                                                 {t('pricing.blockUrl')}
                                                             </Button>
                                                         )}
+                                                        <Button
+                                                            size="small"
+                                                            color="error"
+                                                            disabled={busy}
+                                                            onClick={() =>
+                                                                setDeleteFor({
+                                                                    id: c._id,
+                                                                    name: c.name || '',
+                                                                    url: c.url || '',
+                                                                })
+                                                            }
+                                                        >
+                                                            {t('pricing.deleteCompetitor')}
+                                                        </Button>
                                                     </Stack>
                                                     );
                                                 })}
@@ -432,20 +596,6 @@ export default function CompsetPage() {
                         value={urls}
                         onChange={(e) => setUrls(e.target.value)}
                     />
-                    <TextField
-                        sx={{ mt: 2 }}
-                        select
-                        SelectProps={{ native: true }}
-                        label={t('pricing.period')}
-                        value={period}
-                        onChange={(e) => setPeriod(e.target.value as PeriodId)}
-                    >
-                        {PERIOD_IDS.map((id) => (
-                            <option key={id} value={id}>
-                                {id}
-                            </option>
-                        ))}
-                    </TextField>
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setAddFor(null)}>{t('common.cancel')}</Button>
@@ -553,6 +703,57 @@ export default function CompsetPage() {
                         {t('common.save')}
                     </Button>
                 </DialogActions>
+            </Dialog>
+
+            <Dialog open={deleteFor != null} onClose={() => !busy && setDeleteFor(null)} fullWidth>
+                <DialogTitle>{t('pricing.deleteCompetitorTitle')}</DialogTitle>
+                <DialogContent>
+                    <Alert severity="warning" sx={{ mt: 1, mb: 2 }}>
+                        {t('pricing.deleteCompetitorHint')}
+                    </Alert>
+                    <Typography variant="body2" fontWeight={600}>
+                        {deleteFor?.name || '—'}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                        {deleteFor?.url}
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setDeleteFor(null)} disabled={busy}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button color="error" variant="contained" disabled={busy} onClick={() => void confirmDelete()}>
+                        {t('pricing.deleteCompetitor')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={clusterScrape != null} fullWidth>
+                <DialogTitle>{t('pricing.scrapeProgressTitle')}</DialogTitle>
+                <DialogContent>
+                    <Stack spacing={2} sx={{ mt: 1 }} alignItems="center">
+                        <CircularProgress />
+                        <Typography variant="body1">
+                            {clusterScrape && clusterScrape.done > 0
+                                ? `${t('pricing.scrapeProgress')} ${clusterScrape.done} ${t('pricing.scrapeProgressOf')} ${clusterScrape.total}`
+                                : `${t('pricing.scrapeCluster')}… 0 ${t('pricing.scrapeProgressOf')} ${clusterScrape?.total ?? 0}`}
+                        </Typography>
+                        <LinearProgress
+                            variant={clusterScrape && clusterScrape.done > 0 ? 'determinate' : 'indeterminate'}
+                            value={
+                                clusterScrape && clusterScrape.total > 0
+                                    ? (clusterScrape.done / clusterScrape.total) * 100
+                                    : 0
+                            }
+                            sx={{ width: '100%' }}
+                        />
+                        <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
+                            {clusterScrape?.cluster}
+                            {' · '}
+                            {t('pricing.scrapeClusterHint')}
+                        </Typography>
+                    </Stack>
+                </DialogContent>
             </Dialog>
         </Stack>
     );

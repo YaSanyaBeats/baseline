@@ -107,11 +107,17 @@ export function resolvePeriodWindow(period: PeriodId, year?: number, from: Date 
         end,
         startIso: ymd(start),
         endIso: ymd(end),
-        nights: daysBetween(start, end) + 1,
+        // Exclusive end (как analytics: lastNight − firstNight), не inclusive.
+        nights: daysBetween(start, end),
         daysToArrival: Math.max(0, daysBetween(today, start)),
     };
 }
 
+/**
+ * Пересечение stay ∩ [periodStart, periodEnd).
+ * periodEnd — exclusive (как clip к lastNight в analytics).
+ * Beds24 departure тоже exclusive (день checkout).
+ */
 export function overlapNights(
     stayStartIso: string,
     stayEndIso: string,
@@ -119,11 +125,9 @@ export function overlapNights(
     periodEndExclusiveIso: string,
 ): number {
     const stayStart = parseIsoDate(stayStartIso);
-    // Beds24 departure is exclusive (checkout day).
     const stayEndExcl = parseIsoDate(stayEndIso);
     const pStart = parseIsoDate(periodStartIso);
-    const pEndExcl = new Date(parseIsoDate(periodEndExclusiveIso));
-    pEndExcl.setDate(pEndExcl.getDate() + 1);
+    const pEndExcl = parseIsoDate(periodEndExclusiveIso);
 
     const start = stayStart > pStart ? stayStart : pStart;
     const end = stayEndExcl < pEndExcl ? stayEndExcl : pEndExcl;

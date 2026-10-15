@@ -108,6 +108,8 @@ export type ApifyBudgetSettings = {
     timeoutMs: number;
     maxItems: number;
     topNPerObject: number;
+    /** Глобальный период для всех съёмов цен конкурентов (P1…P14). */
+    scrapePeriod?: PeriodId | null;
     budgetResetAt?: Date | string | null;
 };
 
@@ -120,6 +122,7 @@ export const DEFAULT_APIFY_BUDGET: ApifyBudgetSettings = {
     timeoutMs: 3 * 60 * 1000,
     maxItems: 1,
     topNPerObject: 5,
+    scrapePeriod: null,
 };
 
 export type OccupancySlice = {

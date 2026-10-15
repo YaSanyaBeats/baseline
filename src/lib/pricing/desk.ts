@@ -3,7 +3,13 @@ import { otaToSite } from './channels';
 import { IP_COLLECTIONS } from './collections';
 import { recommendPrice } from './engine';
 import { buildMasterIdNightMap } from './lt';
-import { bookingRoomId, computeRoomOccupancy, mergeOccupancy, type OccupancyBooking } from './occupancy';
+import {
+    bookingRoomId,
+    computeCompanyBusyLikeAnalytics,
+    computeRoomOccupancy,
+    mergeOccupancy,
+    type OccupancyBooking,
+} from './occupancy';
 import { formatPeriodRange, type PeriodId, resolvePeriodWindow } from './periods';
 import {
     ensurePricingSeeded,
@@ -20,7 +26,6 @@ import type {
     DeskRoomRow,
     IpParameterCell,
     IpRoom,
-    OccupancySlice,
 } from './types';
 
 const BEDS24_WRITE_ENABLED = false as const;
@@ -103,13 +108,14 @@ async function loadBookings(): Promise<OccupancyBooking[]> {
     const rows = await db
         .collection('bookings')
         .find(
-            { status: { $in: ['confirmed', 'new', 'black'] } },
+            {},
             {
                 projection: {
                     id: 1,
                     masterId: 1,
                     roomId: 1,
                     roomID: 1,
+                    unitId: 1,
                     status: 1,
                     arrival: 1,
                     departure: 1,
@@ -122,6 +128,19 @@ async function loadBookings(): Promise<OccupancyBooking[]> {
         )
         .toArray();
     return rows as unknown as OccupancyBooking[];
+}
+
+async function loadAnalyticsObjectDocs() {
+    const db = await getDB();
+    const [objects, internal] = await Promise.all([
+        db.collection('objects').find({}).toArray(),
+        db.collection('internalObjects').find({}).toArray(),
+    ]);
+    return [...objects, ...internal] as Array<{
+        id?: number;
+        propertyId?: number;
+        roomTypes?: Array<{ id?: number; qty?: number; units?: Array<{ id?: number; name?: string }> }>;
+    }>;
 }
 
 async function competitorAnchors(rooms: IpRoom[], channels: Awaited<ReturnType<typeof getChannels>>) {
@@ -200,15 +219,17 @@ export async function buildDesk(
 
     const window = resolvePeriodWindow(period, year);
     const D = daysToArrival == null ? window.daysToArrival : daysToArrival;
-    const [rooms, params, temperature, channels, targets, bookings, currentPrices] = await Promise.all([
-        getRooms(),
-        getParameters(),
-        getTemperature(),
-        getChannels(),
-        getGlobalTargets(window.year),
-        loadBookings(),
-        loadCurrentRoomPrices(window.startIso, window.endIso),
-    ]);
+    const [rooms, params, temperature, channels, targets, bookings, currentPrices, analyticsObjects] =
+        await Promise.all([
+            getRooms(),
+            getParameters(),
+            getTemperature(),
+            getChannels(),
+            getGlobalTargets(window.year),
+            loadBookings(),
+            loadCurrentRoomPrices(window.startIso, window.endIso),
+            loadAnalyticsObjectDocs(),
+        ]);
     await getApifyBudget();
 
     const paramMap = new Map<string, IpParameterCell>();
@@ -242,7 +263,6 @@ export async function buildDesk(
     }
 
     const clusters: DeskClusterRow[] = [];
-    const companySlices: OccupancySlice[] = [];
 
     for (const [clusterName, clusterRooms] of groups) {
         const cell = paramMap.get(cellKey(clusterName, period));
@@ -263,7 +283,6 @@ export async function buildDesk(
             const roomMedian = useCompetitors ? medianByRoom.get(room.roomId) ?? null : null;
             return { room, occupancy, ownAnchor, roomMedian };
         });
-        for (const p of prepared) companySlices.push(p.occupancy);
 
         const clusterOcc = mergeOccupancy(prepared.map((p) => p.occupancy));
         const clusterAnchor = useCompetitors
@@ -352,7 +371,14 @@ export async function buildDesk(
     }
 
     clusters.sort((a, b) => a.cluster.localeCompare(b.cluster));
-    const company = mergeOccupancy(companySlices);
+
+    // Компания — тот же алгоритм, что header analytics (юниты objects/internalObjects).
+    const companyOtbPct = computeCompanyBusyLikeAnalytics(
+        window.startIso,
+        window.endIso,
+        bookings,
+        analyticsObjects,
+    );
 
     const db = await getDB();
     const overrides = await db.collection(IP_COLLECTIONS.overrides).find({ period }).toArray();
@@ -382,9 +408,6 @@ export async function buildDesk(
             if (accMap.has(room.roomId)) {
                 room.appliedPrice = accMap.get(room.roomId) ?? null;
             }
-            if (room.currentPrice == null && room.appliedPrice != null) {
-                room.currentPrice = room.appliedPrice;
-            }
         }
         const priced = cl.rooms.map((r) => r.currentPrice).filter((v): v is number => v != null);
         cl.currentPrice = median(priced);
@@ -396,7 +419,10 @@ export async function buildDesk(
         year: window.year,
         window: { start: window.startIso, end: window.endIso, nights: window.nights },
         daysToArrival: D,
-        companyOtbPct: company.otbPct,
+        companyOtbPct,
+        // companyMerged оставлен на будущее (инвентарь/black); % берём из averageOtbPctByUnits
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        ...(false ? { _companyMerged: companyMerged } : {}),
         useCompetitors,
         temperature,
         clusters,

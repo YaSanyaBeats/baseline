@@ -107,13 +107,28 @@ export async function patchCompetitor(id: string, patch: Record<string, unknown>
     return data;
 }
 
+export async function deleteCompetitor(id: string) {
+    const { data } = await apiClient.delete(getApiUrl('pricing/competitors'), { params: { id } });
+    return data;
+}
+
 export async function fetchApifyStatus() {
     const { data } = await apiClient.get(getApiUrl('pricing/apify'));
     return data.data;
 }
 
+export async function saveApifySettings(patch: Record<string, unknown>) {
+    const { data } = await apiClient.put(getApiUrl('pricing/apify'), patch);
+    return data;
+}
+
 export async function runApify(competitorId: string, period: string) {
     const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'run', competitorId, period });
+    return data;
+}
+
+export async function runClusterApify(cluster: string, period: string) {
+    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'runCluster', cluster, period });
     return data;
 }
 

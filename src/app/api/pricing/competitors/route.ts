@@ -31,6 +31,8 @@ export async function GET() {
         lastReviews: c.lastReviews == null ? null : Number(c.lastReviews),
         lastStayNights: c.lastStayNights == null ? null : Number(c.lastStayNights),
         lastPriceByStay: c.lastPriceByStay || {},
+        lastCheckIn: c.lastCheckIn ? String(c.lastCheckIn) : null,
+        lastCheckOut: c.lastCheckOut ? String(c.lastCheckOut) : null,
         lastWarnings: Array.isArray(c.lastWarnings) ? c.lastWarnings : [],
         lastScrapedAt: c.lastScrapedAt
             ? new Date(c.lastScrapedAt as Date).toISOString()
@@ -192,6 +194,32 @@ export async function PATCH(request: NextRequest) {
         type: body.status === 'blocked' ? 'comp set ✕' : 'comp set',
         target: String(body.id),
         detail: JSON.stringify(set),
+    });
+    return NextResponse.json({ success: true });
+}
+
+export async function DELETE(request: NextRequest) {
+    const access = await requirePricingAccess();
+    if (!isPricingSession(access)) return access;
+    const id = request.nextUrl.searchParams.get('id');
+    if (!id) return NextResponse.json({ success: false, message: 'Нужен id' }, { status: 400 });
+    let oid: ObjectId;
+    try {
+        oid = new ObjectId(id);
+    } catch {
+        return NextResponse.json({ success: false, message: 'Некорректный id' }, { status: 400 });
+    }
+    const db = await getDB();
+    const current = await db.collection(IP_COLLECTIONS.competitors).findOne({ _id: oid });
+    if (!current) return NextResponse.json({ success: false, message: 'Конкурент не найден' }, { status: 404 });
+    await db.collection(IP_COLLECTIONS.competitors).deleteOne({ _id: oid });
+    await db.collection(IP_COLLECTIONS.snapshots).deleteMany({ competitorId: id });
+    await writePricingJournal({
+        userId: String(access.user._id || access.user.login),
+        userName: access.user.name || access.user.login,
+        type: 'comp set −',
+        target: String(current.cluster || id),
+        detail: String(current.url || id),
     });
     return NextResponse.json({ success: true });
 }

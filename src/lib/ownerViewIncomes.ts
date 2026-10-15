@@ -227,3 +227,31 @@ export function sumOwnerViewIncomeTableTotal(groups: CommissionOwnerViewIncomeGr
         0
     );
 }
+
+/** Категория, скрываемая в таблице «Приходы» отчёта v2 (RU + EN). */
+export const OWNER_VIEW_V2_HIDDEN_INCOME_CATEGORY_NAMES = [
+    'Коммунальные, платит гость (электричество + вода)',
+    'Electricity & Water - Paid by guest',
+] as const;
+
+function incomeLineMatchesOwnerViewV2HiddenCategory(description: string): boolean {
+    const desc = description.trim();
+    return OWNER_VIEW_V2_HIDDEN_INCOME_CATEGORY_NAMES.some(
+        (name) => desc === name || desc.startsWith(`${name} (`)
+    );
+}
+
+/** v2: без группы «Расходы HC» и без категории «Коммунальные, платит гость (электричество + вода)». */
+export function filterIncomeGroupsForOwnerViewV2(
+    groups: CommissionOwnerViewIncomeGroup[]
+): CommissionOwnerViewIncomeGroup[] {
+    return groups
+        .filter((group) => group.kind !== 'hc')
+        .map((group) => ({
+            ...group,
+            lines: group.lines.filter(
+                (line) => !incomeLineMatchesOwnerViewV2HiddenCategory(line.description)
+            ),
+        }))
+        .filter((group) => group.lines.length > 0);
+}

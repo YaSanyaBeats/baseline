@@ -30,7 +30,7 @@ import type {
     RecommendationSummary,
 } from './effectTypes';
 import { buildMasterIdNightMap, isLongTermBooking, stayNights } from './lt';
-import { bookingRoomId, OCCUPIED_STATUSES, OWNER_BLOCK_STATUS } from './occupancy';
+import { bookingRoomId, OWNER_BLOCK_STATUS } from './occupancy';
 import {
     daysBetween,
     defaultPeriodForToday,
@@ -145,7 +145,7 @@ function resolveStay(query: EffectBuildQuery): StayWindow {
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) {
             throw new EffectQueryError('Некорректный диапазон дат');
         }
-        const nights = daysBetween(start, end) + 1;
+        const nights = daysBetween(start, end);
         const mid = addDays(start, Math.floor(nights / 2));
         return {
             start,
@@ -197,7 +197,6 @@ function prepareStays(
         const nights = overlapNights(arrival || '', departure || '', window.startIso, window.endIso);
         if (nights <= 0) continue;
         const status = String(raw.status || '').toLowerCase();
-        if (status !== OWNER_BLOCK_STATUS && !OCCUPIED_STATUSES.has(status)) continue;
         const booked = parseTs(raw.bookingTime) ?? (arrival ? parseIsoDate(arrival.slice(0, 10)) : null);
         if (!booked) continue;
         const lt = status !== OWNER_BLOCK_STATUS && isLongTermBooking(
@@ -214,11 +213,12 @@ function prepareStays(
             },
             chain,
         );
+        // Как analytics: любая не-black бронь идёт в occupied (включая LT).
         out.push({
             roomId,
             bookedAt: booked.getTime(),
             bookedKey: bangkokKey(booked),
-            st: status === OWNER_BLOCK_STATUS || lt ? 0 : nights,
+            st: status === OWNER_BLOCK_STATUS ? 0 : nights,
             owner: status === OWNER_BLOCK_STATUS ? nights : 0,
             lt: lt ? nights : 0,
             nightly: nightlyRate(raw as { arrival?: string; departure?: string; price?: number; invoiceItems?: Array<{ type?: string; lineTotal?: number }> }),
@@ -230,15 +230,17 @@ function prepareStays(
 }
 
 function otbPct(acc: Map<number, { st: number; owner: number; lt: number }>, rooms: IpRoom[], nights: number): number {
-    let st = 0;
+    let occupied = 0;
     let available = 0;
     for (const room of rooms) {
         const row = acc.get(room.roomId) ?? { st: 0, owner: 0, lt: 0 };
         const inventory = Math.max(1, room.units || 1) * nights;
-        available += Math.max(0, inventory - row.owner - row.lt);
-        st += row.st;
+        const owner = Math.min(row.owner, inventory);
+        const avail = Math.max(0, inventory - owner);
+        available += avail;
+        occupied += Math.min(row.st, avail);
     }
-    return available > 0 ? (st / available) * 100 : 0;
+    return available > 0 ? (occupied / available) * 100 : 0;
 }
 
 function occupancySeries(stays: Stay[], rooms: IpRoom[], window: StayWindow, horizon: number, todayKey: string): Map<number, number | null> {

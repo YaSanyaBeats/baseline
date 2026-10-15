@@ -34,8 +34,14 @@ import {
     ownerViewExpenseColumnValue,
     type CommissionOwnerViewExpenseLine,
 } from '@/lib/ownerViewExpenses';
-import { sumOwnerViewIncomeTableTotal } from '@/lib/ownerViewIncomes';
-import { computeOwnerViewRoomEarnings } from '@/lib/ownerViewRoomEarnings';
+import {
+    filterIncomeGroupsForOwnerViewV2,
+    sumOwnerViewIncomeTableTotal,
+} from '@/lib/ownerViewIncomes';
+import {
+    computeOwnerViewRoomEarnings,
+    type CommissionOwnerReportVersion,
+} from '@/lib/ownerViewRoomEarnings';
 
 function formatAmount(value: number, locale: string): string {
     return value.toLocaleString(locale, {
@@ -142,13 +148,18 @@ function RoomIncomesTable({
     locale,
     t,
     headCellSx,
+    reportVersion,
 }: {
     section: CommissionOwnerViewRoomSection;
     locale: string;
     t: (key: string) => string;
     headCellSx: HeadCellSx;
+    reportVersion: CommissionOwnerReportVersion;
 }) {
-    const incomeGroups = section.incomeGroups;
+    const incomeGroups =
+        reportVersion === 2
+            ? filterIncomeGroupsForOwnerViewV2(section.incomeGroups)
+            : section.incomeGroups;
     const incomeTotal = sumOwnerViewIncomeTableTotal(incomeGroups);
     const hasRows = incomeGroups.some((g) => g.lines.length > 0);
 
@@ -232,16 +243,20 @@ function RoomExpensesTable({
     locale,
     t,
     headCellSx,
+    reportVersion,
 }: {
     section: CommissionOwnerViewRoomSection;
     locale: string;
     t: (key: string) => string;
     headCellSx: HeadCellSx;
+    reportVersion: CommissionOwnerReportVersion;
 }) {
     const expenseGroups = filterExpenseGroupsForDisplay(section.expenseGroups);
     const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
     const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(expenseGroups, 'agency');
     const hasRows = expenseGroups.length > 0;
+    const hideSumAndAgency = reportVersion === 2;
+    const colCount = hideSumAndAgency ? 4 : 6;
 
     const groupLabel = (group: CommissionOwnerViewExpenseGroup) =>
         group.kind === 'booking' ? group.label : t(group.labelI18nKey ?? '');
@@ -264,21 +279,25 @@ function RoomExpensesTable({
                             <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
                                 {t('accountancy.commission.ownerColPriceThb')}
                             </TableCell>
-                            <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
-                                {t('accountancy.commission.ownerColSumThb')}
-                            </TableCell>
+                            {!hideSumAndAgency && (
+                                <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
+                                    {t('accountancy.commission.ownerColSumThb')}
+                                </TableCell>
+                            )}
                             <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
                                 {t('accountancy.commission.ownerColExpenseThb')}
                             </TableCell>
-                            <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
-                                {t('accountancy.commission.ownerColAgencyExpenses')}
-                            </TableCell>
+                            {!hideSumAndAgency && (
+                                <TableCell sx={headCellSx('warning.main', 'common.black')} align="right">
+                                    {t('accountancy.commission.ownerColAgencyExpenses')}
+                                </TableCell>
+                            )}
                         </TableRow>
                     </TableHead>
                     <TableBody>
                         {!hasRows ? (
                             <TableRow>
-                                <TableCell colSpan={6}>
+                                <TableCell colSpan={colCount}>
                                     <Typography variant="body2" color="text.secondary">
                                         {t('accountancy.noExpenses')}
                                     </Typography>
@@ -288,7 +307,7 @@ function RoomExpensesTable({
                             expenseGroups.map((group) => (
                                 <Fragment key={group.key}>
                                     <TableRow sx={{ bgcolor: 'action.selected' }}>
-                                        <TableCell colSpan={6} sx={{ fontWeight: 700 }}>
+                                        <TableCell colSpan={colCount} sx={{ fontWeight: 700 }}>
                                             {groupLabel(group)}
                                         </TableCell>
                                     </TableRow>
@@ -300,16 +319,22 @@ function RoomExpensesTable({
                                             <TableCell>{row.description}</TableCell>
                                             <TableCell align="right">{row.quantity}</TableCell>
                                             <TableCell align="right">{formatAmount(row.unitPrice, locale)}</TableCell>
-                                            <TableCell align="right">{formatAmount(row.lineTotal, locale)}</TableCell>
+                                            {!hideSumAndAgency && (
+                                                <TableCell align="right">
+                                                    {formatAmount(row.lineTotal, locale)}
+                                                </TableCell>
+                                            )}
                                             <TableCell align="right">
                                                 <ExpenseColumnValue row={row} locale={locale} />
                                             </TableCell>
-                                            <TableCell align="right">
-                                                <SignedAmountValue
-                                                    value={ownerViewExpenseColumnValue(row, 'agency')}
-                                                    locale={locale}
-                                                />
-                                            </TableCell>
+                                            {!hideSumAndAgency && (
+                                                <TableCell align="right">
+                                                    <SignedAmountValue
+                                                        value={ownerViewExpenseColumnValue(row, 'agency')}
+                                                        locale={locale}
+                                                    />
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     ))}
                                 </Fragment>
@@ -317,7 +342,11 @@ function RoomExpensesTable({
                         )}
                         {hasRows && (
                             <TableRow sx={{ bgcolor: 'action.hover' }}>
-                                <TableCell colSpan={4} align="right" sx={{ fontWeight: 700 }}>
+                                <TableCell
+                                    colSpan={hideSumAndAgency ? 3 : 4}
+                                    align="right"
+                                    sx={{ fontWeight: 700 }}
+                                >
                                     {t('accountancy.commission.ownerTotalExpenses')}
                                 </TableCell>
                                 <TableCell
@@ -329,14 +358,19 @@ function RoomExpensesTable({
                                 >
                                     {formatSignedAmount(expenseColumnTotal, locale)}
                                 </TableCell>
-                                <TableCell align="right" sx={{ fontWeight: 700 }}>
-                                    <Typography
-                                        component="span"
-                                        sx={{ color: signedAmountColor(agencyExpenseColumnTotal), fontWeight: 700 }}
-                                    >
-                                        {formatSignedAmount(agencyExpenseColumnTotal, locale)}
-                                    </Typography>
-                                </TableCell>
+                                {!hideSumAndAgency && (
+                                    <TableCell align="right" sx={{ fontWeight: 700 }}>
+                                        <Typography
+                                            component="span"
+                                            sx={{
+                                                color: signedAmountColor(agencyExpenseColumnTotal),
+                                                fontWeight: 700,
+                                            }}
+                                        >
+                                            {formatSignedAmount(agencyExpenseColumnTotal, locale)}
+                                        </Typography>
+                                    </TableCell>
+                                )}
                             </TableRow>
                         )}
                     </TableBody>
@@ -351,13 +385,22 @@ function RoomEarningsTable({
     locale,
     t,
     headCellSx,
+    reportVersion,
 }: {
     section: CommissionOwnerViewRoomSection;
     locale: string;
     t: (key: string) => string;
     headCellSx: HeadCellSx;
+    reportVersion: CommissionOwnerReportVersion;
 }) {
-    const { expensesIncludingAgency, earningsNet } = computeOwnerViewRoomEarnings(section);
+    const { totalIncome, expensesIncludingAgency, earningsNet } = computeOwnerViewRoomEarnings(
+        section,
+        reportVersion
+    );
+    const expensesLabelKey =
+        reportVersion === 2
+            ? 'accountancy.commission.ownerEarningsRowExpensesV2'
+            : 'accountancy.commission.ownerEarningsRowExpenses';
     return (
         <Paper variant="outlined" sx={{ overflow: 'hidden', maxWidth: 480 }}>
             <Typography variant="subtitle1" sx={{ ...headCellSx('info.dark'), px: 2, py: 1 }}>
@@ -369,12 +412,10 @@ function RoomEarningsTable({
                         <TableCell sx={{ fontWeight: 600 }}>
                             {t('accountancy.commission.ownerEarningsRowIncomes')}
                         </TableCell>
-                        <TableCell align="right">{formatAmount(section.totals.totalIncome, locale)}</TableCell>
+                        <TableCell align="right">{formatAmount(totalIncome, locale)}</TableCell>
                     </TableRow>
                     <TableRow>
-                        <TableCell sx={{ fontWeight: 600 }}>
-                            {t('accountancy.commission.ownerEarningsRowExpenses')}
-                        </TableCell>
+                        <TableCell sx={{ fontWeight: 600 }}>{t(expensesLabelKey)}</TableCell>
                         <TableCell align="right">
                             {formatAmount(-expensesIncludingAgency, locale)}
                         </TableCell>
@@ -400,6 +441,7 @@ function RoomSectionAccordion({
     displayLocale,
     t,
     headCellSx,
+    reportVersion,
 }: {
     section: CommissionOwnerViewRoomSection;
     orderNumber: number;
@@ -407,6 +449,7 @@ function RoomSectionAccordion({
     displayLocale: string;
     t: (key: string) => string;
     headCellSx: HeadCellSx;
+    reportVersion: CommissionOwnerReportVersion;
 }) {
     const [expanded, setExpanded] = useState(defaultExpanded);
 
@@ -441,18 +484,21 @@ function RoomSectionAccordion({
                         locale={displayLocale}
                         t={t}
                         headCellSx={headCellSx}
+                        reportVersion={reportVersion}
                     />
                     <RoomExpensesTable
                         section={section}
                         locale={displayLocale}
                         t={t}
                         headCellSx={headCellSx}
+                        reportVersion={reportVersion}
                     />
                     <RoomEarningsTable
                         section={section}
                         locale={displayLocale}
                         t={t}
                         headCellSx={headCellSx}
+                        reportVersion={reportVersion}
                     />
                 </Stack>
             </AccordionDetails>
@@ -465,6 +511,7 @@ export type CommissionOwnerViewReportProps = {
     displayLocale: string;
     t: (key: string) => string;
     title?: string;
+    reportVersion?: CommissionOwnerReportVersion;
 };
 
 export default function CommissionOwnerViewReport({
@@ -472,6 +519,7 @@ export default function CommissionOwnerViewReport({
     displayLocale,
     t,
     title,
+    reportVersion = 1,
 }: CommissionOwnerViewReportProps) {
     const headCellSx: HeadCellSx = (bg, color) => ({
         bgcolor: bg,
@@ -563,6 +611,7 @@ export default function CommissionOwnerViewReport({
                             displayLocale={displayLocale}
                             t={t}
                             headCellSx={headCellSx}
+                            reportVersion={reportVersion}
                         />
                     ))
                 )}

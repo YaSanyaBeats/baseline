@@ -1,8 +1,8 @@
 import { ObjectId } from 'mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
-import { abortAllRunning, runMonitorForCompetitor } from '@/lib/pricing/apify/gateway';
-import { actorById, monitorActorFor } from '@/lib/pricing/apify/registry';
+import { abortAllRunning, runMonitorForCluster, runMonitorForCompetitor } from '@/lib/pricing/apify/gateway';
+import { MONITOR_STAY_NIGHTS, actorById, monitorActorFor } from '@/lib/pricing/apify/registry';
 import { runClusterDiscoveryMix } from '@/lib/pricing/apify/discovery';
 import { spentSince } from '@/lib/pricing/apify/budget';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
@@ -113,9 +113,9 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
             success: true,
             data: {
-                estimatedUsd: actor ? actor.estimatedUsd * 2 : 0,
+                estimatedUsd: actor ? actor.estimatedUsd * MONITOR_STAY_NIGHTS.length : 0,
                 actor: actor?.id,
-                stays: [7, 20],
+                stays: [...MONITOR_STAY_NIGHTS],
             },
         });
     }
@@ -156,6 +156,12 @@ export async function POST(request: NextRequest) {
         if (competitor.status === 'blocked') {
             return NextResponse.json({ success: false, message: 'Ссылка заблокирована и не снимается' }, { status: 400 });
         }
+        if (competitor.status !== 'approved') {
+            return NextResponse.json(
+                { success: false, message: 'Снимать цены можно только у одобренных конкурентов' },
+                { status: 400 },
+            );
+        }
         const rawPeriod = String(body.period || '');
         const period = (PERIOD_IDS as readonly string[]).includes(rawPeriod) ? (rawPeriod as PeriodId) : 'P1';
         const window = resolvePeriodWindow(period);
@@ -175,7 +181,55 @@ export async function POST(request: NextRequest) {
                 userName: access.user.name || access.user.login,
                 type: 'apify съём',
                 target: competitor.url,
-                detail: `снимков ${result.snapshots}, 7/20 ночей, $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
+                detail: `снимков ${result.snapshots}, ${result.checkIn || '?'}→${result.checkOut || '?'} (7н), $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
+            });
+            return NextResponse.json({ success: true, data: result });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Ошибка Apify';
+            return NextResponse.json({ success: false, message }, { status: 400 });
+        }
+    }
+
+    if (body.action === 'runCluster') {
+        const cluster = String(body.cluster || '').trim();
+        if (!cluster) {
+            return NextResponse.json({ success: false, message: 'Нужен cluster' }, { status: 400 });
+        }
+        const db = await getDB();
+        const rows = await db
+            .collection(IP_COLLECTIONS.competitors)
+            .find({ cluster, status: 'approved' })
+            .toArray();
+        if (!rows.length) {
+            return NextResponse.json(
+                { success: false, message: 'Нет одобренных конкурентов в кластере' },
+                { status: 400 },
+            );
+        }
+        const rawPeriod = String(body.period || '');
+        const period = (PERIOD_IDS as readonly string[]).includes(rawPeriod) ? (rawPeriod as PeriodId) : 'P1';
+        const window = resolvePeriodWindow(period);
+        try {
+            const result = await runMonitorForCluster({
+                cluster,
+                competitors: rows.map((r) => ({
+                    _id: String(r._id),
+                    url: String(r.url || ''),
+                    platform: r.platform as CompetitorPlatform,
+                    name: r.name ? String(r.name) : undefined,
+                    roomId: r.roomId == null ? null : Number(r.roomId),
+                    cluster,
+                })),
+                periodStart: window.startIso,
+                periodEnd: window.endIso,
+                userName: access.user.name || access.user.login,
+            });
+            await writePricingJournal({
+                userId: String(access.user._id || access.user.login),
+                userName: access.user.name || access.user.login,
+                type: 'apify съём кластера',
+                target: cluster,
+                detail: `${result.done}/${result.total} · 7н · $${result.costUsd.toFixed(3)} · батч по площадкам`,
             });
             return NextResponse.json({ success: true, data: result });
         } catch (error) {
@@ -191,10 +245,22 @@ export async function PUT(request: NextRequest) {
     const access = await requirePricingAccess();
     if (!isPricingSession(access)) return access;
     const body = await request.json();
+    const set: Record<string, unknown> = {};
+    if (typeof body.scrapingEnabled === 'boolean') set.scrapingEnabled = body.scrapingEnabled;
+    for (const key of ['perRunUsd', 'perDayUsd', 'perMonthUsd', 'ttlHours', 'timeoutMs', 'maxItems', 'topNPerObject'] as const) {
+        if (body[key] != null && Number.isFinite(Number(body[key]))) set[key] = Number(body[key]);
+    }
+    if (body.scrapePeriod != null) {
+        const raw = String(body.scrapePeriod);
+        set.scrapePeriod = (PERIOD_IDS as readonly string[]).includes(raw) ? raw : null;
+    }
+    if (!Object.keys(set).length) {
+        return NextResponse.json({ success: false, message: 'Нет полей для обновления' }, { status: 400 });
+    }
     const db = await getDB();
     await db.collection(IP_COLLECTIONS.settings).updateOne(
         { _id: 'apify' as never },
-        { $set: { ...DEFAULT_APIFY_BUDGET, ...body } },
+        { $set: set },
         { upsert: true },
     );
     return NextResponse.json({ success: true });

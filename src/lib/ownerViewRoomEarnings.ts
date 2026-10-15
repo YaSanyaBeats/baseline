@@ -6,10 +6,16 @@ import {
     type CommissionOwnerViewExpenseGroup,
 } from '@/lib/ownerViewExpenses';
 import {
+    filterIncomeGroupsForOwnerViewV2,
+    sumOwnerViewIncomeTableTotal,
+} from '@/lib/ownerViewIncomes';
+import {
     normalizeOwnerViewSettlementRow,
     type CommissionOwnerViewSettlementRow,
 } from '@/lib/ownerViewSettlements';
 import { parseSourceRecipientValue } from '@/lib/sourceRecipientParse';
+
+export type CommissionOwnerReportVersion = 1 | 2;
 
 function expenseGroupsForEarnings(
     groups: CommissionOwnerViewExpenseGroup[]
@@ -23,15 +29,32 @@ function expenseGroupsForEarnings(
 }
 
 /** ИТОГО комнаты в блоке «Результаты месяца по объекту» — та же формула, что на экране отчёта. */
-export function computeOwnerViewRoomEarnings(section: CommissionOwnerViewRoomSection): {
+export function computeOwnerViewRoomEarnings(
+    section: CommissionOwnerViewRoomSection,
+    reportVersion: CommissionOwnerReportVersion = 1
+): {
+    totalIncome: number;
     expensesIncludingAgency: number;
     earningsNet: number;
 } {
     const expenseGroups = expenseGroupsForEarnings(section.expenseGroups);
     const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
+
+    if (reportVersion === 2) {
+        const totalIncome = sumOwnerViewIncomeTableTotal(
+            filterIncomeGroupsForOwnerViewV2(section.incomeGroups)
+        );
+        return {
+            totalIncome,
+            expensesIncludingAgency: expenseColumnTotal,
+            earningsNet: totalIncome + expenseColumnTotal,
+        };
+    }
+
     const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(expenseGroups, 'agency');
     const expensesIncludingAgency = expenseColumnTotal + agencyExpenseColumnTotal;
     return {
+        totalIncome: section.totals.totalIncome,
         expensesIncludingAgency,
         earningsNet: section.totals.totalIncome + expensesIncludingAgency,
     };
