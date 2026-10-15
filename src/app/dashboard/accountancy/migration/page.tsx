@@ -377,6 +377,16 @@ export default function Page() {
             </Link>
 
             <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
+                {t('accountancy.migrateOwnerReportV2.title')}
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                {t('accountancy.migrateOwnerReportV2.description')}
+            </Alert>
+            <Link href="/dashboard/accountancy/migration/owner-report-v2">
+                <Button variant="contained">{t('accountancy.migrateOwnerReportV2.button')}</Button>
+            </Link>
+
+            <Typography variant="h5" sx={{ mt: 4, mb: 2 }}>
                 {t('accountancy.deleteBeforeDec2025Title')}
             </Typography>
             <Alert severity="warning" sx={{ mb: 2 }}>

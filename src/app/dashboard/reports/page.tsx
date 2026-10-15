@@ -136,6 +136,7 @@ export default function ReportsPage() {
                     ownerId={ownerId}
                     monthKey={selectedMonth}
                     title={t('menu.reports')}
+                    reportVersion={2}
                 />
             )}
         </Box>

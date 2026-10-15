@@ -31,7 +31,7 @@ function expenseGroupsForEarnings(
 /** ИТОГО комнаты в блоке «Результаты месяца по объекту» — та же формула, что на экране отчёта. */
 export function computeOwnerViewRoomEarnings(
     section: CommissionOwnerViewRoomSection,
-    reportVersion: CommissionOwnerReportVersion = 1
+    reportVersion: CommissionOwnerReportVersion = 2
 ): {
     totalIncome: number;
     expensesIncludingAgency: number;
@@ -214,7 +214,8 @@ export function isOwnerReportCheckWaived(monthKey: string): boolean {
 export function checkRoomEarningsAgainstSettlements(
     sections: CommissionOwnerViewRoomSection[],
     settlementRows: CommissionOwnerViewSettlementRow[],
-    monthKey?: string
+    monthKey?: string,
+    reportVersion: CommissionOwnerReportVersion = 2
 ): RoomSettlementCheck[] {
     const waived = monthKey != null && isOwnerReportCheckWaived(monthKey);
     const transactions = settlementRows
@@ -222,7 +223,9 @@ export function checkRoomEarningsAgainstSettlements(
         .filter((row) => row.kind === 'transaction');
 
     return sections.map((section) => {
-        const roomTotal = roundAccountancyAmount(computeOwnerViewRoomEarnings(section).earningsNet);
+        const roomTotal = roundAccountancyAmount(
+            computeOwnerViewRoomEarnings(section, reportVersion).earningsNet
+        );
         const room = parseOwnerViewRoomSectionKey(section.key);
         const amounts = room ? settlementAmountsForRoom(transactions, room.objectId, room.roomName) : [];
         const fullSum = roundAccountancyAmount(amounts.reduce((total, amount) => total + amount, 0));

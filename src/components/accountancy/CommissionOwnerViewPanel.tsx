@@ -24,7 +24,7 @@ export default function CommissionOwnerViewPanel({
     monthKey,
     backLink,
     title,
-    reportVersion = 1,
+    reportVersion = 2,
 }: CommissionOwnerViewPanelProps) {
     const { t, language } = useTranslation();
     const { objects } = useObjects();

@@ -30,7 +30,7 @@ const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
 type CommissionReportVersion = 1 | 2;
 
 function parseReportVersion(value: unknown): CommissionReportVersion {
-    return Number(value) === 2 ? 2 : 1;
+    return Number(value) === 1 ? 1 : 2;
 }
 
 function loadCommissionFiltersPayload(): {
@@ -84,7 +84,7 @@ export default function Page() {
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedOwnerId, setSelectedOwnerId] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
-    const [reportVersion, setReportVersion] = useState<CommissionReportVersion>(1);
+    const [reportVersion, setReportVersion] = useState<CommissionReportVersion>(2);
 
     const hasAccess = isAdmin || isAccountant;
 

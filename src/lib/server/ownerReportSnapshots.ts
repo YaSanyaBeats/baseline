@@ -19,6 +19,10 @@ import {
     checkRoomEarningsAgainstSettlements,
     OWNER_REPORT_CHECK_LOCALES,
 } from '@/lib/ownerViewRoomEarnings';
+import {
+    computeOwnerViewV2RoomTotal,
+    migrateOwnerViewRoomSectionToV2,
+} from '@/lib/ownerViewReportV2Migration';
 import { getBookingsByIdsFromDb, searchBookingsFromDb } from '@/lib/server/bookingsQuery';
 import { getObjects } from '@/lib/server/getObjects';
 import { loadAllCommissionRatesForMonth } from '@/lib/server/bookingManagementCommissionRates';
@@ -31,11 +35,12 @@ import type {
     User,
     UserObject,
 } from '@/lib/types';
-import type { CommissionOwnerViewStoredPayload } from '@/lib/commissionOwnerView';
+import type { CommissionOwnerViewRoomSection, CommissionOwnerViewStoredPayload } from '@/lib/commissionOwnerView';
 
 type SnapshotDoc = OwnerReportRoomSnapshot & {
     savedAt: Date;
     savedBy: string;
+    reportVersion?: 1 | 2;
 };
 
 function mapDbUser(doc: Record<string, unknown>): User {
@@ -338,18 +343,24 @@ export async function ensureOwnerReportSnapshots(
                 const freshSection = payload.roomSections.find((row) => row.key === sectionKey) ?? null;
                 const savedDoc = existingByIdentity.get(identity);
                 const section = savedDoc?.roomSection ?? freshSection;
+                const emptySection: CommissionOwnerViewRoomSection = {
+                    key: sectionKey,
+                    title: room.roomKey,
+                    incomeGroups: [],
+                    expenseGroups: [],
+                    totals: { totalIncome: 0, totalExpenses: 0, totalCommission: 0 },
+                };
+                const useV2 = !savedDoc || Number(savedDoc.reportVersion) === 2;
+                const sectionForCheck = section
+                    ? useV2
+                        ? migrateOwnerViewRoomSectionToV2(section)
+                        : section
+                    : emptySection;
                 const checks = checkRoomEarningsAgainstSettlements(
-                    [
-                        section ?? {
-                            key: sectionKey,
-                            title: room.roomKey,
-                            incomeGroups: [],
-                            expenseGroups: [],
-                            totals: { totalIncome: 0, totalExpenses: 0, totalCommission: 0 },
-                        },
-                    ],
+                    [sectionForCheck],
                     payload.settlementRows,
-                    reportMonth
+                    reportMonth,
+                    useV2 ? 2 : 1
                 );
                 const check = checks[0];
                 if (savedDoc?._id) {
@@ -367,16 +378,20 @@ export async function ensureOwnerReportSnapshots(
                     continue;
                 }
 
+                const sectionToSave = section
+                    ? cloneSection(migrateOwnerViewRoomSectionToV2(section))
+                    : null;
                 const doc: SnapshotDoc = {
                     ownerId: owner._id,
                     reportMonth,
                     objectId: room.objectId,
                     roomKey: room.roomKey,
                     locale,
-                    roomSection: section ? cloneSection(section) : null,
+                    roomSection: sectionToSave,
                     checkPassed: check?.passed ?? true,
                     roomTotal: check?.roomTotal ?? 0,
                     settlementSum: check?.settlementSum ?? 0,
+                    reportVersion: 2,
                     savedAt: now,
                     savedBy,
                 };
@@ -387,4 +402,50 @@ export async function ensureOwnerReportSnapshots(
     }
 
     return { saved, skipped, rechecked };
+}
+
+export type MigrateOwnerReportSnapshotsToV2Result = {
+    scanned: number;
+    updated: number;
+    skipped: number;
+};
+
+/**
+ * Переводит сохранённые снимки отчёта владельца на правила v2:
+ * фильтрует приходы в roomSection, пересчитывает roomTotal.
+ */
+export async function migrateOwnerReportSnapshotsToV2(
+    db?: Db
+): Promise<MigrateOwnerReportSnapshotsToV2Result> {
+    const database = db ?? (await getDB());
+    const collection = database.collection(ACCOUNTANCY_REPORT_SNAPSHOTS_COLLECTION);
+    const docs = await collection.find({}).toArray();
+
+    let updated = 0;
+    let skipped = 0;
+
+    for (const doc of docs) {
+        if (Number(doc.reportVersion) === 2) {
+            skipped += 1;
+            continue;
+        }
+
+        const rawSection = (doc.roomSection as CommissionOwnerViewRoomSection | null) ?? null;
+        const nextSection = rawSection ? migrateOwnerViewRoomSectionToV2(rawSection) : null;
+        const roomTotal = nextSection ? computeOwnerViewV2RoomTotal(nextSection) : 0;
+
+        await collection.updateOne(
+            { _id: doc._id },
+            {
+                $set: {
+                    roomSection: nextSection,
+                    roomTotal,
+                    reportVersion: 2,
+                },
+            }
+        );
+        updated += 1;
+    }
+
+    return { scanned: docs.length, updated, skipped };
 }

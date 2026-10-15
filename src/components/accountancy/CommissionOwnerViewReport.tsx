@@ -519,7 +519,7 @@ export default function CommissionOwnerViewReport({
     displayLocale,
     t,
     title,
-    reportVersion = 1,
+    reportVersion = 2,
 }: CommissionOwnerViewReportProps) {
     const headCellSx: HeadCellSx = (bg, color) => ({
         bgcolor: bg,

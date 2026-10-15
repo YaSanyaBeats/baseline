@@ -287,6 +287,15 @@
       "saved": "Snapshots saved",
       "skipped": "Already saved"
     },
+    "migrateOwnerReportV2": {
+      "title": "Migrate owner reports to v2",
+      "description": "Converts all saved owner report snapshots to v2 rules: removes the \"HC Expenses\" group and the \"Electricity & Water - Paid by guest\" category from Incomes, and recalculates the room total with the v2 formula. Snapshots already on v2 are skipped.",
+      "button": "Run v2 migration",
+      "running": "Migrating…",
+      "scanned": "Scanned",
+      "updated": "Updated",
+      "skipped": "Already v2"
+    },
     "months": {
       "1": "January",
       "2": "February",

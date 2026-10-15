@@ -14,7 +14,7 @@ function OwnerViewPageContent() {
 
     const ownerId = searchParams.get('ownerId') ?? '';
     const monthKey = searchParams.get('month') ?? '';
-    const reportVersion = Number(searchParams.get('version')) === 2 ? 2 : 1;
+    const reportVersion = Number(searchParams.get('version')) === 1 ? 1 : 2;
     const hasAccess = isAdmin || isAccountant;
 
     if (!hasAccess) {

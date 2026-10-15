@@ -3755,6 +3755,7 @@ export default function Page() {
             row.type,
             categoriesIncome,
             categoryContext,
+            { expenses, incomes },
         );
         if (!payload) return;
 

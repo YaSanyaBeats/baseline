@@ -17,6 +17,8 @@ export type OwnerReportRoomSnapshot = {
     checkPassed: boolean;
     roomTotal: number;
     settlementSum: number;
+    /** Версия правил отображения/итогов отчёта (по умолчанию 2). */
+    reportVersion?: 1 | 2;
 };
 
 /** Статус сохранённого отчёта для матрицы фиксации (без тела отчёта). */
