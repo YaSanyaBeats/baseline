@@ -1,11 +1,13 @@
 import { apiClient, getApiUrl } from '@/lib/api-client';
 import type { CommissionOwnerViewStoredPayload } from '@/lib/commissionOwnerView';
+import type { CommissionOwnerReportVersion } from '@/lib/ownerViewRoomEarnings';
 import type { Object as AppObject } from '@/lib/types';
 
 export type LoadCommissionOwnerViewParams = {
     ownerId: string;
     monthKey: string;
     locale: string;
+    reportVersion?: CommissionOwnerReportVersion;
     /** Оставлен для совместимости вызовов; данные объектов подбираются на сервере. */
     objects?: AppObject[];
 };
@@ -13,13 +15,13 @@ export type LoadCommissionOwnerViewParams = {
 export async function loadCommissionOwnerViewPayload(
     params: LoadCommissionOwnerViewParams
 ): Promise<CommissionOwnerViewStoredPayload | null> {
-    const { ownerId, monthKey, locale } = params;
+    const { ownerId, monthKey, locale, reportVersion = 2 } = params;
 
     try {
         const response = await apiClient.get<CommissionOwnerViewStoredPayload>(
             getApiUrl('accountancy/commission/owner-view'),
             {
-                params: { ownerId, month: monthKey, locale },
+                params: { ownerId, month: monthKey, locale, version: reportVersion },
             }
         );
         return response.data;

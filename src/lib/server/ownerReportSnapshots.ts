@@ -94,9 +94,22 @@ function cloneSection<T>(value: T): T {
     return JSON.parse(JSON.stringify(value)) as T;
 }
 
+const REPORT_VERSIONS = [1, 2] as const;
+
+function storedReportVersion(value: unknown): 1 | 2 | undefined {
+    if (value === 1 || value === 2) return value;
+    return undefined;
+}
+
 async function ensureSnapshotIndex(db: Db): Promise<void> {
-    await db.collection(ACCOUNTANCY_REPORT_SNAPSHOTS_COLLECTION).createIndex(
-        { ownerId: 1, reportMonth: 1, objectId: 1, roomKey: 1, locale: 1 },
+    const collection = db.collection(ACCOUNTANCY_REPORT_SNAPSHOTS_COLLECTION);
+    const indexes = await collection.indexes();
+    const current = indexes.find((index) => index.name === 'owner_report_snapshot_unique');
+    if (current && !Object.prototype.hasOwnProperty.call(current.key ?? {}, 'reportVersion')) {
+        await collection.dropIndex('owner_report_snapshot_unique');
+    }
+    await collection.createIndex(
+        { ownerId: 1, reportMonth: 1, objectId: 1, roomKey: 1, locale: 1, reportVersion: 1 },
         { unique: true, name: 'owner_report_snapshot_unique' }
     );
 }
@@ -114,6 +127,7 @@ export async function listSavedOwnerReportStatuses(db?: Db): Promise<SavedOwnerR
                     roomKey: 1,
                     locale: 1,
                     checkPassed: 1,
+                    reportVersion: 1,
                 },
             }
         )
@@ -126,6 +140,7 @@ export async function listSavedOwnerReportStatuses(db?: Db): Promise<SavedOwnerR
             roomKey: String(doc.roomKey ?? ''),
             locale: String(doc.locale ?? ''),
             checkPassed: Boolean(doc.checkPassed),
+            reportVersion: storedReportVersion(doc.reportVersion),
         }))
     );
 }
@@ -163,6 +178,7 @@ export async function loadOwnerReportSnapshots(
         checkPassed: Boolean(doc.checkPassed),
         roomTotal: Number(doc.roomTotal ?? 0),
         settlementSum: Number(doc.settlementSum ?? 0),
+        reportVersion: storedReportVersion(doc.reportVersion),
     }));
 }
 
@@ -178,6 +194,7 @@ export async function loadAllOwnerReportSnapshots(db: Db): Promise<OwnerReportRo
         checkPassed: Boolean(doc.checkPassed),
         roomTotal: Number(doc.roomTotal ?? 0),
         settlementSum: Number(doc.settlementSum ?? 0),
+        reportVersion: storedReportVersion(doc.reportVersion),
     }));
 }
 
@@ -261,7 +278,7 @@ export async function saveReportsForAllClosedPeriods(
 
 /**
  * Сохраняет недостающие снимки отчёта для уже зафиксированных комнат.
- * Существующие снимки не перезаписываются.
+ * v1 и v2 пишутся отдельными документами и не перезаписывают друг друга.
  */
 export async function ensureOwnerReportSnapshots(
     db: Db,
@@ -315,7 +332,10 @@ export async function ensureOwnerReportSnapshots(
     const skipped = 0;
     let rechecked = 0;
     const existingByIdentity = new Map(
-        existing.map((doc) => [`${doc.ownerId}:${doc.objectId}:${doc.roomKey}:${doc.locale}`, doc])
+        existing.map((doc) => {
+            const version = storedReportVersion(doc.reportVersion) ?? 1;
+            return [`${doc.ownerId}:${doc.objectId}:${doc.roomKey}:${doc.locale}:${version}`, doc];
+        })
     );
 
     for (const owner of owners) {
@@ -338,11 +358,8 @@ export async function ensureOwnerReportSnapshots(
         for (const payload of payloads) {
             const locale = payload.language.startsWith('en') ? 'en-US' : 'ru-RU';
             for (const room of ownedRooms) {
-                const identity = `${owner._id}:${room.objectId}:${room.roomKey}:${locale}`;
                 const sectionKey = ownerReportRoomSectionKey(room.objectId, room.roomKey);
                 const freshSection = payload.roomSections.find((row) => row.key === sectionKey) ?? null;
-                const savedDoc = existingByIdentity.get(identity);
-                const section = savedDoc?.roomSection ?? freshSection;
                 const emptySection: CommissionOwnerViewRoomSection = {
                     key: sectionKey,
                     title: room.roomKey,
@@ -350,53 +367,63 @@ export async function ensureOwnerReportSnapshots(
                     expenseGroups: [],
                     totals: { totalIncome: 0, totalExpenses: 0, totalCommission: 0 },
                 };
-                const useV2 = !savedDoc || Number(savedDoc.reportVersion) === 2;
-                const sectionForCheck = section
-                    ? useV2
-                        ? migrateOwnerViewRoomSectionToV2(section)
-                        : section
-                    : emptySection;
-                const checks = checkRoomEarningsAgainstSettlements(
-                    [sectionForCheck],
-                    payload.settlementRows,
-                    reportMonth,
-                    useV2 ? 2 : 1
-                );
-                const check = checks[0];
-                if (savedDoc?._id) {
-                    await collection.updateOne(
-                        { _id: savedDoc._id },
-                        {
-                            $set: {
-                                checkPassed: check?.passed ?? true,
-                                roomTotal: check?.roomTotal ?? 0,
-                                settlementSum: check?.settlementSum ?? 0,
-                            },
-                        }
-                    );
-                    rechecked += 1;
-                    continue;
-                }
 
-                const sectionToSave = section
-                    ? cloneSection(migrateOwnerViewRoomSectionToV2(section))
-                    : null;
-                const doc: SnapshotDoc = {
-                    ownerId: owner._id,
-                    reportMonth,
-                    objectId: room.objectId,
-                    roomKey: room.roomKey,
-                    locale,
-                    roomSection: sectionToSave,
-                    checkPassed: check?.passed ?? true,
-                    roomTotal: check?.roomTotal ?? 0,
-                    settlementSum: check?.settlementSum ?? 0,
-                    reportVersion: 2,
-                    savedAt: now,
-                    savedBy,
-                };
-                await collection.insertOne(doc);
-                saved += 1;
+                for (const reportVersion of REPORT_VERSIONS) {
+                    const identity = `${owner._id}:${room.objectId}:${room.roomKey}:${locale}:${reportVersion}`;
+                    const savedDoc = existingByIdentity.get(identity);
+                    const storedSection = savedDoc ? (savedDoc.roomSection ?? null) : freshSection;
+                    const sectionForVersion = storedSection
+                        ? reportVersion === 2
+                            ? migrateOwnerViewRoomSectionToV2(storedSection)
+                            : storedSection
+                        : emptySection;
+                    const checks = checkRoomEarningsAgainstSettlements(
+                        [sectionForVersion],
+                        payload.settlementRows,
+                        reportMonth,
+                        reportVersion
+                    );
+                    const check = checks[0];
+                    if (savedDoc?._id) {
+                        await collection.updateOne(
+                            { _id: savedDoc._id },
+                            {
+                                $set: {
+                                    checkPassed: check?.passed ?? true,
+                                    roomTotal: check?.roomTotal ?? 0,
+                                    settlementSum: check?.settlementSum ?? 0,
+                                    reportVersion: storedReportVersion(savedDoc.reportVersion) ?? reportVersion,
+                                },
+                            }
+                        );
+                        rechecked += 1;
+                        continue;
+                    }
+
+                    const sectionToSave = freshSection
+                        ? cloneSection(
+                              reportVersion === 2
+                                  ? migrateOwnerViewRoomSectionToV2(freshSection)
+                                  : freshSection
+                          )
+                        : null;
+                    const doc: SnapshotDoc = {
+                        ownerId: owner._id,
+                        reportMonth,
+                        objectId: room.objectId,
+                        roomKey: room.roomKey,
+                        locale,
+                        roomSection: sectionToSave,
+                        checkPassed: check?.passed ?? true,
+                        roomTotal: check?.roomTotal ?? 0,
+                        settlementSum: check?.settlementSum ?? 0,
+                        reportVersion,
+                        savedAt: now,
+                        savedBy,
+                    };
+                    await collection.insertOne(doc);
+                    saved += 1;
+                }
             }
         }
     }
@@ -411,13 +438,14 @@ export type MigrateOwnerReportSnapshotsToV2Result = {
 };
 
 /**
- * Переводит сохранённые снимки отчёта владельца на правила v2:
- * фильтрует приходы в roomSection, пересчитывает roomTotal.
+ * Для снимков v1 создаёт отдельный документ v2.
+ * Тело снимка v1 не меняется.
  */
 export async function migrateOwnerReportSnapshotsToV2(
     db?: Db
 ): Promise<MigrateOwnerReportSnapshotsToV2Result> {
     const database = db ?? (await getDB());
+    await ensureSnapshotIndex(database);
     const collection = database.collection(ACCOUNTANCY_REPORT_SNAPSHOTS_COLLECTION);
     const docs = await collection.find({}).toArray();
 
@@ -425,25 +453,46 @@ export async function migrateOwnerReportSnapshotsToV2(
     let skipped = 0;
 
     for (const doc of docs) {
-        if (Number(doc.reportVersion) === 2) {
+        if (storedReportVersion(doc.reportVersion) === 2) {
+            skipped += 1;
+            continue;
+        }
+
+        if (storedReportVersion(doc.reportVersion) !== 1) {
+            await collection.updateOne({ _id: doc._id }, { $set: { reportVersion: 1 } });
+        }
+
+        const v2Exists = await collection.findOne({
+            ownerId: doc.ownerId,
+            reportMonth: doc.reportMonth,
+            objectId: doc.objectId,
+            roomKey: doc.roomKey,
+            locale: doc.locale,
+            reportVersion: 2,
+        });
+        if (v2Exists) {
             skipped += 1;
             continue;
         }
 
         const rawSection = (doc.roomSection as CommissionOwnerViewRoomSection | null) ?? null;
-        const nextSection = rawSection ? migrateOwnerViewRoomSectionToV2(rawSection) : null;
+        const nextSection = rawSection ? migrateOwnerViewRoomSectionToV2(cloneSection(rawSection)) : null;
         const roomTotal = nextSection ? computeOwnerViewV2RoomTotal(nextSection) : 0;
 
-        await collection.updateOne(
-            { _id: doc._id },
-            {
-                $set: {
-                    roomSection: nextSection,
-                    roomTotal,
-                    reportVersion: 2,
-                },
-            }
-        );
+        await collection.insertOne({
+            ownerId: doc.ownerId,
+            reportMonth: doc.reportMonth,
+            objectId: doc.objectId,
+            roomKey: doc.roomKey,
+            locale: doc.locale,
+            roomSection: nextSection,
+            checkPassed: Boolean(doc.checkPassed),
+            roomTotal,
+            settlementSum: Number(doc.settlementSum ?? 0),
+            reportVersion: 2,
+            savedAt: doc.savedAt instanceof Date ? doc.savedAt : new Date(),
+            savedBy: String(doc.savedBy ?? ''),
+        });
         updated += 1;
     }
 

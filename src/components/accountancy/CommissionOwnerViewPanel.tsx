@@ -55,6 +55,7 @@ export default function CommissionOwnerViewPanel({
                     ownerId,
                     monthKey,
                     locale,
+                    reportVersion,
                     objects,
                 });
                 if (cancelled) return;
@@ -75,7 +76,7 @@ export default function CommissionOwnerViewPanel({
         return () => {
             cancelled = true;
         };
-    }, [hasParams, ownerId, monthKey, locale, objects]);
+    }, [hasParams, ownerId, monthKey, locale, objects, reportVersion]);
 
     const displayLocale = useMemo(
         () => (payload?.language === 'en-US' ? 'en-US' : locale),

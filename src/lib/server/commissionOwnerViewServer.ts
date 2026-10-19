@@ -11,10 +11,12 @@ import {
 } from '@/lib/accountancyClosedMonth';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
 import { loadAllCommissionRatesForMonth } from '@/lib/server/bookingManagementCommissionRates';
+import { selectSnapshotsForReportVersion } from '@/lib/ownerReportSnapshots';
 import {
     loadOwnerReportSnapshots,
     overlayOwnerReportSnapshots,
 } from '@/lib/server/ownerReportSnapshots';
+import type { CommissionOwnerReportVersion } from '@/lib/ownerViewRoomEarnings';
 import type { AccountancyCategory, Expense, Income, User } from '@/lib/types';
 
 function mapDbUser(doc: Record<string, unknown>): User {
@@ -28,7 +30,8 @@ export async function loadCommissionOwnerViewPayloadServer(
     session: { user?: Record<string, unknown> | null },
     ownerId: string,
     monthKey: string,
-    locale: string
+    locale: string,
+    reportVersion: CommissionOwnerReportVersion = 2
 ): Promise<CommissionOwnerViewStoredPayload | null> {
     if (!session?.user) return null;
 
@@ -120,5 +123,8 @@ export async function loadCommissionOwnerViewPayloadServer(
     if (!payload || !owner._id) return payload;
 
     const snapshots = await loadOwnerReportSnapshots(db, owner._id, monthKey, payload.language);
-    return overlayOwnerReportSnapshots(payload, snapshots);
+    return overlayOwnerReportSnapshots(
+        payload,
+        selectSnapshotsForReportVersion(snapshots, reportVersion)
+    );
 }

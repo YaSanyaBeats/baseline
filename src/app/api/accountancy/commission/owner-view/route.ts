@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
         const ownerId = request.nextUrl.searchParams.get('ownerId')?.trim() ?? '';
         const monthKey = request.nextUrl.searchParams.get('month')?.trim() ?? '';
         const locale = request.nextUrl.searchParams.get('locale')?.trim() ?? 'ru-RU';
+        const reportVersion = Number(request.nextUrl.searchParams.get('version')) === 1 ? 1 : 2;
 
         if (!ownerId || !monthKey) {
             return NextResponse.json(
@@ -28,7 +29,8 @@ export async function GET(request: NextRequest) {
             session,
             ownerId,
             monthKey,
-            locale
+            locale,
+            reportVersion
         );
 
         if (!payload) {

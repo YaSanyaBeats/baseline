@@ -11,6 +11,7 @@ import {
 } from '@/lib/ownerViewRoomEarnings';
 import { getDB } from '@/lib/db/getDB';
 import { normalizeMongoIdString } from '@/lib/mongoId';
+import { selectSnapshotsForReportVersion } from '@/lib/ownerReportSnapshots';
 import { overlayOwnerReportSnapshots, loadAllOwnerReportSnapshots } from '@/lib/server/ownerReportSnapshots';
 import { getBookingsByIdsFromDb, searchBookingsFromDb } from '@/lib/server/bookingsQuery';
 import { getObjects } from '@/lib/server/getObjects';
@@ -152,7 +153,10 @@ export async function runOwnerReportCheck(db?: Db): Promise<OwnerReportCheckResu
                 const locale: OwnerReportCheckLocale = payload.language.startsWith('en')
                     ? 'en-US'
                     : 'ru-RU';
-                const frozen = overlayOwnerReportSnapshots(payload, ownerSnapshots);
+                const frozen = overlayOwnerReportSnapshots(
+                    payload,
+                    selectSnapshotsForReportVersion(ownerSnapshots, 2)
+                );
                 const checks = checkRoomEarningsAgainstSettlements(
                     frozen.roomSections,
                     frozen.settlementRows,

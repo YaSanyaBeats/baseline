@@ -80,6 +80,36 @@ export function applyRoomSnapshots(
     return result.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
 }
 
+/**
+ * Снимок нужной версии отчёта.
+ * Документ v2 не подставляется в просмотр v1: в нём уже нет приходов,
+ * которые v2 скрывает. Старый снимок без версии — исходный полный отчёт.
+ */
+export function selectSnapshotsForReportVersion(
+    snapshots: OwnerReportRoomSnapshot[],
+    reportVersion: 1 | 2
+): OwnerReportRoomSnapshot[] {
+    const groups = new Map<string, OwnerReportRoomSnapshot[]>();
+    for (const snapshot of snapshots) {
+        const key = `${snapshot.reportMonth}:${snapshot.locale}:${snapshot.objectId}:${snapshot.roomKey}`;
+        const list = groups.get(key) ?? [];
+        list.push(snapshot);
+        groups.set(key, list);
+    }
+
+    const selected: OwnerReportRoomSnapshot[] = [];
+    for (const list of groups.values()) {
+        const exact = list.find((snapshot) => snapshot.reportVersion === reportVersion);
+        if (exact) {
+            selected.push(exact);
+            continue;
+        }
+        const legacy = list.find((snapshot) => snapshot.reportVersion == null);
+        if (legacy) selected.push(legacy);
+    }
+    return selected;
+}
+
 export function payloadWithRoomSections(
     payload: CommissionOwnerViewStoredPayload,
     roomSections: CommissionOwnerViewRoomSection[]
@@ -97,7 +127,9 @@ export function payloadWithRoomSections(
 
 /** Сводит снимки обеих локалей к одной ячейке матрицы. */
 export function aggregateSavedOwnerReportStatuses(
-    docs: Array<Pick<OwnerReportRoomSnapshot, 'reportMonth' | 'objectId' | 'roomKey' | 'locale' | 'checkPassed'>>
+    docs: Array<
+        Pick<OwnerReportRoomSnapshot, 'reportMonth' | 'objectId' | 'roomKey' | 'locale' | 'checkPassed' | 'reportVersion'>
+    >
 ): SavedOwnerReportStatus[] {
     const groups = new Map<
         string,
@@ -105,6 +137,7 @@ export function aggregateSavedOwnerReportStatuses(
     >();
 
     for (const doc of docs) {
+        if (doc.reportVersion === 1) continue;
         const key = ownerReportSnapshotKey(doc.reportMonth, doc.objectId, doc.roomKey);
         let group = groups.get(key);
         if (!group) {
