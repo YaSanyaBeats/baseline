@@ -2,6 +2,7 @@
 
 import {
     Alert,
+    Autocomplete,
     Box,
     Button,
     CircularProgress,
@@ -11,6 +12,7 @@ import {
     Paper,
     Select,
     Stack,
+    TextField,
     Typography,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
@@ -22,8 +24,9 @@ import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
 import { getUsers } from '@/lib/users';
+import { getInternalObjectRoomDisplayName } from '@/lib/internalObjectDisplay';
 import { filterObjectsForOwner } from '@/lib/ownerObjectsFilter';
-import type { User } from '@/lib/types';
+import type { Room, User } from '@/lib/types';
 
 const COMMISSION_FILTERS_KEY = 'accountancy-commission-filters';
 
@@ -33,8 +36,26 @@ function parseReportVersion(value: unknown): CommissionReportVersion {
     return Number(value) === 1 ? 1 : 2;
 }
 
+type CommissionSelection = 'room' | 'owner' | '';
+
+type RoomChoice = {
+    key: string;
+    objectId: number;
+    roomName: string;
+    label: string;
+    searchText: string;
+};
+
+function stableRoomName(room: Pick<Room, 'id' | 'name'>): string {
+    return room.name != null && String(room.name).trim() !== ''
+        ? String(room.name).trim()
+        : `Unit ${room.id ?? ''}`;
+}
+
 function loadCommissionFiltersPayload(): {
+    selection: CommissionSelection;
     selectedOwnerId: string;
+    selectedRoomKey: string;
     selectedMonth: string;
     reportVersion: CommissionReportVersion;
 } | null {
@@ -43,8 +64,18 @@ function loadCommissionFiltersPayload(): {
         const raw = localStorage.getItem(COMMISSION_FILTERS_KEY);
         if (!raw) return null;
         const parsed = JSON.parse(raw);
+        const selectedOwnerId = String(parsed.selectedOwnerId ?? '');
+        const selectedRoomKey = String(parsed.selectedRoomKey ?? '');
+        const selection: CommissionSelection =
+            parsed.selection === 'room' || parsed.selection === 'owner'
+                ? parsed.selection
+                : selectedOwnerId
+                  ? 'owner'
+                  : '';
         return {
-            selectedOwnerId: String(parsed.selectedOwnerId ?? ''),
+            selection,
+            selectedOwnerId: selection === 'owner' ? selectedOwnerId : '',
+            selectedRoomKey: selection === 'room' ? selectedRoomKey : '',
             selectedMonth: String(parsed.selectedMonth ?? ''),
             reportVersion: parseReportVersion(parsed.reportVersion),
         };
@@ -54,7 +85,9 @@ function loadCommissionFiltersPayload(): {
 }
 
 function saveCommissionFilters(state: {
+    selection: CommissionSelection;
     selectedOwnerId: string;
+    selectedRoomKey: string;
     selectedMonth: string;
     reportVersion: CommissionReportVersion;
 }) {
@@ -82,7 +115,9 @@ export default function Page() {
 
     const commissionFiltersLoadedRef = useRef(false);
     const [filtersHydrated, setFiltersHydrated] = useState(false);
+    const [selection, setSelection] = useState<CommissionSelection>('');
     const [selectedOwnerId, setSelectedOwnerId] = useState<string>('');
+    const [selectedRoomKey, setSelectedRoomKey] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
     const [reportVersion, setReportVersion] = useState<CommissionReportVersion>(2);
 
@@ -92,7 +127,9 @@ export default function Page() {
         if (commissionFiltersLoadedRef.current) return;
         const s = loadCommissionFiltersPayload();
         if (s) {
+            setSelection(s.selection);
             setSelectedOwnerId(s.selectedOwnerId);
+            setSelectedRoomKey(s.selectedRoomKey);
             setSelectedMonth(s.selectedMonth);
             setReportVersion(s.reportVersion);
         }
@@ -102,17 +139,41 @@ export default function Page() {
 
     useEffect(() => {
         if (!filtersHydrated) return;
-        saveCommissionFilters({ selectedOwnerId, selectedMonth, reportVersion });
-    }, [filtersHydrated, selectedOwnerId, selectedMonth, reportVersion]);
+        saveCommissionFilters({
+            selection,
+            selectedOwnerId,
+            selectedRoomKey,
+            selectedMonth,
+            reportVersion,
+        });
+    }, [filtersHydrated, selection, selectedOwnerId, selectedRoomKey, selectedMonth, reportVersion]);
 
-    const selectedOwner = selectedOwnerId
-        ? owners.find((o) => o._id === selectedOwnerId)
-        : null;
+    const roomOptions = useMemo(() => {
+        const locale = language === 'en' ? 'en' : 'ru';
+        const list: RoomChoice[] = [];
+        for (const obj of objects) {
+            const isInternalObject = obj.id < 0;
+            for (const room of obj.roomTypes ?? []) {
+                const roomName = stableRoomName(room);
+                const roomPart = isInternalObject
+                    ? getInternalObjectRoomDisplayName(room, language) || `Room ${room.id}`
+                    : room.name || `Room ${room.id}`;
+                list.push({
+                    key: `${obj.id}::${roomName}`,
+                    objectId: obj.id,
+                    roomName,
+                    label: `${obj.name} — ${roomPart}`,
+                    searchText: `${obj.name} ${room.name || ''} ${room.nameEn || ''} ${room.id}`.trim(),
+                });
+            }
+        }
+        return list.sort((a, b) => a.label.localeCompare(b.label, locale, { sensitivity: 'base' }));
+    }, [objects, language]);
 
-    const ownerObjects = useMemo(() => {
-        if (!selectedOwner) return [];
-        return filterObjectsForOwner(objects, selectedOwner.objects ?? []);
-    }, [selectedOwner, objects]);
+    const selectedRoom = useMemo(
+        () => (selection === 'room' ? roomOptions.find((room) => room.key === selectedRoomKey) ?? null : null),
+        [selection, roomOptions, selectedRoomKey]
+    );
 
     const ownersSorted = useMemo(() => {
         const locale = language === 'en' ? 'en' : 'ru';
@@ -120,6 +181,31 @@ export default function Page() {
             ownerSelectLabel(a).localeCompare(ownerSelectLabel(b), locale, { sensitivity: 'base' })
         );
     }, [owners, language]);
+
+    const matchedRoomOwners = useMemo(() => {
+        if (!selectedRoom) return [];
+        return ownersSorted.filter((owner) => {
+            const assigned = filterObjectsForOwner(objects, owner.objects ?? []);
+            return assigned.some(
+                (obj) =>
+                    obj.id === selectedRoom.objectId &&
+                    obj.roomTypes.some((room) => stableRoomName(room) === selectedRoom.roomName)
+            );
+        });
+    }, [selectedRoom, ownersSorted, objects]);
+
+    const selectedOwner = useMemo(() => {
+        if (selection === 'owner') {
+            return selectedOwnerId ? owners.find((owner) => owner._id === selectedOwnerId) ?? null : null;
+        }
+        if (selection === 'room' && matchedRoomOwners.length === 1) return matchedRoomOwners[0];
+        return null;
+    }, [selection, selectedOwnerId, owners, matchedRoomOwners]);
+
+    const ownerObjects = useMemo(() => {
+        if (!selectedOwner) return [];
+        return filterObjectsForOwner(objects, selectedOwner.objects ?? []);
+    }, [selectedOwner, objects]);
 
     useEffect(() => {
         if (!hasAccess) return;
@@ -139,12 +225,24 @@ export default function Page() {
         load();
     }, [hasAccess]);
 
+    const handleSelectRoom = (room: RoomChoice | null) => {
+        setSelectedRoomKey(room?.key ?? '');
+        setSelectedOwnerId('');
+        setSelection(room ? 'room' : '');
+    };
+
+    const handleSelectOwner = (owner: User | null) => {
+        setSelectedOwnerId(owner?._id ?? '');
+        setSelectedRoomKey('');
+        setSelection(owner ? 'owner' : '');
+    };
+
     const handleSubmit = () => {
-        if (!selectedOwnerId || !selectedMonth || ownerObjects.length === 0) return;
+        if (!selectedOwner?._id || !selectedMonth || ownerObjects.length === 0) return;
 
         setSubmitting(true);
         const qs = new URLSearchParams({
-            ownerId: selectedOwnerId,
+            ownerId: selectedOwner._id,
             month: selectedMonth,
             version: String(reportVersion),
         });
@@ -211,24 +309,58 @@ export default function Page() {
                 <Typography variant="h6" sx={{ mb: 2 }}>
                     {t('accountancy.commission.params')}
                 </Typography>
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} flexWrap="wrap" useFlexGap>
-                    <FormControl sx={{ minWidth: 240 }} size="small">
-                        <InputLabel>{t('users.owner')}</InputLabel>
-                        <Select
-                            label={t('users.owner')}
-                            value={selectedOwnerId}
-                            onChange={(e) => setSelectedOwnerId(e.target.value as string)}
-                        >
-                            <MenuItem value="">
-                                <em>{t('accountancy.commission.selectOwner')}</em>
-                            </MenuItem>
-                            {ownersSorted.map((owner) => (
-                                <MenuItem key={owner._id} value={owner._id ?? ''}>
-                                    {ownerSelectLabel(owner) || owner.login}
-                                </MenuItem>
-                            ))}
-                        </Select>
-                    </FormControl>
+                <Stack
+                    direction={{ xs: 'column', sm: 'row' }}
+                    spacing={2}
+                    flexWrap="wrap"
+                    useFlexGap
+                    alignItems={{ sm: 'center' }}
+                >
+                    <Autocomplete
+                        size="small"
+                        sx={{ minWidth: 280, flex: '1 1 280px' }}
+                        options={roomOptions}
+                        value={selectedRoom}
+                        onChange={(_, room) => handleSelectRoom(room)}
+                        getOptionLabel={(room) => room.label}
+                        isOptionEqualToValue={(a, b) => a.key === b.key}
+                        filterOptions={(options, state) => {
+                            const query = state.inputValue.trim().toLowerCase();
+                            if (!query) return options;
+                            return options.filter((room) => room.searchText.toLowerCase().includes(query));
+                        }}
+                        noOptionsText={t('accountancy.commission.nothingFound')}
+                        renderInput={(params) => (
+                            <TextField
+                                {...params}
+                                label={t('common.room')}
+                                placeholder={t('accountancy.commission.selectRoom')}
+                            />
+                        )}
+                    />
+
+                    <Typography variant="body2" color="text.secondary" sx={{ px: { sm: 0.5 } }}>
+                        {t('accountancy.commission.or')}
+                    </Typography>
+
+                    <Autocomplete
+                        size="small"
+                        sx={{ minWidth: 240, flex: '1 1 240px' }}
+                        options={ownersSorted}
+                        value={selection === 'owner' ? selectedOwner : null}
+                        onChange={(_, owner) => handleSelectOwner(owner)}
+                        getOptionLabel={(owner) => ownerSelectLabel(owner) || owner.login}
+                        isOptionEqualToValue={(a, b) => a._id === b._id}
+                        loading={loading}
+                        noOptionsText={t('accountancy.commission.nothingFound')}
+                        renderInput={(params) => (
+                            <TextField
+                                {...params}
+                                label={t('users.owner')}
+                                placeholder={t('accountancy.commission.selectOwner')}
+                            />
+                        )}
+                    />
 
                     <FormControl sx={{ minWidth: 200 }} size="small">
                         <InputLabel>{t('accountancy.selectMonth')}</InputLabel>
@@ -273,7 +405,7 @@ export default function Page() {
                         }
                         onClick={handleSubmit}
                         disabled={
-                            !selectedOwnerId ||
+                            !selectedOwner?._id ||
                             !selectedMonth ||
                             ownerObjects.length === 0 ||
                             submitting ||
@@ -283,9 +415,25 @@ export default function Page() {
                         {t('accountancy.commission.calculate')}
                     </Button>
                 </Stack>
-                {selectedOwnerId && ownerObjects.length === 0 && !loading && (
+                {selection === 'room' && selectedOwner && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
+                        {t('users.owner')}: {ownerSelectLabel(selectedOwner) || selectedOwner.login}
+                    </Typography>
+                )}
+                {selection === 'owner' && selectedOwnerId && ownerObjects.length === 0 && !loading && (
                     <Alert severity="info" sx={{ mt: 2 }}>
                         {t('accountancy.commission.noOwnerObjects')}
+                    </Alert>
+                )}
+                {selection === 'room' && selectedRoom && matchedRoomOwners.length === 0 && !loading && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        {t('accountancy.commission.roomNoOwner')}
+                    </Alert>
+                )}
+                {selection === 'room' && matchedRoomOwners.length > 1 && !loading && (
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                        {t('accountancy.commission.roomMultipleOwners')}{' '}
+                        {matchedRoomOwners.map((owner) => ownerSelectLabel(owner) || owner.login).join(', ')}
                     </Alert>
                 )}
             </Paper>
