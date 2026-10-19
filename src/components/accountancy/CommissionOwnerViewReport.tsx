@@ -50,8 +50,11 @@ function formatAmount(value: number, locale: string): string {
     });
 }
 
-function getExpenseColumnSignedValue(row: CommissionOwnerViewExpenseLine): number | null {
-    return ownerViewExpenseColumnValue(row, 'expense');
+function getExpenseColumnSignedValue(
+    row: CommissionOwnerViewExpenseLine,
+    reportVersion: CommissionOwnerReportVersion
+): number | null {
+    return ownerViewExpenseColumnValue(row, 'expense', reportVersion);
 }
 
 function formatSignedAmount(value: number, locale: string): string {
@@ -81,11 +84,13 @@ function SignedAmountValue({ value, locale }: { value: number | null; locale: st
 function ExpenseColumnValue({
     row,
     locale,
+    reportVersion,
 }: {
     row: CommissionOwnerViewExpenseLine;
     locale: string;
+    reportVersion: CommissionOwnerReportVersion;
 }) {
-    const signed = getExpenseColumnSignedValue(row);
+    const signed = getExpenseColumnSignedValue(row, reportVersion);
     if (signed == null) {
         return (
             <Typography component="span" color="text.secondary">
@@ -252,7 +257,7 @@ function RoomExpensesTable({
     reportVersion: CommissionOwnerReportVersion;
 }) {
     const expenseGroups = filterExpenseGroupsForDisplay(section.expenseGroups);
-    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups, reportVersion);
     const agencyExpenseColumnTotal = sumOwnerViewExpenseColumnSigned(expenseGroups, 'agency');
     const hasRows = expenseGroups.length > 0;
     const hideSumAndAgency = reportVersion === 2;
@@ -325,7 +330,11 @@ function RoomExpensesTable({
                                                 </TableCell>
                                             )}
                                             <TableCell align="right">
-                                                <ExpenseColumnValue row={row} locale={locale} />
+                                                <ExpenseColumnValue
+                                                    row={row}
+                                                    locale={locale}
+                                                    reportVersion={reportVersion}
+                                                />
                                             </TableCell>
                                             {!hideSumAndAgency && (
                                                 <TableCell align="right">

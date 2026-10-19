@@ -38,7 +38,7 @@ export function computeOwnerViewRoomEarnings(
     earningsNet: number;
 } {
     const expenseGroups = expenseGroupsForEarnings(section.expenseGroups);
-    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups);
+    const expenseColumnTotal = sumOwnerViewExpenseTableSignedTotal(expenseGroups, reportVersion);
 
     if (reportVersion === 2) {
         const totalIncome = sumOwnerViewIncomeTableTotal(

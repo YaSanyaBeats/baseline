@@ -69,6 +69,8 @@ export type CommissionOwnerViewExpenseLine = {
     childExpenseTotal?: number;
     /** Сумма подтранзакций-приходов (parentExpenseId) — только для базы комиссии. */
     childIncomeSubtransactionTotal?: number;
+    /** Подтранзакции кроме «Доля расходов HC»: расходы-дети и прочие приходы. */
+    guestSubtransactionTotal?: number;
     /** Доля расхода (Holy Cow): для брони × % комиссии, для общих/гостя — полная сумма. */
     expenseShare: number;
     isAgency: boolean;
@@ -381,6 +383,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
                 lineTotal,
                 childExpenseTotal,
                 childIncomeSubtransactionTotal,
+                guestSubtransactionTotal,
                 expenseShare,
                 isAgency,
                 isGuestLine: false,
@@ -431,6 +434,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
             expenseShare,
             childExpenseTotal,
             childIncomeSubtransactionTotal,
+            guestSubtransactionTotal,
             isAgency,
             isGuestLine: subgroup === 'guest',
             isManagementCommission,
@@ -522,12 +526,30 @@ export function buildOwnerViewExpenseGroupsForRoom(
     return groups;
 }
 
+/** Подтранзакции строки кроме доли HC. Для старых снимков без отдельного поля — расходы-дети и приходы. */
+function guestSubtransactionsOfExpenseLine(row: CommissionOwnerViewExpenseLine): number {
+    if (typeof row.guestSubtransactionTotal === 'number') {
+        return Math.max(0, row.guestSubtransactionTotal);
+    }
+    return Math.max(0, row.childExpenseTotal ?? 0) + Math.max(0, row.childIncomeSubtransactionTotal ?? 0);
+}
+
 export function ownerViewExpenseColumnValue(
     row: CommissionOwnerViewExpenseLine,
-    column: 'expense' | 'agency' | 'guest'
+    column: 'expense' | 'agency' | 'guest',
+    reportVersion: 1 | 2 = 1
 ): number | null {
     const signed = (value: number) => (row.isIncome ? Math.abs(value) : -Math.abs(value));
     if (column === 'expense') {
+        if (reportVersion === 2) {
+            const guestSubs = guestSubtransactionsOfExpenseLine(row);
+            const hcShare = row.isManagementCommission ? 0 : Math.max(0, row.expenseShare);
+            const hcAlreadyInSubs =
+                typeof row.guestSubtransactionTotal === 'number'
+                    ? 0
+                    : Math.min(hcShare, Math.max(0, row.childIncomeSubtransactionTotal ?? 0));
+            return signed(Math.max(0, row.lineTotal - guestSubs - (hcShare - hcAlreadyInSubs)));
+        }
         if (row.isManagementCommission) {
             return signed(row.lineTotal);
         }
@@ -535,8 +557,7 @@ export function ownerViewExpenseColumnValue(
             const subtransactionTotal =
                 (row.childExpenseTotal ?? 0) + (row.childIncomeSubtransactionTotal ?? 0);
             const commissionBase = Math.max(0, row.lineTotal - subtransactionTotal);
-            // Расход = (Сумма − подтранзакции) × (1 − % комиссии)
-
+            // v1: доля HC вычитается, подтранзакции в колонку «Расход» возвращаются.
             const ownerExpense = subtransactionTotal + (commissionBase - row.expenseShare);
             return signed(ownerExpense);
         }
@@ -569,24 +590,26 @@ export function sumOwnerViewExpenseColumnAbs(
 
 export function sumOwnerViewExpenseColumnSigned(
     groups: CommissionOwnerViewExpenseGroup[],
-    column: 'expense' | 'agency' | 'guest'
+    column: 'expense' | 'agency' | 'guest',
+    reportVersion: 1 | 2 = 1
 ): number {
     return groups.reduce(
         (sum, g) =>
             sum +
             g.lines.reduce((s, line) => {
-                const value = ownerViewExpenseColumnValue(line, column);
+                const value = ownerViewExpenseColumnValue(line, column, reportVersion);
                 return value == null ? s : s + value;
             }, 0),
         0
     );
 }
 
-/** Итого по колонке «Расход»: приходы +, расходы − (по полной сумме строки). */
+/** Итого по колонке «Расход». В v2 из суммы вычтены доля HC и все подтранзакции. */
 export function sumOwnerViewExpenseTableSignedTotal(
-    groups: CommissionOwnerViewExpenseGroup[]
+    groups: CommissionOwnerViewExpenseGroup[],
+    reportVersion: 1 | 2 = 1
 ): number {
-    return sumOwnerViewExpenseColumnSigned(groups, 'expense');
+    return sumOwnerViewExpenseColumnSigned(groups, 'expense', reportVersion);
 }
 
 export function sumOwnerViewExpenseShares(groups: CommissionOwnerViewExpenseGroup[]): number {
