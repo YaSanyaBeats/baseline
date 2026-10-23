@@ -3,6 +3,7 @@ import type { CompetitorPlatform } from '../types';
 import { blockedCompetitorUrlSet, isBlockedListingUrl, normalizeCompetitorUrl, upsertClusterCompetitor } from '../competitors';
 import { assertCanRun, recordCost } from './budget';
 import { runActorOnce } from './gateway';
+import { DISCOVERY_MIX, type DiscoveryPart } from '../discoveryMix';
 import { detectPlatform, discoveryActor } from './registry';
 
 const DISTRICT_QUERY: Record<string, string> = {
@@ -94,12 +95,6 @@ function collectUrls(items: Record<string, unknown>[], platform: CompetitorPlatf
     return [...found];
 }
 
-export const DISCOVERY_MIX: Array<{ platform: CompetitorPlatform; limit: number }> = [
-    { platform: 'trip', limit: 8 },
-    { platform: 'airbnb', limit: 6 },
-    { platform: 'booking', limit: 6 },
-];
-
 export async function runClusterDiscovery(params: {
     cluster: string;
     platform: CompetitorPlatform;
@@ -127,7 +122,7 @@ export async function runClusterDiscovery(params: {
         timeoutMs: settings.timeoutMs,
         input: {
             query,
-            maxResults: Math.min(limit + 6, 16),
+            maxResults: Math.min(limit + 6, 40),
             outputFormats: ['markdown'],
             scrapingTool: 'raw-http',
             requestTimeoutSecs: 30,
@@ -176,7 +171,10 @@ export async function runClusterDiscovery(params: {
     };
 }
 
-export async function runClusterDiscoveryMix(params: { cluster: string; userName: string }) {
+export async function runClusterDiscoveryMix(params: { cluster: string; userName: string; mix?: DiscoveryPart[] }) {
+    const mix = (params.mix ?? DISCOVERY_MIX).filter((part) => part.limit > 0);
+    if (!mix.length) throw new Error('Укажите количество хотя бы для одной площадки');
+
     const parts: Array<{ platform: CompetitorPlatform; inserted: number; found: number; query: string }> = [];
     const added: string[] = [];
     const errors: string[] = [];
@@ -184,7 +182,7 @@ export async function runClusterDiscoveryMix(params: { cluster: string; userName
     let skipped = 0;
     let costUsd = 0;
 
-    for (const part of DISCOVERY_MIX) {
+    for (const part of mix) {
         try {
             const result = await runClusterDiscovery({
                 cluster: params.cluster,

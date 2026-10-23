@@ -1,14 +1,16 @@
 import { ObjectId } from 'mongodb';
 import { NextRequest, NextResponse } from 'next/server';
 import { getDB } from '@/lib/db/getDB';
-import { abortAllRunning, runMonitorForCluster, runMonitorForCompetitor } from '@/lib/pricing/apify/gateway';
+import { abortAllRunning } from '@/lib/pricing/apify/gateway';
+import { cancelQueuedScrapeJobs, enqueueClusterScrape, enqueueCompetitorScrape } from '@/lib/pricing/apify/queue';
 import { MONITOR_STAY_NIGHTS, actorById, monitorActorFor } from '@/lib/pricing/apify/registry';
 import { runClusterDiscoveryMix } from '@/lib/pricing/apify/discovery';
+import { parseDiscoveryLimits } from '@/lib/pricing/discoveryMix';
 import { spentSince } from '@/lib/pricing/apify/budget';
 import { isPricingSession, requirePricingAccess } from '@/lib/pricing/auth';
 import { IP_COLLECTIONS } from '@/lib/pricing/collections';
 import { writePricingJournal } from '@/lib/pricing/journal';
-import { PERIOD_IDS, resolvePeriodWindow, type PeriodId } from '@/lib/pricing/periods';
+import { PERIOD_IDS, type PeriodId } from '@/lib/pricing/periods';
 import { ensurePricingSeeded, getApifyBudget } from '@/lib/pricing/seed';
 import type { CompetitorPlatform } from '@/lib/pricing/types';
 import { DEFAULT_APIFY_BUDGET } from '@/lib/pricing/types';
@@ -56,13 +58,14 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
 
     if (body.action === 'stop') {
-        const n = await abortAllRunning();
         const db = await getDB();
         await db.collection(IP_COLLECTIONS.settings).updateOne(
             { _id: 'apify' as never },
             { $set: { scrapingEnabled: false } },
             { upsert: true },
         );
+        await cancelQueuedScrapeJobs('Скрейпинг выключен стоп-краном.');
+        const n = await abortAllRunning();
         await writePricingJournal({
             userId: String(access.user._id || access.user.login),
             userName: access.user.name || access.user.login,
@@ -125,10 +128,15 @@ export async function POST(request: NextRequest) {
         if (!cluster) {
             return NextResponse.json({ success: false, message: 'Нужен cluster' }, { status: 400 });
         }
+        const parsed = parseDiscoveryLimits(body.limits);
+        if (!parsed.ok) {
+            return NextResponse.json({ success: false, message: parsed.message }, { status: 400 });
+        }
         try {
             const result = await runClusterDiscoveryMix({
                 cluster,
                 userName: access.user.name || access.user.login,
+                mix: parsed.mix,
             });
             const mix = (result.byPlatform || [])
                 .map((p) => `${p.platform} +${p.inserted}`)
@@ -164,28 +172,17 @@ export async function POST(request: NextRequest) {
         }
         const rawPeriod = String(body.period || '');
         const period = (PERIOD_IDS as readonly string[]).includes(rawPeriod) ? (rawPeriod as PeriodId) : 'P1';
-        const window = resolvePeriodWindow(period);
         try {
-            const result = await runMonitorForCompetitor({
+            const job = await enqueueCompetitorScrape({
                 competitorId: String(competitor._id),
-                roomId: competitor.roomId == null ? null : Number(competitor.roomId),
                 cluster: competitor.cluster ? String(competitor.cluster) : null,
-                platform: competitor.platform,
-                url: competitor.url,
-                periodStart: window.startIso,
-                periodEnd: window.endIso,
-                userName: access.user.name || access.user.login,
-            });
-            await writePricingJournal({
+                period,
                 userId: String(access.user._id || access.user.login),
                 userName: access.user.name || access.user.login,
-                type: 'apify съём',
-                target: competitor.url,
-                detail: `снимков ${result.snapshots}, ${result.checkIn || '?'}→${result.checkOut || '?'} (7н), $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
             });
-            return NextResponse.json({ success: true, data: result });
+            return NextResponse.json({ success: true, data: { queued: true, job } });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Ошибка Apify';
+            const message = error instanceof Error ? error.message : 'Ошибка очереди съёма';
             return NextResponse.json({ success: false, message }, { status: 400 });
         }
     }
@@ -208,32 +205,16 @@ export async function POST(request: NextRequest) {
         }
         const rawPeriod = String(body.period || '');
         const period = (PERIOD_IDS as readonly string[]).includes(rawPeriod) ? (rawPeriod as PeriodId) : 'P1';
-        const window = resolvePeriodWindow(period);
         try {
-            const result = await runMonitorForCluster({
+            const job = await enqueueClusterScrape({
                 cluster,
-                competitors: rows.map((r) => ({
-                    _id: String(r._id),
-                    url: String(r.url || ''),
-                    platform: r.platform as CompetitorPlatform,
-                    name: r.name ? String(r.name) : undefined,
-                    roomId: r.roomId == null ? null : Number(r.roomId),
-                    cluster,
-                })),
-                periodStart: window.startIso,
-                periodEnd: window.endIso,
-                userName: access.user.name || access.user.login,
-            });
-            await writePricingJournal({
+                period,
                 userId: String(access.user._id || access.user.login),
                 userName: access.user.name || access.user.login,
-                type: 'apify съём кластера',
-                target: cluster,
-                detail: `${result.done}/${result.total} · 7н · $${result.costUsd.toFixed(3)} · батч по площадкам`,
             });
-            return NextResponse.json({ success: true, data: result });
+            return NextResponse.json({ success: true, data: { queued: true, job } });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Ошибка Apify';
+            const message = error instanceof Error ? error.message : 'Ошибка очереди съёма';
             return NextResponse.json({ success: false, message }, { status: 400 });
         }
     }

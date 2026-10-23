@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, Fragment } from 'react';
+import { useEffect, useRef, useState, Fragment } from 'react';
 import {
     Alert,
     Box,
@@ -32,6 +32,13 @@ import StarIcon from '@mui/icons-material/Star';
 import { useTranslation } from '@/i18n/useTranslation';
 import { usePricingNotify } from '@/components/pricing/usePricingNotify';
 import {
+    DEFAULT_DISCOVERY_LIMITS,
+    DISCOVERY_LIMIT_MAX,
+    DISCOVERY_PLATFORM_ORDER,
+    DISCOVERY_SEARCH_USD,
+} from '@/lib/pricing/discoveryMix';
+import type { CompetitorPlatform } from '@/lib/pricing/types';
+import {
     PERIOD_IDS,
     defaultPeriodForToday,
     formatPeriodRange,
@@ -46,12 +53,14 @@ import {
     enableApify,
     fetchApifyStatus,
     fetchCompetitors,
+    fetchScrapeQueue,
     patchCompetitor,
     resetApifyLimits,
     runApify,
     runClusterApify,
     saveApifySettings,
     stopApify,
+    type ScrapeJobView,
 } from '@/lib/pricing/client';
 
 function formatScrapedAt(value: string | Date | null | undefined, language: string) {
@@ -78,12 +87,17 @@ function formatStayDates(checkIn?: string | null, checkOut?: string | null, lang
     return `${fmt(a)} – ${fmt(b)}`;
 }
 
-type ClusterScrapeProgress = {
-    cluster: string;
-    done: number;
-    total: number;
-    currentName: string;
-};
+function isActive(job: ScrapeJobView) {
+    return job.status === 'queued' || job.status === 'running';
+}
+
+function errorMessage(error: unknown, fallback: string) {
+    if (typeof error === 'object' && error && 'response' in error) {
+        const message = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
+        if (message) return message;
+    }
+    return error instanceof Error ? error.message : fallback;
+}
 
 export default function CompsetPage() {
     const { t, language } = useTranslation();
@@ -97,10 +111,19 @@ export default function CompsetPage() {
     const [period, setPeriod] = useState<PeriodId>(defaultPeriodForToday());
     const [busy, setBusy] = useState(false);
     const [discoverFor, setDiscoverFor] = useState<string | null>(null);
+    const [discoveryLimits, setDiscoveryLimits] = useState<Record<CompetitorPlatform, number>>({
+        ...DEFAULT_DISCOVERY_LIMITS,
+    });
     const [editFor, setEditFor] = useState<{ id: string; name: string; url: string } | null>(null);
     const [moveFor, setMoveFor] = useState<{ id: string; from: string; to: string } | null>(null);
     const [deleteFor, setDeleteFor] = useState<{ id: string; name: string; url: string } | null>(null);
-    const [clusterScrape, setClusterScrape] = useState<ClusterScrapeProgress | null>(null);
+    const [activeJobs, setActiveJobs] = useState<ScrapeJobView[]>([]);
+    const [pendingKeys, setPendingKeys] = useState<Record<string, true>>({});
+    const watchingRef = useRef<Set<string>>(new Set());
+    const notifyRef = useRef(notify);
+    const tRef = useRef(t);
+    notifyRef.current = notify;
+    tRef.current = t;
 
     const seasonYear = seasonYearForDate();
 
@@ -124,6 +147,98 @@ export default function CompsetPage() {
     useEffect(() => {
         void load();
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    useEffect(() => {
+        let stop = false;
+
+        const reloadQuiet = async () => {
+            try {
+                const [comp, status] = await Promise.all([fetchCompetitors(), fetchApifyStatus()]);
+                if (stop) return;
+                setClusters(comp);
+                setApify(status);
+            } catch {
+                // Следующий опрос повторит загрузку.
+            }
+        };
+
+        const apply = (data: { active: ScrapeJobView[]; recent: ScrapeJobView[] }) => {
+            const active = data.active || [];
+            const recent = new Map((data.recent || []).map((job) => [job.id, job]));
+            const translate = tRef.current;
+            const tell = notifyRef.current;
+            let refresh = false;
+
+            for (const id of [...watchingRef.current]) {
+                if (active.some((job) => job.id === id)) continue;
+                const job = recent.get(id);
+                if (!job) continue;
+                watchingRef.current.delete(id);
+                if (job.status === 'cancelled') continue;
+                refresh = true;
+                if (job.status === 'failed') {
+                    tell(job.error || translate('pricing.saveError'), 'error');
+                    continue;
+                }
+                const cost = Number(job.result?.costUsd || 0);
+                if (job.kind === 'cluster') {
+                    const done = Number(job.result?.done || 0);
+                    const total = Number(job.result?.total || 0);
+                    if (total && done < total) {
+                        tell(
+                            `${translate('pricing.scrapeProgress')} ${done} ${translate('pricing.scrapeProgressOf')} ${total} · $${cost.toFixed(3)}`,
+                            'warning',
+                        );
+                    } else {
+                        tell(`${translate('pricing.apifyDone')} $${cost.toFixed(3)}`, 'success');
+                    }
+                } else {
+                    const warnings = job.result?.warnings || [];
+                    if (warnings.length) {
+                        tell(
+                            `${translate('pricing.scrapeIncomplete')}: ${warnings.map((w) => translate(`pricing.scrapeWarn.${w}`)).join(', ')}`,
+                            'warning',
+                        );
+                    } else {
+                        tell(`${translate('pricing.apifyDone')} $${cost.toFixed(3)}`, 'success');
+                    }
+                }
+            }
+
+            for (const job of active) watchingRef.current.add(job.id);
+            setActiveJobs((prev) => {
+                const byId = new Map(active.map((job) => [job.id, job]));
+                for (const job of prev) {
+                    if (watchingRef.current.has(job.id) && !byId.has(job.id) && !recent.has(job.id)) {
+                        byId.set(job.id, job);
+                    }
+                }
+                const next = [...byId.values()];
+                const same =
+                    prev.length === next.length &&
+                    prev.every((job) => next.some((item) => item.id === job.id && item.status === job.status));
+                return same ? prev : next;
+            });
+            if (refresh) void reloadQuiet();
+        };
+
+        const tick = async () => {
+            while (!stop) {
+                try {
+                    const data = await fetchScrapeQueue();
+                    if (!stop) apply(data);
+                } catch {
+                    // Следующий опрос.
+                }
+                await new Promise((resolve) => setTimeout(resolve, 5000));
+            }
+        };
+
+        void tick();
+        return () => {
+            stop = true;
+        };
     }, []);
 
     const changePeriod = async (next: PeriodId) => {
@@ -156,29 +271,51 @@ export default function CompsetPage() {
         }
     };
 
+    const rememberJob = (job: ScrapeJobView | undefined) => {
+        if (!job?.id || !isActive(job)) return;
+        watchingRef.current.add(job.id);
+        setActiveJobs((prev) => [...prev.filter((item) => item.id !== job.id), job]);
+    };
+
+    const setPending = (key: string, on: boolean) => {
+        setPendingKeys((prev) => {
+            if (on) return prev[key] ? prev : { ...prev, [key]: true };
+            if (!prev[key]) return prev;
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    };
+
+    const clusterQueued = (cluster: string) =>
+        Boolean(pendingKeys[`k:${cluster}`]) ||
+        activeJobs.some((job) => isActive(job) && job.kind === 'cluster' && job.cluster === cluster);
+
+    const competitorQueued = (id: string, cluster: string) =>
+        Boolean(pendingKeys[`c:${id}`] || pendingKeys[`k:${cluster}`]) ||
+        activeJobs.some(
+            (job) =>
+                isActive(job) &&
+                ((job.kind === 'competitor' && job.competitorId === id) ||
+                    (job.kind === 'cluster' && job.cluster === cluster)),
+        );
+
     const scrape = async (id: string) => {
         if (!apify?.tokenConfigured) {
             notify(t('pricing.apifyNoToken'), 'warning');
             return;
         }
-        setBusy(true);
+        const key = `c:${id}`;
+        setPending(key, true);
         try {
             const res = await runApify(id, period);
             if (!res.success) throw new Error(res.message);
-            const warnings: string[] = res.data?.warnings || [];
-            if (warnings.length) {
-                notify(
-                    `${t('pricing.scrapeIncomplete')}: ${warnings.map((w) => t(`pricing.scrapeWarn.${w}`)).join(', ')}`,
-                    'warning',
-                );
-            } else {
-                notify(`${t('pricing.apifyDone')} $${Number(res.data?.costUsd || 0).toFixed(3)}`, 'success');
-            }
-            await load();
+            rememberJob(res.data?.job);
+            notify(t('pricing.scrapeQueuedNotice'), 'info');
         } catch (e) {
-            notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error');
+            notify(errorMessage(e, t('pricing.saveError')), 'error');
         } finally {
-            setBusy(false);
+            setPending(key, false);
         }
     };
 
@@ -192,39 +329,17 @@ export default function CompsetPage() {
             notify(t('pricing.scrapeApprovedOnly'), 'warning');
             return;
         }
-        setBusy(true);
-        setClusterScrape({
-            cluster,
-            done: 0,
-            total: approved.length,
-            currentName: t('pricing.scrapeCluster'),
-        });
+        const key = `k:${cluster}`;
+        setPending(key, true);
         try {
             const res = await runClusterApify(cluster, period);
             if (!res.success) throw new Error(res.message);
-            const done = Number(res.data?.done || 0);
-            const total = Number(res.data?.total || approved.length);
-            const costSum = Number(res.data?.costUsd || 0);
-            setClusterScrape({
-                cluster,
-                done,
-                total,
-                currentName: t('pricing.scrapeCluster'),
-            });
-            if (done < total) {
-                notify(
-                    `${t('pricing.scrapeProgress')} ${done} ${t('pricing.scrapeProgressOf')} ${total} · $${costSum.toFixed(3)}`,
-                    'warning',
-                );
-            } else {
-                notify(`${t('pricing.apifyDone')} $${costSum.toFixed(3)}`, 'success');
-            }
-            await load();
+            rememberJob(res.data?.job);
+            notify(t('pricing.scrapeQueuedNotice'), 'info');
         } catch (e) {
-            notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error');
+            notify(errorMessage(e, t('pricing.saveError')), 'error');
         } finally {
-            setClusterScrape(null);
-            setBusy(false);
+            setPending(key, false);
         }
     };
 
@@ -236,7 +351,7 @@ export default function CompsetPage() {
         }
         setBusy(true);
         try {
-            const res = await discoverCluster(discoverFor);
+            const res = await discoverCluster(discoverFor, discoveryLimits);
             if (!res.success) throw new Error(res.message);
             notify(
                 `${t('pricing.discoveryDone')}: ${res.data?.inserted ?? 0} · $${Number(res.data?.costUsd || 0).toFixed(3)}`,
@@ -245,11 +360,13 @@ export default function CompsetPage() {
             setDiscoverFor(null);
             await load();
         } catch (e) {
-            notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error');
+            notify(errorMessage(e, t('pricing.saveError')), 'error');
         } finally {
             setBusy(false);
         }
     };
+
+    const discoverySearches = DISCOVERY_PLATFORM_ORDER.filter((platform) => discoveryLimits[platform] > 0).length;
 
     const confirmDelete = async () => {
         if (!deleteFor) return;
@@ -391,11 +508,19 @@ export default function CompsetPage() {
                                     <TableCell>{cl.cluster}</TableCell>
                                     <TableCell>{cl.objects}</TableCell>
                                     <TableCell>
-                                        <Chip
-                                            size="small"
-                                            color={cl.approved >= 5 ? 'success' : cl.approved > 0 ? 'warning' : 'default'}
-                                            label={`${cl.approved || 0}/${cl.total || 0} ${t('pricing.approvedUrls')}`}
-                                        />
+                                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap" useFlexGap>
+                                            <Chip
+                                                size="small"
+                                                color={cl.approved >= 5 ? 'success' : cl.approved > 0 ? 'warning' : 'default'}
+                                                label={`${cl.approved || 0}/${cl.total || 0} ${t('pricing.approvedUrls')}`}
+                                            />
+                                            {(clusterQueued(cl.cluster) ||
+                                                (cl.competitors || []).some((c: { _id: string }) =>
+                                                    competitorQueued(c._id, cl.cluster),
+                                                )) && (
+                                                <Chip size="small" color="info" label={t('pricing.scrapeQueued')} />
+                                            )}
+                                        </Stack>
                                     </TableCell>
                                 </TableRow>
                                 <TableRow>
@@ -412,10 +537,14 @@ export default function CompsetPage() {
                                                     <Button
                                                         size="small"
                                                         variant="outlined"
-                                                        disabled={busy || !apify?.tokenConfigured || !(cl.approved > 0)}
+                                                        disabled={
+                                                            clusterQueued(cl.cluster) ||
+                                                            !apify?.tokenConfigured ||
+                                                            !(cl.approved > 0)
+                                                        }
                                                         onClick={() => void scrapeCluster(cl.cluster, cl.competitors || [])}
                                                     >
-                                                        {t('pricing.scrapeCluster')}
+                                                        {clusterQueued(cl.cluster) ? t('pricing.scrapeQueued') : t('pricing.scrapeCluster')}
                                                     </Button>
                                                     <Button
                                                         size="small"
@@ -530,10 +659,12 @@ export default function CompsetPage() {
                                                         {c.status === 'approved' && (
                                                             <Button
                                                                 size="small"
-                                                                disabled={busy || !apify?.tokenConfigured}
+                                                                disabled={competitorQueued(c._id, cl.cluster) || !apify?.tokenConfigured}
                                                                 onClick={() => void scrape(c._id)}
                                                             >
-                                                                {t('pricing.scrape')}
+                                                                {competitorQueued(c._id, cl.cluster)
+                                                                    ? t('pricing.scrapeQueued')
+                                                                    : t('pricing.scrape')}
                                                             </Button>
                                                         )}
                                                         {c.status === 'blocked' ? (
@@ -605,17 +736,55 @@ export default function CompsetPage() {
                 </DialogActions>
             </Dialog>
 
-            <Dialog open={discoverFor != null} onClose={() => setDiscoverFor(null)} fullWidth>
+            <Dialog open={discoverFor != null} onClose={() => !busy && setDiscoverFor(null)} fullWidth>
                 <DialogTitle>{t('pricing.discovery')}</DialogTitle>
                 <DialogContent>
                     <Alert severity="info" sx={{ mt: 1, mb: 2 }}>
                         {t('pricing.discoveryHint')}
                     </Alert>
-                    <Typography variant="body2">{discoverFor}</Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>
+                        {discoverFor}
+                    </Typography>
+                    <Box
+                        sx={{
+                            display: 'grid',
+                            gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
+                            gap: 1.5,
+                        }}
+                    >
+                        {DISCOVERY_PLATFORM_ORDER.map((platform) => (
+                            <TextField
+                                key={platform}
+                                type="number"
+                                size="small"
+                                label={t(`pricing.platforms.${platform}`)}
+                                value={discoveryLimits[platform]}
+                                disabled={busy}
+                                onChange={(e) => {
+                                    const n = Number(e.target.value);
+                                    const next = Number.isFinite(n)
+                                        ? Math.max(0, Math.min(DISCOVERY_LIMIT_MAX, Math.trunc(n)))
+                                        : 0;
+                                    setDiscoveryLimits((current) => ({ ...current, [platform]: next }));
+                                }}
+                                slotProps={{ htmlInput: { min: 0, max: DISCOVERY_LIMIT_MAX, step: 1 } }}
+                            />
+                        ))}
+                    </Box>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+                        {t('pricing.discoverySearches')}: {discoverySearches} · $
+                        {(discoverySearches * DISCOVERY_SEARCH_USD).toFixed(2)}
+                    </Typography>
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setDiscoverFor(null)}>{t('common.cancel')}</Button>
-                    <Button variant="contained" disabled={busy} onClick={() => void runDiscovery()}>
+                    <Button onClick={() => setDiscoverFor(null)} disabled={busy}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        disabled={busy || discoverySearches === 0}
+                        onClick={() => void runDiscovery()}
+                    >
                         {t('pricing.discovery')}
                     </Button>
                 </DialogActions>
@@ -726,34 +895,6 @@ export default function CompsetPage() {
                         {t('pricing.deleteCompetitor')}
                     </Button>
                 </DialogActions>
-            </Dialog>
-
-            <Dialog open={clusterScrape != null} fullWidth>
-                <DialogTitle>{t('pricing.scrapeProgressTitle')}</DialogTitle>
-                <DialogContent>
-                    <Stack spacing={2} sx={{ mt: 1 }} alignItems="center">
-                        <CircularProgress />
-                        <Typography variant="body1">
-                            {clusterScrape && clusterScrape.done > 0
-                                ? `${t('pricing.scrapeProgress')} ${clusterScrape.done} ${t('pricing.scrapeProgressOf')} ${clusterScrape.total}`
-                                : `${t('pricing.scrapeCluster')}… 0 ${t('pricing.scrapeProgressOf')} ${clusterScrape?.total ?? 0}`}
-                        </Typography>
-                        <LinearProgress
-                            variant={clusterScrape && clusterScrape.done > 0 ? 'determinate' : 'indeterminate'}
-                            value={
-                                clusterScrape && clusterScrape.total > 0
-                                    ? (clusterScrape.done / clusterScrape.total) * 100
-                                    : 0
-                            }
-                            sx={{ width: '100%' }}
-                        />
-                        <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
-                            {clusterScrape?.cluster}
-                            {' · '}
-                            {t('pricing.scrapeClusterHint')}
-                        </Typography>
-                    </Stack>
-                </DialogContent>
             </Dialog>
         </Stack>
     );

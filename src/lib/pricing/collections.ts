@@ -13,4 +13,5 @@ export const IP_COLLECTIONS = {
     summaries: 'ip_comp_summaries',
     apifyRuns: 'ip_apify_runs',
     apifyCosts: 'ip_apify_costs',
+    scrapeJobs: 'ip_scrape_jobs',
 } as const;

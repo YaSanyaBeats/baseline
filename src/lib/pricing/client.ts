@@ -132,6 +132,27 @@ export async function runClusterApify(cluster: string, period: string) {
     return data;
 }
 
+export type ScrapeJobView = {
+    id: string;
+    kind: 'competitor' | 'cluster';
+    status: 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
+    competitorId: string | null;
+    cluster: string | null;
+    period: string;
+    error: string | null;
+    result: {
+        costUsd: number;
+        warnings: string[];
+        done: number;
+        total: number;
+    } | null;
+};
+
+export async function fetchScrapeQueue(): Promise<{ active: ScrapeJobView[]; recent: ScrapeJobView[] }> {
+    const { data } = await apiClient.get(getApiUrl('pricing/apify/queue'));
+    return data.data;
+}
+
 export async function estimateApify(platform: string) {
     const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'estimate', platform });
     return data;
@@ -152,8 +173,8 @@ export async function resetApifyLimits() {
     return data;
 }
 
-export async function discoverCluster(cluster: string) {
-    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'discover', cluster });
+export async function discoverCluster(cluster: string, limits: Record<string, number>) {
+    const { data } = await apiClient.post(getApiUrl('pricing/apify'), { action: 'discover', cluster, limits });
     return data;
 }
 
