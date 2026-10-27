@@ -6,7 +6,8 @@ import { getReportLineTotal, getReportUnitPrice } from '@/lib/accountancyUtils';
 import type { ObjectCommissionResult } from '@/lib/commissionForObject';
 import { isOwnerAccessibleRoomName, ownerViewBookingMetaKey, ownerViewRoomNameForLinkedBooking, transactionMatchesOwnerRooms } from '@/lib/ownerObjectsFilter';
 import { resolveNoBookingSubgroupForTransaction } from '@/lib/noBookingCategorySubgroups';
-import type { AccountancyCategory, Booking, Income, NoBookingSubgroupId } from '@/lib/types';
+import { reportAttachments } from '@/lib/accountancyAttachments';
+import type { AccountancyAttachment, AccountancyCategory, Booking, Income, NoBookingSubgroupId } from '@/lib/types';
 
 export type CommissionOwnerViewIncomeLine = {
     key: string;
@@ -14,6 +15,8 @@ export type CommissionOwnerViewIncomeLine = {
     quantity: number;
     unitPrice: number;
     lineTotal: number;
+    /** Файлы исходной транзакции. */
+    attachments?: AccountancyAttachment[];
 };
 
 export type CommissionOwnerViewIncomeGroup = {
@@ -123,6 +126,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
                 quantity: income.quantity ?? 1,
                 unitPrice: getReportUnitPrice(income),
                 lineTotal,
+                attachments: reportAttachments(income.attachments),
                 bookingId: income.bookingId,
                 sortDate: String(income.date),
             });
@@ -146,6 +150,7 @@ export function buildOwnerViewIncomeGroupsForRoom(
             quantity: income.quantity ?? 1,
             unitPrice: getReportUnitPrice(income),
             lineTotal,
+            attachments: reportAttachments(income.attachments),
             bookingId: null,
             sortDate: String(income.date),
             noBookingSubgroup: subgroup,

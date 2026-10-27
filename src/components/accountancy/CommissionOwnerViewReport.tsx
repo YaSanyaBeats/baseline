@@ -8,7 +8,12 @@ import {
     Alert,
     Box,
     Button,
+    IconButton,
+    List,
+    ListItem,
+    ListItemText,
     Paper,
+    Popover,
     Stack,
     Table,
     TableBody,
@@ -16,8 +21,11 @@ import {
     TableContainer,
     TableHead,
     TableRow,
+    Tooltip,
     Typography,
 } from '@mui/material';
+import AttachFileIcon from '@mui/icons-material/AttachFile';
+import InsertDriveFileIcon from '@mui/icons-material/InsertDriveFile';
 import {
     type CommissionOwnerViewExpenseGroup,
     type CommissionOwnerViewIncomeGroup,
@@ -42,6 +50,7 @@ import {
     computeOwnerViewRoomEarnings,
     type CommissionOwnerReportVersion,
 } from '@/lib/ownerViewRoomEarnings';
+import type { AccountancyAttachment } from '@/lib/types';
 
 function formatAmount(value: number, locale: string): string {
     return value.toLocaleString(locale, {
@@ -102,6 +111,117 @@ function ExpenseColumnValue({
         <Typography component="span" sx={{ color: signedAmountColor(signed), fontWeight: 500 }}>
             {formatSignedAmount(signed, locale)}
         </Typography>
+    );
+}
+
+function TransactionAttachmentsButton({
+    attachments,
+    label,
+}: {
+    attachments?: AccountancyAttachment[];
+    label: string;
+}) {
+    const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
+    if (!attachments?.length) return null;
+
+    return (
+        <>
+            <Tooltip title={label}>
+                <IconButton
+                    size="small"
+                    aria-label={label}
+                    onClick={(event) => {
+                        event.stopPropagation();
+                        setAnchorEl(event.currentTarget);
+                    }}
+                    sx={{ p: 0.25, flexShrink: 0 }}
+                >
+                    <AttachFileIcon sx={{ fontSize: '1rem' }} />
+                </IconButton>
+            </Tooltip>
+            <Popover
+                open={anchorEl != null}
+                anchorEl={anchorEl}
+                onClose={() => setAnchorEl(null)}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
+                slotProps={{
+                    paper: {
+                        sx: { minWidth: 220, maxWidth: 360, py: 0.5 },
+                    },
+                }}
+            >
+                <Typography variant="subtitle2" sx={{ px: 1.5, py: 0.5 }}>
+                    {label}
+                </Typography>
+                <List dense disablePadding>
+                    {attachments.map((file) => (
+                        <ListItem key={file.url} disablePadding>
+                            <Box
+                                component="a"
+                                href={file.url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                sx={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 0.75,
+                                    width: '100%',
+                                    px: 1.5,
+                                    py: 0.5,
+                                    color: 'primary.main',
+                                    textDecoration: 'none',
+                                    '&:hover': { textDecoration: 'underline', bgcolor: 'action.hover' },
+                                }}
+                            >
+                                <InsertDriveFileIcon sx={{ fontSize: '1rem', flexShrink: 0 }} />
+                                <ListItemText
+                                    primary={file.name}
+                                    slotProps={{
+                                        primary: {
+                                            noWrap: true,
+                                            title: file.name,
+                                            fontSize: '0.8125rem',
+                                        },
+                                    }}
+                                    sx={{ my: 0 }}
+                                />
+                            </Box>
+                        </ListItem>
+                    ))}
+                </List>
+            </Popover>
+        </>
+    );
+}
+
+function ReportLineLabel({
+    text,
+    attachments,
+    attachmentsLabel,
+    emphasize,
+}: {
+    text: string;
+    attachments?: AccountancyAttachment[];
+    attachmentsLabel: string;
+    emphasize?: boolean;
+}) {
+    return (
+        <Box
+            component="span"
+            sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 0.25,
+                maxWidth: '100%',
+                fontWeight: emphasize ? 600 : undefined,
+            }}
+        >
+            <Box component="span" sx={{ minWidth: 0 }}>
+                {text}
+            </Box>
+            <TransactionAttachmentsButton attachments={attachments} label={attachmentsLabel} />
+        </Box>
     );
 }
 
@@ -213,7 +333,13 @@ function RoomIncomesTable({
                                     </TableRow>
                                     {group.lines.map((row) => (
                                         <TableRow key={row.key}>
-                                            <TableCell>{row.description}</TableCell>
+                                            <TableCell>
+                                                <ReportLineLabel
+                                                    text={row.description}
+                                                    attachments={row.attachments}
+                                                    attachmentsLabel={t('accountancy.attachments')}
+                                                />
+                                            </TableCell>
                                             <TableCell align="right">{row.quantity}</TableCell>
                                             <TableCell align="right">
                                                 {formatAmount(row.unitPrice, locale)}
@@ -321,7 +447,13 @@ function RoomExpensesTable({
                                             key={row.key}
                                             sx={row.isAgency ? { bgcolor: 'warning.50' } : undefined}
                                         >
-                                            <TableCell>{row.description}</TableCell>
+                                            <TableCell>
+                                                <ReportLineLabel
+                                                    text={row.description}
+                                                    attachments={row.attachments}
+                                                    attachmentsLabel={t('accountancy.attachments')}
+                                                />
+                                            </TableCell>
                                             <TableCell align="right">{row.quantity}</TableCell>
                                             <TableCell align="right">{formatAmount(row.unitPrice, locale)}</TableCell>
                                             {!hideSumAndAgency && (
@@ -594,7 +726,12 @@ export default function CommissionOwnerViewReport({
                                                     )}
                                                 </TableCell>
                                                 <TableCell sx={isSummaryRow ? { fontWeight: 600 } : undefined}>
-                                                    {row.description}
+                                                    <ReportLineLabel
+                                                        text={row.description}
+                                                        attachments={row.attachments}
+                                                        attachmentsLabel={t('accountancy.attachments')}
+                                                        emphasize={isSummaryRow}
+                                                    />
                                                 </TableCell>
                                                 <TableCell align="right">
                                                     <SettlementAmountCell row={row} locale={displayLocale} />

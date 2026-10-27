@@ -10,7 +10,15 @@ import {
     resolveOwnerBalanceCanonicalCategoryName,
 } from '@/lib/ownerBalanceCategories';
 import { transactionMatchesOwnerAssignment } from '@/lib/ownerObjectsFilter';
-import type { AccountancyCategory, Expense, Income, Object as AppObject, UserObject } from '@/lib/types';
+import { reportAttachments } from '@/lib/accountancyAttachments';
+import type {
+    AccountancyAttachment,
+    AccountancyCategory,
+    Expense,
+    Income,
+    Object as AppObject,
+    UserObject,
+} from '@/lib/types';
 
 export type CommissionOwnerViewSettlementRowKind = 'opening' | 'closing' | 'transaction';
 
@@ -29,6 +37,8 @@ export type CommissionOwnerViewSettlementRow = {
     source?: string;
     /** «Кому». Для прихода здесь указан объект комнаты. */
     recipient?: string;
+    /** Файлы исходной транзакции. */
+    attachments?: AccountancyAttachment[];
     /** @deprecated накопительный остаток; колонка убрана из отчёта */
     balance?: number;
 };
@@ -42,6 +52,7 @@ type PendingSettlementRow = {
     recordType: 'income' | 'expense';
     source?: string;
     recipient?: string;
+    attachments?: AccountancyAttachment[];
 };
 
 const SETTLEMENT_LABELS: Record<string, { opening: string; closing: string }> = {
@@ -250,6 +261,7 @@ export function buildOwnerViewSettlementRows(
             recordType: type,
             source: record.source,
             recipient: record.recipient,
+            attachments: reportAttachments(record.attachments),
         });
     };
 
@@ -292,6 +304,7 @@ export function buildOwnerViewSettlementRows(
             recordType: row.recordType,
             source: row.source,
             recipient: row.recipient,
+            attachments: row.attachments,
         });
     }
 

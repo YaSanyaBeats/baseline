@@ -29,6 +29,33 @@ export function isWithinSizeLimit(sizeBytes: number): boolean {
     return sizeBytes > 0 && sizeBytes <= MAX_FILE_SIZE_BYTES;
 }
 
+function isSafeAttachmentUrl(url: string): boolean {
+    const trimmed = url.trim();
+    if (trimmed.startsWith('/') && !trimmed.startsWith('//')) return true;
+    try {
+        const parsed = new URL(trimmed);
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+    } catch {
+        return false;
+    }
+}
+
+/** Вложения, которые можно показать ссылкой в отчёте. Пустой список не возвращается. */
+export function reportAttachments(
+    attachments: AccountancyAttachment[] | undefined | null,
+): AccountancyAttachment[] | undefined {
+    if (!attachments?.length) return undefined;
+    const list = attachments.filter(
+        (item) =>
+            !!item &&
+            typeof item.name === 'string' &&
+            item.name.trim() !== '' &&
+            typeof item.url === 'string' &&
+            isSafeAttachmentUrl(item.url),
+    );
+    return list.length > 0 ? list : undefined;
+}
+
 /** Строка для input accept (для выбора файлов в браузере) */
 export const ACCEPT_ATTACHMENTS =
     '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg,.pdf,.doc,.docx,.odt,.txt,.xls,.xlsx,.csv,.ods';

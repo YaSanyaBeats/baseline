@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     Button,
     Dialog,
@@ -11,6 +11,9 @@ import {
     ListItemText,
     Menu,
     MenuItem,
+    MenuList,
+    Paper,
+    Popper,
 } from '@mui/material';
 import { ChevronRight as ChevronRightIcon } from '@mui/icons-material';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -124,6 +127,66 @@ const scrollableRoomMenuListSx = {
     py: 0.25,
 };
 
+const hoverableMenuItemSx = {
+    ...compactMenuItemSx,
+    '&.Mui-disabled': {
+        pointerEvents: 'auto',
+    },
+};
+
+const submenuParentItemSx = {
+    ...hoverableMenuItemSx,
+    pr: 0.25,
+    gap: 0.25,
+};
+
+type CascadeMenuProps = {
+    anchorEl: HTMLElement | null;
+    open: boolean;
+    children: ReactNode;
+    paperSx?: object;
+    listSx?: object;
+    /** Выше корневого Menu, каждый следующий уровень — ещё выше. */
+    zIndexOffset?: number;
+};
+
+function CascadeMenu({
+    anchorEl,
+    open,
+    children,
+    paperSx,
+    listSx,
+    zIndexOffset = 1,
+}: CascadeMenuProps) {
+    return (
+        <Popper
+            open={open && anchorEl != null}
+            anchorEl={anchorEl}
+            placement="right-start"
+            modifiers={[
+                { name: 'offset', options: { offset: [0, -2] } },
+                {
+                    name: 'flip',
+                    options: { fallbackPlacements: ['right-end', 'left-start'] },
+                },
+                { name: 'preventOverflow', options: { padding: 8, altAxis: true } },
+            ]}
+            sx={{ zIndex: (theme) => theme.zIndex.modal + zIndexOffset }}
+        >
+            <Paper elevation={3} sx={paperSx}>
+                <MenuList dense autoFocusItem={false} sx={listSx}>
+                    {children}
+                </MenuList>
+            </Paper>
+        </Popper>
+    );
+}
+
+function focusMenuItem(target: EventTarget | null) {
+    if (!(target instanceof HTMLElement)) return;
+    target.focus({ preventScroll: true });
+}
+
 export function BookingGroupContextMenu({
     menuState,
     onCloseMenu,
@@ -201,6 +264,45 @@ export function BookingGroupContextMenu({
         closeSubmenus();
         onCloseMenu();
     }, [closeSubmenus, onCloseMenu]);
+
+    useEffect(() => {
+        closeSubmenus();
+    }, [menuState?.mouseX, menuState?.mouseY, menuState?.bookingId, closeSubmenus]);
+
+    useEffect(() => {
+        if (menuState == null) return;
+
+        const onKeyDown = (event: KeyboardEvent) => {
+            if (event.key !== 'Escape') return;
+
+            if (roomListSubmenuAnchor) {
+                event.preventDefault();
+                event.stopPropagation();
+                setRoomListSubmenuAnchor(null);
+                setHoveredObjectId(null);
+                return;
+            }
+            if (roomObjectSubmenuAnchor || monthSubmenuAnchor) {
+                event.preventDefault();
+                event.stopPropagation();
+                setMonthSubmenuAnchor(null);
+                setRoomObjectSubmenuAnchor(null);
+                setRoomListSubmenuAnchor(null);
+                setHoveredObjectId(null);
+                return;
+            }
+            handleCloseAll();
+        };
+
+        document.addEventListener('keydown', onKeyDown);
+        return () => document.removeEventListener('keydown', onKeyDown);
+    }, [
+        menuState,
+        monthSubmenuAnchor,
+        roomObjectSubmenuAnchor,
+        roomListSubmenuAnchor,
+        handleCloseAll,
+    ]);
 
     const handleSelectTargetMonth = (targetMonth: string, targetMonthLabel: string) => {
         if (!menuState) return;
@@ -284,6 +386,7 @@ export function BookingGroupContextMenu({
             <Menu
                 open={menuState != null}
                 onClose={handleCloseAll}
+                disableEnforceFocus
                 anchorReference="anchorPosition"
                 anchorPosition={
                     menuState != null
@@ -303,13 +406,19 @@ export function BookingGroupContextMenu({
                 {isBookingGroup && (
                     <MenuItem
                         disabled={isMoveDisabled || movableRows.length === 0}
+                        selected={monthSubmenuAnchor != null}
                         onMouseEnter={(e) => {
+                            focusMenuItem(e.currentTarget);
+                            if (isMoveDisabled || movableRows.length === 0) {
+                                closeSubmenus();
+                                return;
+                            }
                             setMonthSubmenuAnchor(e.currentTarget);
                             setRoomObjectSubmenuAnchor(null);
                             setRoomListSubmenuAnchor(null);
                             setHoveredObjectId(null);
                         }}
-                        sx={{ ...compactMenuItemSx, pr: 0.25, gap: 0.25 }}
+                        sx={submenuParentItemSx}
                     >
                         <ListItemText
                             primary={t('accountancy.moveBookingTransactionsMenu')}
@@ -322,13 +431,19 @@ export function BookingGroupContextMenu({
                 {isBookingGroup && (
                     <MenuItem
                         disabled={isMoveToRoomDisabled || movableRows.length === 0}
+                        selected={roomObjectSubmenuAnchor != null}
                         onMouseEnter={(e) => {
+                            focusMenuItem(e.currentTarget);
+                            if (isMoveToRoomDisabled || movableRows.length === 0) {
+                                closeSubmenus();
+                                return;
+                            }
                             setRoomObjectSubmenuAnchor(e.currentTarget);
                             setMonthSubmenuAnchor(null);
                             setRoomListSubmenuAnchor(null);
                             setHoveredObjectId(null);
                         }}
-                        sx={{ ...compactMenuItemSx, pr: 0.25, gap: 0.25 }}
+                        sx={submenuParentItemSx}
                     >
                         <ListItemText
                             primary={t('accountancy.moveBookingTransactionsToRoomMenu')}
@@ -342,8 +457,12 @@ export function BookingGroupContextMenu({
                     disabled={
                         isConfirmAllDisabled || confirmingAll || rowsNeedingConfirm.length === 0
                     }
+                    onMouseEnter={(e) => {
+                        focusMenuItem(e.currentTarget);
+                        closeSubmenus();
+                    }}
                     onClick={handleConfirmAll}
-                    sx={compactMenuItemSx}
+                    sx={hoverableMenuItemSx}
                 >
                     <ListItemText
                         primary={t('accountancy.confirmAllGroupTransactionsMenu')}
@@ -353,73 +472,42 @@ export function BookingGroupContextMenu({
                 </MenuItem>
             </Menu>
 
-            <Menu
+            <CascadeMenu
                 anchorEl={monthSubmenuAnchor}
                 open={Boolean(monthSubmenuAnchor) && menuState != null && isBookingGroup}
-                onClose={() => setMonthSubmenuAnchor(null)}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                slotProps={{
-                    paper: {
-                        sx: {
-                            ...compactMenuPaperSx,
-                            minWidth: 56,
-                        },
-                    },
-                }}
-                MenuListProps={{
-                    dense: true,
-                    onMouseLeave: () => setMonthSubmenuAnchor(null),
-                    sx: { maxHeight: 220, overflow: 'auto', py: 0.25 },
-                }}
+                paperSx={{ ...compactMenuPaperSx, minWidth: 56 }}
+                listSx={{ maxHeight: 220, overflow: 'auto', py: 0.25 }}
             >
                 {reportMonthOptions.map((o) => (
                     <MenuItem
                         key={o.value}
                         disabled={isTargetMonthDisabled(o.value)}
+                        onMouseEnter={(e) => focusMenuItem(e.currentTarget)}
                         onClick={() => handleSelectTargetMonth(o.value, o.label)}
-                        sx={compactMenuItemSx}
+                        sx={hoverableMenuItemSx}
                     >
                         {o.label}
                     </MenuItem>
                 ))}
-            </Menu>
+            </CascadeMenu>
 
-            <Menu
+            <CascadeMenu
                 anchorEl={roomObjectSubmenuAnchor}
                 open={Boolean(roomObjectSubmenuAnchor) && menuState != null && isBookingGroup}
-                onClose={() => {
-                    setRoomObjectSubmenuAnchor(null);
-                    setRoomListSubmenuAnchor(null);
-                    setHoveredObjectId(null);
-                }}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                slotProps={{
-                    paper: {
-                        sx: {
-                            ...compactMenuPaperSx,
-                            minWidth: 140,
-                            maxWidth: 260,
-                        },
-                    },
-                }}
-                MenuListProps={{
-                    dense: true,
-                    sx: scrollableMenuListSx,
-                }}
+                paperSx={{ ...compactMenuPaperSx, minWidth: 140, maxWidth: 260 }}
+                listSx={scrollableMenuListSx}
             >
                 {objectRoomOptions.map((objectOption) => (
                     <MenuItem
                         key={objectOption.objectId}
+                        selected={hoveredObjectId === objectOption.objectId}
                         onMouseEnter={(e) => {
+                            focusMenuItem(e.currentTarget);
                             setRoomListSubmenuAnchor(e.currentTarget);
                             setHoveredObjectId(objectOption.objectId);
                         }}
                         sx={{
-                            ...compactMenuItemSx,
-                            pr: 0.25,
-                            gap: 0.25,
+                            ...submenuParentItemSx,
                             maxWidth: 248,
                         }}
                     >
@@ -437,9 +525,9 @@ export function BookingGroupContextMenu({
                         <ChevronRightIcon sx={{ fontSize: '0.875rem', opacity: 0.7, flexShrink: 0 }} />
                     </MenuItem>
                 ))}
-            </Menu>
+            </CascadeMenu>
 
-            <Menu
+            <CascadeMenu
                 anchorEl={roomListSubmenuAnchor}
                 open={
                     Boolean(roomListSubmenuAnchor) &&
@@ -447,25 +535,9 @@ export function BookingGroupContextMenu({
                     menuState != null &&
                     isBookingGroup
                 }
-                onClose={() => {
-                    setRoomListSubmenuAnchor(null);
-                    setHoveredObjectId(null);
-                }}
-                anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-                transformOrigin={{ vertical: 'top', horizontal: 'left' }}
-                slotProps={{
-                    paper: {
-                        sx: {
-                            ...compactMenuPaperSx,
-                            minWidth: 100,
-                            maxWidth: 200,
-                        },
-                    },
-                }}
-                MenuListProps={{
-                    dense: true,
-                    sx: scrollableRoomMenuListSx,
-                }}
+                zIndexOffset={2}
+                paperSx={{ ...compactMenuPaperSx, minWidth: 100, maxWidth: 200 }}
+                listSx={scrollableRoomMenuListSx}
             >
                 {hoveredObject?.rooms.map((room) => {
                     const target: BookingGroupMoveRoomTarget = {
@@ -477,9 +549,10 @@ export function BookingGroupContextMenu({
                         <MenuItem
                             key={`${hoveredObject.objectId}-${room.roomName}`}
                             disabled={isRoomMoveTargetDisabled(target)}
+                            onMouseEnter={(e) => focusMenuItem(e.currentTarget)}
                             onClick={() => handleSelectRoomTarget(target)}
                             sx={{
-                                ...compactMenuItemSx,
+                                ...hoverableMenuItemSx,
                                 maxWidth: 192,
                             }}
                         >
@@ -497,7 +570,7 @@ export function BookingGroupContextMenu({
                         </MenuItem>
                     );
                 })}
-            </Menu>
+            </CascadeMenu>
 
             <Dialog
                 open={moveConfirm != null}

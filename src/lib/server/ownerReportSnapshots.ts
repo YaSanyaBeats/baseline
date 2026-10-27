@@ -10,6 +10,7 @@ import {
     ACCOUNTANCY_REPORT_SNAPSHOTS_COLLECTION,
     aggregateSavedOwnerReportStatuses,
     applyRoomSnapshots,
+    withLiveReportAttachments,
     ownerReportRoomSectionKey,
     payloadWithRoomSections,
     type OwnerReportRoomSnapshot,
@@ -206,7 +207,13 @@ export function overlayOwnerReportSnapshots(
         (snapshot) => snapshot.reportMonth === payload.monthKey && snapshot.locale === payload.language
     );
     if (relevant.length === 0) return payload;
-    return payloadWithRoomSections(payload, applyRoomSnapshots(payload.roomSections, relevant));
+    return payloadWithRoomSections(
+        payload,
+        withLiveReportAttachments(
+            payload.roomSections,
+            applyRoomSnapshots(payload.roomSections, relevant),
+        ),
+    );
 }
 
 export type EnsureOwnerReportSnapshotsResult = {

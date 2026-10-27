@@ -7,7 +7,7 @@ import {
     resolveCategoryTransactionDefaults,
     type CategoryDefaultsContext,
 } from '@/lib/accountancyCategoryResolve';
-import { getReportLineTotal } from '@/lib/accountancyUtils';
+import { getIncomeSum, getReportLineTotal } from '@/lib/accountancyUtils';
 import { roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 import { isHolyCowExpenseShareIncomeCategory } from '@/lib/holyCowExpenseShareCalculation';
 import { normalizeMongoIdString } from '@/lib/mongoId';
@@ -96,7 +96,91 @@ export function computeHolyCowExpenseShareAmount(
 export type BuildHolyCowExpenseShareIncomePayloadOptions = {
     expenses?: Expense[];
     incomes?: Income[];
+    /** Процент комиссии родителя. Без него — 30%. */
+    percent?: number;
 };
+
+/** Сумма подтранзакции по колонке «Сумма»: количество × стоимость. */
+export function holyCowExpenseShareLineTotal(income: Income): number {
+    return roundAccountancyAmount(Math.abs(getIncomeSum(income)));
+}
+
+/** Сумма, которую видно в отчёте: сумма для отчёта, если задана, иначе количество × стоимость. */
+export function holyCowExpenseShareDisplayedTotal(children: Income[]): number {
+    return roundAccountancyAmount(
+        children.reduce((sum, child) => sum + Math.abs(getReportLineTotal(child)), 0),
+    );
+}
+
+/**
+ * Стоимость кастомная, если сумма подтранзакций не равна формуле при текущем проценте
+ * или сумма для отчёта отличается от стоимости транзакции.
+ */
+export function isHolyCowExpenseShareCostCustom(children: Income[], expectedTotal: number): boolean {
+    if (children.length === 0) return false;
+    const expected = roundAccountancyAmount(expectedTotal);
+    const lines = roundAccountancyAmount(
+        children.reduce((sum, child) => sum + holyCowExpenseShareLineTotal(child), 0),
+    );
+    const displayed = holyCowExpenseShareDisplayedTotal(children);
+    return lines !== expected || displayed !== expected;
+}
+
+/** Новые суммы строк так, чтобы их итог совпал с формулой. Одна строка получает всю сумму. */
+export function allocateHolyCowExpenseShareLineTotals(children: Income[], nextTotal: number): number[] {
+    const target = roundAccountancyAmount(Math.max(0, nextTotal));
+    if (children.length === 0) return [];
+    if (children.length === 1) return [target];
+
+    const currents = children.map(holyCowExpenseShareLineTotal);
+    const sum = roundAccountancyAmount(currents.reduce((total, value) => total + value, 0));
+    if (sum <= 0) {
+        return children.map((_, index) => (index === 0 ? target : 0));
+    }
+
+    const allocated = currents.map((current) => roundAccountancyAmount(target * (current / sum)));
+    const drift = roundAccountancyAmount(target - allocated.reduce((total, value) => total + value, 0));
+    allocated[allocated.length - 1] = roundAccountancyAmount(allocated[allocated.length - 1] + drift);
+    return allocated;
+}
+
+export type HolyCowExpenseShareAmountPatch = {
+    quantity: number;
+    amount: number;
+    reportAmount: number | null;
+};
+
+/** Поля стоимости под новую сумму строки. Количество сохраняется, если произведение сходится до копейки. */
+export function holyCowExpenseShareAmountPatch(
+    child: Income,
+    lineTotal: number,
+): HolyCowExpenseShareAmountPatch {
+    const safeTotal = roundAccountancyAmount(Math.max(0, lineTotal));
+    const quantity = child.quantity && child.quantity > 0 ? child.quantity : 1;
+    let amount = roundAccountancyAmount(safeTotal / quantity);
+    let nextQuantity = quantity;
+    if (roundAccountancyAmount(amount * nextQuantity) !== safeTotal) {
+        nextQuantity = 1;
+        amount = safeTotal;
+    }
+    const reportAmount =
+        child.reportAmount == null || !Number.isFinite(Number(child.reportAmount))
+            ? null
+            : safeTotal;
+    return { quantity: nextQuantity, amount, reportAmount };
+}
+
+export function holyCowExpenseShareAmountUnchanged(
+    child: Income,
+    patch: HolyCowExpenseShareAmountPatch,
+): boolean {
+    const quantity = child.quantity && child.quantity > 0 ? child.quantity : 1;
+    const report =
+        child.reportAmount == null || !Number.isFinite(Number(child.reportAmount))
+            ? null
+            : roundAccountancyAmount(Number(child.reportAmount));
+    return quantity === patch.quantity && roundAccountancyAmount(child.amount ?? 0) === patch.amount && report === patch.reportAmount;
+}
 
 /** Payload прихода «Доля расходов HC» с полями по правилам категории. */
 export function buildHolyCowExpenseShareIncomePayload(
@@ -117,7 +201,7 @@ export function buildHolyCowExpenseShareIncomePayload(
     );
     const amount = computeHolyCowExpenseShareAmount(
         parent,
-        HOLY_COW_EXPENSE_SHARE_AUTO_PERCENT,
+        options?.percent ?? HOLY_COW_EXPENSE_SHARE_AUTO_PERCENT,
         nonHcTotal,
     );
     if (!(amount > 0)) return null;

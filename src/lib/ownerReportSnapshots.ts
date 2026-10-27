@@ -1,3 +1,4 @@
+import type { AccountancyAttachment } from '@/lib/types';
 import type {
     CommissionOwnerViewRoomSection,
     CommissionOwnerViewStoredPayload,
@@ -78,6 +79,52 @@ export function applyRoomSnapshots(
     }
 
     return result.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
+}
+
+function attachmentsByLineKey(
+    groups: { lines: { key: string; attachments?: AccountancyAttachment[] }[] }[],
+): Map<string, AccountancyAttachment[]> {
+    const map = new Map<string, AccountancyAttachment[]>();
+    for (const group of groups) {
+        for (const line of group.lines) {
+            if (line.attachments?.length) map.set(line.key, line.attachments);
+        }
+    }
+    return map;
+}
+
+/**
+ * Снимок комнаты подменяет живые строки. Файлы берём из актуальных транзакций
+ * по ключу строки, чтобы скрепка была и в зафиксированном отчёте.
+ */
+export function withLiveReportAttachments(
+    liveSections: CommissionOwnerViewRoomSection[],
+    displayedSections: CommissionOwnerViewRoomSection[],
+): CommissionOwnerViewRoomSection[] {
+    const liveByKey = new Map(liveSections.map((section) => [section.key, section]));
+    return displayedSections.map((section) => {
+        const live = liveByKey.get(section.key);
+        if (!live || live === section) return section;
+        const incomeAttachments = attachmentsByLineKey(live.incomeGroups);
+        const expenseAttachments = attachmentsByLineKey(live.expenseGroups);
+        return {
+            ...section,
+            incomeGroups: section.incomeGroups.map((group) => ({
+                ...group,
+                lines: group.lines.map((line) => {
+                    const attachments = incomeAttachments.get(line.key);
+                    return attachments ? { ...line, attachments } : line;
+                }),
+            })),
+            expenseGroups: section.expenseGroups.map((group) => ({
+                ...group,
+                lines: group.lines.map((line) => {
+                    const attachments = expenseAttachments.get(line.key);
+                    return attachments ? { ...line, attachments } : line;
+                }),
+            })),
+        };
+    });
 }
 
 /**

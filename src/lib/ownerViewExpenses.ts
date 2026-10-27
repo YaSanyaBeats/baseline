@@ -27,7 +27,8 @@ import {
     MANAGEMENT_COMMISSION_EXPENSE_CATEGORY_ID,
 } from '@/lib/accountancyCategoryIds';
 import { holyCowShareFromLineTotal } from '@/lib/holyCowExpenseShareCalculation';
-import type { AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
+import { reportAttachments } from '@/lib/accountancyAttachments';
+import type { AccountancyAttachment, AccountancyCategory, Booking, Expense, Income } from '@/lib/types';
 
 const DEFAULT_SCHEME_ID: CommissionSchemeId = 2;
 
@@ -85,6 +86,8 @@ export type CommissionOwnerViewExpenseLine = {
     includeInCommissionShare?: boolean;
     /** Признак, что в колонке «Расход» применялось вычитание комиссии. */
     hasCommissionDeduction?: boolean;
+    /** Файлы исходной транзакции. */
+    attachments?: AccountancyAttachment[];
 };
 
 export type OwnerViewRoomExpenseSubgroup = 'common' | 'guest' | 'owner' | 'other';
@@ -393,6 +396,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
                 includeInCommissionShare,
                 hasCommissionDeduction:
                     hasCommissionDeduction || childHolyCowExpenseShareTotal > 0,
+                attachments: reportAttachments(expense.attachments),
                 bookingId: expense.bookingId,
                 sortDate: String(expense.date),
             });
@@ -443,6 +447,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
             includeInCommissionShare,
             hasCommissionDeduction:
                 hasCommissionDeduction || childHolyCowExpenseShareTotal > 0,
+            attachments: reportAttachments(expense.attachments),
             bookingId: null,
             sortDate: String(expense.date),
             noBookingSubgroup: subgroup,

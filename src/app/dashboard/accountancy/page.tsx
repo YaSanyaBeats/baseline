@@ -123,8 +123,15 @@ import {
     holyCowShareFromLineTotal,
 } from "@/lib/holyCowExpenseShareCalculation";
 import {
+    allocateHolyCowExpenseShareLineTotals,
     buildHolyCowExpenseShareIncomePayload,
+    computeHolyCowExpenseShareAmount,
     findHolyCowExpenseShareChildren,
+    holyCowExpenseShareAmountPatch,
+    holyCowExpenseShareAmountUnchanged,
+    holyCowExpenseShareDisplayedTotal,
+    isHolyCowExpenseShareCostCustom,
+    sumNonHolyCowSubtransactionTotals,
 } from "@/lib/holyCowExpenseShareAutoSubtransaction";
 import { resolveDistrictForObjectId } from "@/lib/sourceRecipientDistrictFunds";
 import { isManagementCommissionExpenseCategory } from "@/lib/ownerViewExpenses";
@@ -671,6 +678,14 @@ export default function Page() {
     const [divisibilityHcDialogOpen, setDivisibilityHcDialogOpen] = useState(false);
     const [divisibilityHcDialogRow, setDivisibilityHcDialogRow] = useState<OperationRow | null>(null);
     const [commissionPercentUpdatingId, setCommissionPercentUpdatingId] = useState<string | null>(null);
+    const [hcShareRecalcDialog, setHcShareRecalcDialog] = useState<{
+        mode: 'transaction' | 'booking';
+        row: OperationRow;
+        percent: 15 | 20 | 25 | 30;
+        currentAmount: number;
+        nextAmount: number;
+    } | null>(null);
+    const [hcShareRecalcApplying, setHcShareRecalcApplying] = useState(false);
     const [commentDraftByRowId, setCommentDraftByRowId] = useState<Record<string, string>>({});
     const [operationToDelete, setOperationToDelete] = useState<OperationRow | null>(null);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -3634,43 +3649,6 @@ export default function Page() {
         }
     };
 
-    const handleSyntheticCommissionPercentChange = async (
-        row: OperationRow,
-        percent: ManagementCommissionPercent,
-    ) => {
-        if (!row.readOnlySynthetic || row.bookingId == null) return;
-        if (isOperationRowPeriodLocked(row)) {
-            setSnackbar({
-                open: true,
-                message: t('accountancy.reportPeriodLockedAlert'),
-                severity: 'warning',
-            });
-            return;
-        }
-        const bookingId = row.bookingId;
-        setCommissionPercentUpdatingBookingId(bookingId);
-        try {
-            await saveBookingManagementCommissionRate(bookingId, percent, row.reportMonth);
-            setCommissionRatesByBookingId((prev) => ({
-                ...prev,
-                [bookingId]: {
-                    ...(prev[bookingId] ?? { bookingId }),
-                    bookingId,
-                    percent,
-                },
-            }));
-        } catch (error) {
-            console.error('Error updating commission percent:', error);
-            setSnackbar({
-                open: true,
-                message: resolveApiErrorMessage(error, t('common.serverError')),
-                severity: 'error',
-            });
-        } finally {
-            setCommissionPercentUpdatingBookingId(null);
-        }
-    };
-
     const persistIncludeInSynthetic = async (
         row: OperationRow,
         included: boolean,
@@ -3733,6 +3711,94 @@ export default function Page() {
         return Boolean(res.success);
     };
 
+    const commissionPercentForBooking = (bookingId: number): 15 | 20 | 25 | 30 => {
+        const fromAuto = bookingAutoCommissionByBookingId.get(bookingId)?.commissionPercent;
+        if (fromAuto === 15 || fromAuto === 20 || fromAuto === 25 || fromAuto === 30) return fromAuto;
+        const override = commissionRatesByBookingId[bookingId]?.percent;
+        if (override != null) return override;
+        const booking = bookingsMergedForLabels.find(
+            (item) => normalizeUnitOrRoomId(item.id) === bookingId,
+        );
+        const nights = booking ? getNightsCount(booking.arrival, booking.departure) : 1;
+        const room = booking
+            ? roomsForSelectedObject.find((item) => item.id === booking.unitId)
+            : undefined;
+        const scheme = room?.commissionSchemeId;
+        const schemeId: CommissionSchemeId =
+            scheme != null && scheme >= 1 && scheme <= 4 ? (scheme as CommissionSchemeId) : 2;
+        return getDefaultManagementCommissionPercent(schemeId, nights);
+    };
+
+    const commissionPercentForShareParent = (parent: Expense | Income): 15 | 20 | 25 | 30 => {
+        const bookingId = normalizeUnitOrRoomId(parent.bookingId);
+        if (bookingId != null) return commissionPercentForBooking(bookingId);
+        const percent = parent.commissionPercent;
+        if (percent === 15 || percent === 20 || percent === 25 || percent === 30) return percent;
+        return 30;
+    };
+
+    const applyHolyCowShareAmounts = async (
+        parents: { record: Expense | Income; type: 'expense' | 'income' }[],
+        percent: number,
+    ): Promise<boolean> => {
+        const patches = new Map<string, { quantity: number; amount: number; reportAmount: number | null }>();
+        for (const parent of parents) {
+            const parentId = normalizeMongoIdString(parent.record._id).trim();
+            if (!parentId) continue;
+            const children = findHolyCowExpenseShareChildren(parentId, parent.type, incomes);
+            if (children.length === 0) continue;
+            const expected = computeHolyCowExpenseShareAmount(
+                parent.record,
+                percent,
+                sumNonHolyCowSubtransactionTotals(parentId, parent.type, expenses, incomes),
+            );
+            const totals = allocateHolyCowExpenseShareLineTotals(children, expected);
+            for (let index = 0; index < children.length; index += 1) {
+                const child = children[index];
+                const childId = normalizeMongoIdString(child._id).trim();
+                if (!childId) continue;
+                const patch = holyCowExpenseShareAmountPatch(child, totals[index] ?? 0);
+                if (holyCowExpenseShareAmountUnchanged(child, patch)) continue;
+                const payload: Income = {
+                    ...child,
+                    quantity: patch.quantity,
+                    amount: patch.amount,
+                    reportAmount: patch.reportAmount,
+                    date: child.date
+                        ? (typeof child.date === 'string' ? new Date(child.date) : child.date)
+                        : new Date(),
+                };
+                const res = await updateIncome(payload);
+                if (!res.success) {
+                    setSnackbar({
+                        open: true,
+                        message: res.message || t('common.serverError'),
+                        severity: 'error',
+                    });
+                    if (patches.size > 0) {
+                        setIncomes((prev) =>
+                            prev.map((income) => {
+                                const saved = patches.get(normalizeMongoIdString(income._id).trim());
+                                return saved ? { ...income, ...saved } : income;
+                            }),
+                        );
+                    }
+                    return false;
+                }
+                patches.set(childId, patch);
+            }
+        }
+        if (patches.size > 0) {
+            setIncomes((prev) =>
+                prev.map((income) => {
+                    const patch = patches.get(normalizeMongoIdString(income._id).trim());
+                    return patch ? { ...income, ...patch } : income;
+                }),
+            );
+        }
+        return true;
+    };
+
     const createHolyCowExpenseShareForParent = async (row: OperationRow): Promise<void> => {
         if (!row.entityId) return;
         const existing = findHolyCowExpenseShareChildren(row.entityId, row.type, incomes);
@@ -3755,7 +3821,7 @@ export default function Page() {
             row.type,
             categoriesIncome,
             categoryContext,
-            { expenses, incomes },
+            { expenses, incomes, percent: commissionPercentForShareParent(parentRecord) },
         );
         if (!payload) return;
 
@@ -3881,59 +3947,196 @@ export default function Page() {
         }
     };
 
+    const bookingShareParents = (bookingId: number) =>
+        expenses
+            .filter((expense) => normalizeUnitOrRoomId(expense.bookingId) === bookingId && expense._id)
+            .map((record) => ({ record, type: 'expense' as const }))
+            .filter(
+                (parent) =>
+                    findHolyCowExpenseShareChildren(
+                        normalizeMongoIdString(parent.record._id).trim(),
+                        'expense',
+                        incomes,
+                    ).length > 0,
+            );
+
+    const shareRecalcPreview = (
+        parents: { record: Expense | Income; type: 'expense' | 'income' }[],
+        oldPercent: number,
+        nextPercent: number,
+    ) => {
+        let currentAmount = 0;
+        let nextAmount = 0;
+        let custom = false;
+        for (const parent of parents) {
+            const parentId = normalizeMongoIdString(parent.record._id).trim();
+            const children = findHolyCowExpenseShareChildren(parentId, parent.type, incomes);
+            const nonHc = sumNonHolyCowSubtransactionTotals(parentId, parent.type, expenses, incomes);
+            currentAmount += holyCowExpenseShareDisplayedTotal(children);
+            nextAmount += computeHolyCowExpenseShareAmount(parent.record, nextPercent, nonHc);
+            if (
+                isHolyCowExpenseShareCostCustom(
+                    children,
+                    computeHolyCowExpenseShareAmount(parent.record, oldPercent, nonHc),
+                )
+            ) {
+                custom = true;
+            }
+        }
+        return { currentAmount, nextAmount, custom };
+    };
+
+    const persistTransactionCommissionPercent = async (
+        row: OperationRow,
+        percent: 15 | 20 | 25 | 30,
+    ): Promise<boolean> => {
+        if (row.type === 'expense') {
+            const expense = expenses.find((e) => e._id === row.entityId);
+            if (!expense) return false;
+            const payload: Expense = {
+                ...expense,
+                commissionPercent: percent,
+                date: expense.date
+                    ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
+                    : new Date(),
+            };
+            const res = await updateExpense(payload);
+            setSnackbar({
+                open: true,
+                message: res.message || t('accountancy.expenseUpdated'),
+                severity: res.success ? 'success' : 'error',
+            });
+            if (res.success) {
+                setExpenses((prev) =>
+                    prev.map((e) =>
+                        e._id === row.entityId ? { ...e, commissionPercent: percent } : e,
+                    ),
+                );
+            }
+            return Boolean(res.success);
+        }
+        const income = incomes.find((i) => i._id === row.entityId);
+        if (!income) return false;
+        const payload: Income = {
+            ...income,
+            commissionPercent: percent,
+            date: income.date
+                ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
+                : new Date(),
+        };
+        const res = await updateIncome(payload);
+        setSnackbar({
+            open: true,
+            message: res.message || t('accountancy.incomeUpdated'),
+            severity: res.success ? 'success' : 'error',
+        });
+        if (res.success) {
+            setIncomes((prev) =>
+                prev.map((i) =>
+                    i._id === row.entityId ? { ...i, commissionPercent: percent } : i,
+                ),
+            );
+        }
+        return Boolean(res.success);
+    };
+
+    const persistBookingCommissionPercent = async (
+        row: OperationRow,
+        percent: ManagementCommissionPercent,
+    ): Promise<boolean> => {
+        if (row.bookingId == null) return false;
+        const bookingId = row.bookingId;
+        await saveBookingManagementCommissionRate(bookingId, percent, row.reportMonth);
+        setCommissionRatesByBookingId((prev) => ({
+            ...prev,
+            [bookingId]: {
+                ...(prev[bookingId] ?? { bookingId }),
+                bookingId,
+                percent,
+            },
+        }));
+        return true;
+    };
+
+    const handleSyntheticCommissionPercentChange = async (
+        row: OperationRow,
+        percent: ManagementCommissionPercent,
+    ) => {
+        if (!row.readOnlySynthetic || row.bookingId == null) return;
+        if (isOperationRowPeriodLocked(row)) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.reportPeriodLockedAlert'),
+                severity: 'warning',
+            });
+            return;
+        }
+        const bookingId = row.bookingId;
+        const parents = bookingShareParents(bookingId);
+        if (parents.length > 0) {
+            const preview = shareRecalcPreview(parents, commissionPercentForBooking(bookingId), percent);
+            if (preview.custom) {
+                setHcShareRecalcDialog({
+                    mode: 'booking',
+                    row,
+                    percent,
+                    currentAmount: preview.currentAmount,
+                    nextAmount: preview.nextAmount,
+                });
+                return;
+            }
+        }
+        setCommissionPercentUpdatingBookingId(bookingId);
+        try {
+            await persistBookingCommissionPercent(row, percent);
+            if (parents.length > 0) {
+                await applyHolyCowShareAmounts(parents, percent);
+            }
+        } catch (error) {
+            console.error('Error updating commission percent:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setCommissionPercentUpdatingBookingId(null);
+        }
+    };
+
     const handleCommissionPercentChange = async (
         row: OperationRow,
         percent: 15 | 20 | 25 | 30,
     ) => {
         if (row.readOnlySynthetic || !row.entityId) return;
-        setCommissionPercentUpdatingId(row.id);
-        try {
-            if (row.type === 'expense') {
-                const expense = expenses.find((e) => e._id === row.entityId);
-                if (!expense) return;
-                const payload: Expense = {
-                    ...expense,
-                    commissionPercent: percent,
-                    date: expense.date
-                        ? (typeof expense.date === 'string' ? new Date(expense.date) : expense.date)
-                        : new Date(),
-                };
-                const res = await updateExpense(payload);
-                setSnackbar({
-                    open: true,
-                    message: res.message || t('accountancy.expenseUpdated'),
-                    severity: res.success ? 'success' : 'error',
+        const parentRecord: Expense | Income | undefined =
+            row.type === 'expense'
+                ? expenses.find((e) => e._id === row.entityId)
+                : incomes.find((i) => i._id === row.entityId);
+        if (!parentRecord) return;
+        const children = findHolyCowExpenseShareChildren(row.entityId, row.type, incomes);
+        if (children.length > 0) {
+            const preview = shareRecalcPreview(
+                [{ record: parentRecord, type: row.type }],
+                commissionPercentForShareParent(parentRecord),
+                percent,
+            );
+            if (preview.custom) {
+                setHcShareRecalcDialog({
+                    mode: 'transaction',
+                    row,
+                    percent,
+                    currentAmount: preview.currentAmount,
+                    nextAmount: preview.nextAmount,
                 });
-                if (res.success) {
-                    setExpenses((prev) =>
-                        prev.map((e) =>
-                            e._id === row.entityId ? { ...e, commissionPercent: percent } : e,
-                        ),
-                    );
-                }
                 return;
             }
-            const income = incomes.find((i) => i._id === row.entityId);
-            if (!income) return;
-            const payload: Income = {
-                ...income,
-                commissionPercent: percent,
-                date: income.date
-                    ? (typeof income.date === 'string' ? new Date(income.date) : income.date)
-                    : new Date(),
-            };
-            const res = await updateIncome(payload);
-            setSnackbar({
-                open: true,
-                message: res.message || t('accountancy.incomeUpdated'),
-                severity: res.success ? 'success' : 'error',
-            });
-            if (res.success) {
-                setIncomes((prev) =>
-                    prev.map((i) =>
-                        i._id === row.entityId ? { ...i, commissionPercent: percent } : i,
-                    ),
-                );
+        }
+        setCommissionPercentUpdatingId(row.id);
+        try {
+            const saved = await persistTransactionCommissionPercent(row, percent);
+            if (saved && children.length > 0 && parentRecord) {
+                await applyHolyCowShareAmounts([{ record: parentRecord, type: row.type }], percent);
             }
         } catch (error) {
             console.error('Error updating commission percent:', error);
@@ -3944,6 +4147,57 @@ export default function Page() {
             });
         } finally {
             setCommissionPercentUpdatingId(null);
+        }
+    };
+
+    const handleHcShareRecalcDialogClose = () => {
+        if (hcShareRecalcApplying) return;
+        setHcShareRecalcDialog(null);
+    };
+
+    const handleHcShareRecalcConfirm = async () => {
+        const pending = hcShareRecalcDialog;
+        if (!pending) return;
+        setHcShareRecalcApplying(true);
+        if (pending.mode === 'booking' && pending.row.bookingId != null) {
+            setCommissionPercentUpdatingBookingId(pending.row.bookingId);
+        } else {
+            setCommissionPercentUpdatingId(pending.row.id);
+        }
+        try {
+            if (pending.mode === 'booking') {
+                await persistBookingCommissionPercent(pending.row, pending.percent);
+                if (pending.row.bookingId != null) {
+                    await applyHolyCowShareAmounts(
+                        bookingShareParents(pending.row.bookingId),
+                        pending.percent,
+                    );
+                }
+            } else if (pending.row.entityId) {
+                const saved = await persistTransactionCommissionPercent(pending.row, pending.percent);
+                const parentRecord: Expense | Income | undefined =
+                    pending.row.type === 'expense'
+                        ? expenses.find((e) => e._id === pending.row.entityId)
+                        : incomes.find((i) => i._id === pending.row.entityId);
+                if (saved && parentRecord) {
+                    await applyHolyCowShareAmounts(
+                        [{ record: parentRecord, type: pending.row.type }],
+                        pending.percent,
+                    );
+                }
+            }
+            setHcShareRecalcDialog(null);
+        } catch (error) {
+            console.error('Error recalculating HC share:', error);
+            setSnackbar({
+                open: true,
+                message: resolveApiErrorMessage(error, t('common.serverError')),
+                severity: 'error',
+            });
+        } finally {
+            setHcShareRecalcApplying(false);
+            setCommissionPercentUpdatingId(null);
+            setCommissionPercentUpdatingBookingId(null);
         }
     };
 
@@ -4982,6 +5236,33 @@ export default function Page() {
                         disabled={Boolean(includeInSyntheticUpdatingId)}
                     >
                         {t('accountancy.divisibilityHcShareDelete')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog
+                open={hcShareRecalcDialog != null}
+                onClose={handleHcShareRecalcDialogClose}
+            >
+                <DialogTitle>{t('accountancy.divisibilityHcShareRecalcTitle')}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t('accountancy.divisibilityHcShareRecalcMessage')
+                            .replace('{{current}}', formatAmount(hcShareRecalcDialog?.currentAmount ?? 0))
+                            .replace('{{percent}}', String(hcShareRecalcDialog?.percent ?? ''))
+                            .replace('{{next}}', formatAmount(hcShareRecalcDialog?.nextAmount ?? 0))}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleHcShareRecalcDialogClose} disabled={hcShareRecalcApplying}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        onClick={() => void handleHcShareRecalcConfirm()}
+                        variant="contained"
+                        disabled={hcShareRecalcApplying}
+                    >
+                        {t('accountancy.divisibilityHcShareRecalcConfirm')}
                     </Button>
                 </DialogActions>
             </Dialog>
