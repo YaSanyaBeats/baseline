@@ -33,13 +33,19 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
 import Link from 'next/link';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AccountancyCategory, Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
 import { deleteExpense, getExpenses, updateExpense } from '@/lib/expenses';
 import { deleteIncome, getIncomes, updateIncome } from '@/lib/incomes';
 import { getCashflows } from '@/lib/cashflows';
-import { getExpenseSum, getIncomeSum, getParentTransactionPointer } from '@/lib/accountancyUtils';
+import {
+    getExpenseSum,
+    getIncomeSum,
+    getEffectiveReportAmount,
+    getParentTransactionPointer,
+    parseSignedLocalizedAmount,
+} from '@/lib/accountancyUtils';
 import { withReturnTo } from '@/lib/accountancyReturnTo';
 import { accountancyBalanceMuiColor, roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
@@ -48,6 +54,11 @@ import { getCategoryDisplayName } from '@/lib/accountancyCategoryResolve';
 import { normalizeMongoIdString } from '@/lib/mongoId';
 import { getCounterparties } from '@/lib/counterparties';
 import { getUsersWithCashflow } from '@/lib/users';
+import { formatSourceRecipientLabel } from '@/components/accountancy/SourceRecipientSelect';
+import {
+    ReportAmountDeltaBodyCells,
+    ReportAmountDeltaHeaderCells,
+} from '@/components/accountancy/ReportAmountDeltaCells';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
@@ -65,6 +76,8 @@ type RecordRow = {
     categoryId?: string | null;
     amount: number;
     comment: string;
+    source?: string;
+    recipient?: string;
     objectId: number;
     roomName?: string | null;
     district: string;
@@ -72,6 +85,7 @@ type RecordRow = {
     transactionNumber?: number;
     /** Автор записи — для права «только свои черновики» */
     accountantId?: string;
+    reportAmount?: number | null;
     monthKey: string;
     monthLabel: string;
     isSubtransaction: boolean;
@@ -328,6 +342,10 @@ export default function CashflowLedgerView({
     const [expenseDistricts, setExpenseDistricts] = useState<string[]>([]);
     const [viewMode, setViewMode] = useState<CashflowViewMode>('default');
     const [statusUpdatingKey, setStatusUpdatingKey] = useState<string | null>(null);
+    const [reportAmountEditingId, setReportAmountEditingId] = useState<string | null>(null);
+    const [reportAmountDraft, setReportAmountDraft] = useState('');
+    const [reportAmountUpdatingId, setReportAmountUpdatingId] = useState<string | null>(null);
+    const reportAmountEditEscapeRef = useRef(false);
     const [exportFrom, setExportFrom] = useState('');
     const [exportTo, setExportTo] = useState('');
     const [exportRangeTouched, setExportRangeTouched] = useState(false);
@@ -339,6 +357,7 @@ export default function CashflowLedgerView({
     const currentUserId = user?._id?.toString?.() ?? '';
     const hasAccess = variant === 'employee' ? isStaff : isStaff || Boolean(user?.hasCashflow);
     const canExport = isStaff;
+    const canEditReportAmount = isStaff;
     const returnTo = variant === 'self' ? '/dashboard/cashflow' : `/dashboard/accountancy/employees-cashflow/${userId}`;
 
     const canMutateRow = (row: { status: ExpenseStatus | IncomeStatus; accountantId?: string }) => {
@@ -433,12 +452,15 @@ export default function CashflowLedgerView({
                     categoryId: e.categoryId ? normalizeMongoIdString(e.categoryId) : null,
                     amount: -getExpenseSum(e),
                     comment: (e.comment ?? '').trim(),
+                    source: e.source,
+                    recipient: e.recipient,
                     objectId: e.objectId,
                     roomName: e.roomName,
                     district: resolveDistrictForObjectId(objects, e.objectId) ?? '',
                     status: e.status,
                     transactionNumber: e.transactionNumber,
                     accountantId: e.accountantId?.toString?.() ?? (e.accountantId ? String(e.accountantId) : undefined),
+                    reportAmount: e.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
                     isSubtransaction: Boolean(getParentTransactionPointer(e)),
@@ -454,12 +476,15 @@ export default function CashflowLedgerView({
                     categoryId: i.categoryId ? normalizeMongoIdString(i.categoryId) : null,
                     amount: getIncomeSum(i),
                     comment: (i.comment ?? '').trim(),
+                    source: i.source,
+                    recipient: i.recipient,
                     objectId: i.objectId,
                     roomName: i.roomName,
                     district: resolveDistrictForObjectId(objects, i.objectId) ?? '',
                     status: i.status,
                     transactionNumber: i.transactionNumber,
                     accountantId: i.accountantId?.toString?.() ?? (i.accountantId ? String(i.accountantId) : undefined),
+                    reportAmount: i.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
                     isSubtransaction: Boolean(getParentTransactionPointer(i)),
@@ -651,6 +676,76 @@ export default function CashflowLedgerView({
         }
     };
 
+    const handleReportAmountCommit = async (row: RecordRow, draft: string) => {
+        if (reportAmountEditEscapeRef.current) {
+            reportAmountEditEscapeRef.current = false;
+            return;
+        }
+        const parsed = parseSignedLocalizedAmount(draft);
+        if (parsed === null) {
+            setSnackbar({
+                open: true,
+                message: t('accountancy.invalidReportAmount'),
+                severity: 'error',
+            });
+            return;
+        }
+        const current = getEffectiveReportAmount(row.amount, row.reportAmount);
+        if (Math.abs(parsed - current) < 1e-6) {
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+            return;
+        }
+
+        setReportAmountUpdatingId(rowKey(row));
+        try {
+            if (row.type === 'expense') {
+                const expense = expenses.find((e) => e._id === row._id);
+                if (!expense) return;
+                const res = await updateExpense({
+                    ...expense,
+                    date: coerceRecordDate(expense.date),
+                    reportAmount: parsed,
+                });
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.expenseUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setExpenses((prev) =>
+                        prev.map((e) => (e._id === row._id ? { ...e, reportAmount: parsed } : e)),
+                    );
+                }
+            } else {
+                const income = incomes.find((i) => i._id === row._id);
+                if (!income) return;
+                const res = await updateIncome({
+                    ...income,
+                    date: coerceRecordDate(income.date),
+                    reportAmount: parsed,
+                });
+                setSnackbar({
+                    open: true,
+                    message: res.message || t('accountancy.incomeUpdated'),
+                    severity: res.success ? 'success' : 'error',
+                });
+                if (res.success) {
+                    setIncomes((prev) =>
+                        prev.map((i) => (i._id === row._id ? { ...i, reportAmount: parsed } : i)),
+                    );
+                }
+            }
+        } catch (err) {
+            console.error(err);
+            setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
+        } finally {
+            setReportAmountUpdatingId(null);
+            setReportAmountEditingId(null);
+            setReportAmountDraft('');
+        }
+    };
+
     const handleExport = async () => {
         if (!userId || !/^\d{4}-\d{2}$/.test(exportFrom) || !/^\d{4}-\d{2}$/.test(exportTo)) {
             setSnackbar({
@@ -788,7 +883,25 @@ export default function CashflowLedgerView({
         return { months, districts, hasNoDistrict };
     }, [rows, noMonthLabel, companyCategory, locale]);
 
-    const ledgerColumnCount = (showStatusColumn ? 1 : 0) + 7;
+    const showDetailColumns = viewMode === 'default';
+    const ledgerColumnCount = (showStatusColumn ? 1 : 0) + 7 + (showDetailColumns ? 5 : 0);
+    const roomFromBookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
+    const labelSource = (value: string | undefined) =>
+        formatSourceRecipientLabel(
+            value,
+            objects,
+            counterparties,
+            usersWithCashflow,
+            allCashflows,
+            roomFromBookingLabel,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            language,
+        );
+    const formatReportAmountDraft = (value: number): string =>
+        value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const companyRowLabel = companyCategory.label || t('accountancy.employeesCashflow.summaryCompany');
     const specialButtonMode =
         viewMode === 'companyExpenses' || viewMode === 'incomes' || viewMode === 'summary' ? viewMode : null;
@@ -811,11 +924,19 @@ export default function CashflowLedgerView({
                 </TableCell>
                 <TableCell>{t('accountancy.dateColumn')}</TableCell>
                 <TableCell>{t('common.room')}</TableCell>
+                {showDetailColumns ? <TableCell>{t('accountancy.districtColumn')}</TableCell> : null}
                 <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                {showDetailColumns ? (
+                    <>
+                        <TableCell>{t('accountancy.source')}</TableCell>
+                        <TableCell>{t('accountancy.recipient')}</TableCell>
+                    </>
+                ) : null}
                 <TableCell sx={{ minWidth: 180 }}>{t('accountancy.comment')}</TableCell>
                 <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
                     {t('accountancy.amountColumn')}
                 </TableCell>
+                {showDetailColumns ? <ReportAmountDeltaHeaderCells t={t} /> : null}
                 <TableCell align="right" sx={{ width: 120, px: 0.5 }}>
                     {t('accountancy.actions')}
                 </TableCell>
@@ -872,7 +993,18 @@ export default function CashflowLedgerView({
                 <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: 240 }}>
                     {formatRoomLabel(row.objectId, row.roomName)}
                 </TableCell>
+                {showDetailColumns ? <TableCell>{row.district || noDistrictLabel}</TableCell> : null}
                 <TableCell>{row.category}</TableCell>
+                {showDetailColumns ? (
+                    <>
+                        <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                            {labelSource(row.source)}
+                        </TableCell>
+                        <TableCell sx={{ maxWidth: 200, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                            {(row.recipient ?? '').trim() ? labelSource(row.recipient) : '—'}
+                        </TableCell>
+                    </>
+                ) : null}
                 <TableCell sx={{ maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word' }}>
                     {row.comment || '—'}
                 </TableCell>
@@ -887,6 +1019,33 @@ export default function CashflowLedgerView({
                 >
                     {formatAmount(row.amount)}
                 </TableCell>
+                {showDetailColumns ? (
+                    <ReportAmountDeltaBodyCells
+                        signedAmount={row.amount}
+                        reportAmount={row.reportAmount}
+                        formatAmount={formatAmount}
+                        t={t}
+                        editable={canEditReportAmount}
+                        editing={reportAmountEditingId === rowKey(row)}
+                        draft={reportAmountDraft}
+                        updating={reportAmountUpdatingId === rowKey(row)}
+                        onStartEdit={() => {
+                            setReportAmountEditingId(rowKey(row));
+                            setReportAmountDraft(
+                                formatReportAmountDraft(
+                                    getEffectiveReportAmount(row.amount, row.reportAmount),
+                                ),
+                            );
+                        }}
+                        onDraftChange={setReportAmountDraft}
+                        onCommit={(raw) => void handleReportAmountCommit(row, raw)}
+                        onEscape={() => {
+                            reportAmountEditEscapeRef.current = true;
+                            setReportAmountEditingId(null);
+                            setReportAmountDraft('');
+                        }}
+                    />
+                ) : null}
                 <TableCell align="right" sx={{ py: 0, px: 0.5, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <Stack direction="row" spacing={0} justifyContent="flex-end">
                         {!row.isSubtransaction && (isStaff || mutable) ? (
