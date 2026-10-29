@@ -4,6 +4,11 @@ import {
     Box,
     Button,
     Checkbox,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
     FormControl,
     IconButton,
     InputLabel,
@@ -28,7 +33,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline';
 import EventNoteIcon from '@mui/icons-material/EventNote';
-import { Fragment, useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { AccountancyCategory, AccountancyAttachment, Booking, Expense, Income, ExpenseStatus, UserObject } from '@/lib/types';
 import { formatTitle } from '@/lib/format';
 import { getExpenseById } from '@/lib/expenses';
@@ -98,6 +103,10 @@ import {
 import { MIN_LEDGER_REPORT_MONTH } from '@/lib/accountancyClosedMonth';
 import { buildMonthOptions } from '@/lib/monthOptions';
 import { navigateReturnOrBack, parseSafeDashboardReturnTo } from '@/lib/accountancyReturnTo';
+import { isHolyCowExpenseShareIncomeCategoryId } from '@/lib/accountancyCategoryIds';
+import { isHolyCowExpenseShareIncomeCategory } from '@/lib/holyCowExpenseShareCalculation';
+import { getDefaultManagementCommissionPercent } from '@/lib/commissionCalculation';
+import { roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 
 type LineFields = {
     category: string;
@@ -117,7 +126,34 @@ type LineFields = {
 
 type SubItemForm = LineFields & {
     recordKind: 'expense' | 'income';
+    /** Строка, которую добавила галочка «Делимость». */
+    holyCowShareAuto?: boolean;
+    /** Стоимость этой строки изменена вручную и не перезаписывается формулой. */
+    holyCowShareManual?: boolean;
 };
+
+function commissionPercentForRoom(
+    objectId: number | undefined,
+    roomName: string | undefined,
+    objectsList: { id: number; roomTypes?: { id: number; name?: string; commissionSchemeId?: 1 | 2 | 3 | 4 }[] }[],
+): number {
+    if (objectId == null || roomName == null || roomName.trim() === '') return 30;
+    const room = objectsList
+        .find((object) => object.id === objectId)
+        ?.roomTypes?.find((item) => stableTxnRoomLabel(item) === roomName.trim());
+    const scheme = room?.commissionSchemeId;
+    if (scheme !== 1 && scheme !== 2 && scheme !== 3 && scheme !== 4) return 30;
+    return getDefaultManagementCommissionPercent(scheme, 1);
+}
+
+function holyCowIncomeCategoryName(incomeCategories: AccountancyCategory[]): string {
+    const found = incomeCategories.find(
+        (category) =>
+            isHolyCowExpenseShareIncomeCategoryId(category._id) ||
+            isHolyCowExpenseShareIncomeCategory(category._id, category.name ?? ''),
+    );
+    return (found?.name ?? 'Доля расходов HC').trim() || 'Доля расходов HC';
+}
 
 type ItemForm = LineFields & {
     splittable: boolean;
@@ -222,6 +258,13 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const [objectId, setObjectId] = useState<number | undefined>();
     const [roomName, setRoomName] = useState<string | undefined>();
     const [items, setItems] = useState<ItemForm[]>([createDefaultItem()]);
+    const [hcShareRecalc, setHcShareRecalc] = useState<{
+        current: number;
+        next: number;
+        percent: number;
+    } | null>(null);
+    const applyHolyCowShareRef = useRef<(item: ItemForm) => ItemForm>((item) => item);
+    const holyCowLineAmountRef = useRef<(item: ItemForm) => number>(() => 0);
     const [bookingModalTarget, setBookingModalTarget] = useState<
         | { kind: 'main'; index: number }
         | { kind: 'sub'; parentIndex: number; subIndex: number }
@@ -472,14 +515,35 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             resolveField(sub.source, 'source')) as SourceRecipientOptionValue,
                         recipient: (subDefaults.recipient ??
                             resolveField(sub.recipient, 'recipient')) as SourceRecipientOptionValue,
-                        amount:
-                            subDefaults.pricePerUnit != null ? subDefaults.pricePerUnit : sub.amount,
+                        amount: sub.holyCowShareAuto
+                            ? sub.amount
+                            : subDefaults.pricePerUnit != null
+                              ? subDefaults.pricePerUnit
+                              : sub.amount,
                     };
                 }),
             };
-            return next;
+            return applyHolyCowShareRef.current(next);
         };
-        setItems((prev) => prev.map(applyItemFromContext));
+        const oldPercent = commissionPercentForRoom(objectId, roomName, objects);
+        const newPercent = commissionPercentForRoom(objId, rName, objects);
+        const nextItems = items.map(applyItemFromContext);
+        const manualItem = items.find((item, index) => {
+            const auto = item.subItems.find((sub) => sub.holyCowShareAuto);
+            if (!auto?.holyCowShareManual || !item.includeInSynthetic || isSubtransactionMode) return false;
+            if (oldPercent === newPercent) return false;
+            return roundAccountancyAmount(auto.amount ?? 0) !== holyCowLineAmountRef.current(nextItems[index]);
+        });
+        setItems(nextItems);
+        if (manualItem) {
+            const index = items.indexOf(manualItem);
+            const auto = manualItem.subItems.find((sub) => sub.holyCowShareAuto);
+            setHcShareRecalc({
+                current: auto?.amount ?? 0,
+                next: holyCowLineAmountRef.current(nextItems[index]),
+                percent: newPercent,
+            });
+        }
         setErrors((prev) => {
             const next = { ...prev };
             if (objId) delete next.objectId;
@@ -496,7 +560,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         if (sharedReportMonth) {
             newItem.date = reportMonthToFirstDayString(sharedReportMonth);
         }
-        setItems((prev) => [...prev, newItem]);
+        setItems((prev) => [...prev, applyHolyCowShareRef.current(newItem)]);
     };
 
     const handleRemoveItem = (index: number) => {
@@ -524,7 +588,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         next.amountInput = undefined;
                     }
                 }
-                return next;
+                return applyHolyCowShareRef.current(next);
             }),
         );
         setErrors((prev) => {
@@ -543,7 +607,11 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         setItems((prev) =>
             prev.map((item, i) =>
                 i === index
-                    ? { ...item, amountInput, amount: parsed ?? undefined }
+                    ? applyHolyCowShareRef.current({
+                          ...item,
+                          amountInput,
+                          amount: parsed ?? undefined,
+                      })
                     : item,
             ),
         );
@@ -593,23 +661,144 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
         return cat?.pricePerUnit ?? 0;
     };
 
+    const incomeCategoriesForShare = type === 'expense' ? subIncomeCategories : categories;
+
+    holyCowLineAmountRef.current = (item: ItemForm): number => {
+        const parentTotal = roundAccountancyAmount((item.quantity || 1) * getEffectiveCostMain(item));
+        let other = 0;
+        for (const sub of item.subItems) {
+            if (sub.holyCowShareAuto) continue;
+            other += roundAccountancyAmount(Math.abs((sub.quantity || 1) * getEffectiveCostSub(sub)));
+        }
+        const percent = commissionPercentForRoom(objectId, roomName, objects);
+        const base = Math.max(0, parentTotal - other);
+        return roundAccountancyAmount(base * (percent / 100));
+    };
+
+    applyHolyCowShareRef.current = (item: ItemForm): ItemForm => {
+        if (isSubtransactionMode || !item.includeInSynthetic) {
+            if (!item.subItems.some((sub) => sub.holyCowShareAuto)) return item;
+            const subItems = item.subItems.filter((sub) => !sub.holyCowShareAuto);
+            return { ...item, subItems, splittable: subItems.length > 0 };
+        }
+
+        const categoryName = holyCowIncomeCategoryName(incomeCategoriesForShare);
+        const amount = holyCowLineAmountRef.current(item);
+        const cat = findCategoryByName(incomeCategoriesForShare, categoryName, 'income');
+        const defaults = resolveCategoryTransactionDefaults(cat, {
+            objectId,
+            roomName,
+            district: resolveDistrictForObjectId(objects, objectId),
+            objects,
+        });
+        const roomValue =
+            objectId != null && roomName != null ? formatRoomSourceRecipient(objectId, roomName) : '';
+        const existing = item.subItems.find((sub) => sub.holyCowShareAuto);
+        if (!existing) {
+            const created = buildSubItemFromParent(item, 'expense', objectId, roomName, sharedReportMonth);
+            created.recordKind = 'income';
+            created.category = categoryName;
+            created.amount = amount;
+            created.amountInput = undefined;
+            created.quantity = 1;
+            created.source = (defaults.source as SourceRecipientOptionValue) || created.source;
+            created.recipient =
+                (defaults.recipient as SourceRecipientOptionValue) || created.recipient || roomValue;
+            created.holyCowShareAuto = true;
+            created.holyCowShareManual = false;
+            if (item.date) created.date = item.date;
+            return { ...item, splittable: true, subItems: [...item.subItems, created] };
+        }
+        if (existing.holyCowShareManual) {
+            return item.splittable ? item : { ...item, splittable: true };
+        }
+        const nextSource = existing.source || ((defaults.source as SourceRecipientOptionValue) || '');
+        const nextRecipient =
+            existing.recipient ||
+            ((defaults.recipient as SourceRecipientOptionValue) || '') ||
+            roomValue;
+        const nextDate = existing.date.trim() || item.date.trim() || reportMonthToFirstDayString(sharedReportMonth);
+        const unchanged =
+            item.splittable &&
+            existing.recordKind === 'income' &&
+            existing.category === categoryName &&
+            existing.quantity === 1 &&
+            existing.amountInput == null &&
+            roundAccountancyAmount(existing.amount ?? 0) === amount &&
+            existing.source === nextSource &&
+            existing.recipient === nextRecipient &&
+            existing.date === nextDate;
+        if (unchanged) return item;
+        return {
+            ...item,
+            splittable: true,
+            subItems: item.subItems.map((sub) =>
+                sub.holyCowShareAuto
+                    ? {
+                          ...sub,
+                          recordKind: 'income',
+                          category: categoryName,
+                          amount,
+                          amountInput: undefined,
+                          quantity: 1,
+                          source: nextSource,
+                          recipient: nextRecipient,
+                          date: nextDate,
+                      }
+                    : sub,
+            ),
+        };
+    };
+
+    useEffect(() => {
+        setItems((prev) => {
+            let changed = false;
+            const next = prev.map((item) => {
+                const synced = applyHolyCowShareRef.current(item);
+                if (synced !== item) changed = true;
+                return synced;
+            });
+            return changed ? next : prev;
+        });
+    }, [
+        type,
+        isSubtransactionMode,
+        objectId,
+        roomName,
+        objects,
+        categories,
+        subIncomeCategories,
+        sharedReportMonth,
+    ]);
+
     const handleChangeSplittable = (index: number, checked: boolean) => {
         setItems((prev) =>
             prev.map((item, i) => {
                 if (i !== index) return item;
-                if (!checked) return { ...item, splittable: false, subItems: [] };
+                if (!checked) {
+                    return applyHolyCowShareRef.current({
+                        ...item,
+                        splittable: false,
+                        subItems: [],
+                        includeInSynthetic: false,
+                    });
+                }
                 let subItems = item.subItems;
-                if (subItems.length === 0) {
+                if (subItems.length === 0 && !item.includeInSynthetic) {
                     subItems = [buildSubItemFromParent(item, type, objectId, roomName, sharedReportMonth)];
                 }
-                return { ...item, splittable: true, subItems };
+                return applyHolyCowShareRef.current({ ...item, splittable: true, subItems });
             })
         );
     };
 
     const handleChangeIncludeInSynthetic = (index: number, checked: boolean) => {
         setItems((prev) =>
-            prev.map((item, i) => (i === index ? { ...item, includeInSynthetic: checked } : item))
+            prev.map((item, i) =>
+                i === index
+                    ? applyHolyCowShareRef.current({ ...item, includeInSynthetic: checked })
+                    : item,
+            )
         );
     };
 
@@ -625,6 +814,9 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 const subItems = item.subItems.map((sub, j) => {
                     if (j !== subIndex) return sub;
                     const next = { ...sub, [field]: value } as SubItemForm;
+                    if (sub.holyCowShareAuto && (field === 'amount' || field === 'quantity')) {
+                        next.holyCowShareManual = true;
+                    }
                     if (field === 'recordKind') return { ...next, category: '' };
                     if (field === 'category') {
                         const list =
@@ -651,7 +843,11 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     }
                     return next;
                 });
-                return { ...item, subItems };
+                const edited = item.subItems[subIndex];
+                const editedAutoCost =
+                    edited?.holyCowShareAuto === true && (field === 'amount' || field === 'quantity');
+                const nextItem = { ...item, subItems };
+                return editedAutoCost ? nextItem : applyHolyCowShareRef.current(nextItem);
             })
         );
         setErrors((prev) => {
@@ -676,7 +872,12 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 if (i !== parentIndex) return item;
                 const subItems = item.subItems.map((sub, j) =>
                     j === subIndex
-                        ? { ...sub, amountInput, amount: parsed ?? undefined }
+                        ? {
+                              ...sub,
+                              amountInput,
+                              amount: parsed ?? undefined,
+                              holyCowShareManual: sub.holyCowShareAuto ? true : sub.holyCowShareManual,
+                          }
                         : sub,
                 );
                 return { ...item, subItems };
@@ -710,7 +911,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     roomName,
                     sharedReportMonth,
                 );
-                return { ...item, subItems: [...item.subItems, newSub] };
+                return applyHolyCowShareRef.current({ ...item, subItems: [...item.subItems, newSub] });
             }),
         );
     };
@@ -720,10 +921,12 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
             prev.map((item, i) => {
                 if (i !== parentIndex) return item;
                 if (item.subItems.length <= 1) return item;
-                return {
+                const removed = item.subItems[subIndex];
+                return applyHolyCowShareRef.current({
                     ...item,
                     subItems: item.subItems.filter((_, j) => j !== subIndex),
-                };
+                    includeInSynthetic: removed?.holyCowShareAuto ? false : item.includeInSynthetic,
+                });
             })
         );
     };
@@ -1008,6 +1211,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                             comment: item.comment || undefined,
                             attachments: item.attachments ?? [],
                             accountantId: '',
+                            includeInSynthetic: item.includeInSynthetic,
                             ...parentLink,
                         };
                         if (item.splittable) {
@@ -1154,6 +1358,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         <Select
                             value={sub.recordKind}
                             sx={compactInlineSelectSx}
+                            disabled={sub.holyCowShareAuto}
                             onChange={(e) =>
                                 handleChangeSubItem(
                                     parentIndex,
@@ -1210,6 +1415,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                         value={sub.category || ''}
                         displayEmpty
                         sx={compactInlineSelectSx}
+                        disabled={sub.holyCowShareAuto}
                         onChange={(e) =>
                             handleChangeSubItem(parentIndex, subIndex, 'category', e.target.value as string)
                         }
@@ -1415,6 +1621,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                     <TableCell />
                 </>
             )}
+            {type === 'income' && !isSubtransactionMode && <TableCell />}
             <TableCell align="center">
                 <FileAttachments
                     value={sub.attachments ?? []}
@@ -1525,7 +1732,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                         {t('accountancy.subtransactionColumn')}
                                     </TableCell>
                                 )}
-                                {type === 'expense' && !isSubtransactionMode && (
+                                {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
                                     <TableCell align="center" sx={{ width: COMPACT_COL_DIVISIBILITY, maxWidth: COMPACT_COL_DIVISIBILITY }}>
                                         {t('accountancy.divisibility')}
                                     </TableCell>
@@ -1718,7 +1925,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                                                 />
                                             </TableCell>
                                         )}
-                                        {type === 'expense' && !isSubtransactionMode && (
+                                        {(type === 'expense' || type === 'income') && !isSubtransactionMode && (
                                             <TableCell align="center">
                                                 <Checkbox
                                                     checked={item.includeInSynthetic}
@@ -1794,6 +2001,46 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
                 reportMonth={sharedReportMonth}
                 initialRoomId={bookingModalInitialRoomId}
             />
+            <Dialog open={hcShareRecalc != null} onClose={() => setHcShareRecalc(null)}>
+                <DialogTitle>{t('accountancy.divisibilityHcShareRecalcTitle')}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t('accountancy.divisibilityHcShareRecalcMessage')
+                            .replace('{{current}}', formatCompactLineTotal(1, hcShareRecalc?.current ?? 0))
+                            .replace('{{percent}}', String(hcShareRecalc?.percent ?? ''))
+                            .replace('{{next}}', formatCompactLineTotal(1, hcShareRecalc?.next ?? 0))}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setHcShareRecalc(null)}>{t('common.cancel')}</Button>
+                    <Button
+                        variant="contained"
+                        onClick={() => {
+                            const pending = hcShareRecalc;
+                            if (!pending) return;
+                            setItems((prev) =>
+                                prev.map((item) => ({
+                                    ...item,
+                                    subItems: item.subItems.map((sub) =>
+                                        sub.holyCowShareAuto && sub.holyCowShareManual
+                                            ? {
+                                                  ...sub,
+                                                  amount: holyCowLineAmountRef.current(item),
+                                                  amountInput: undefined,
+                                                  quantity: 1,
+                                                  holyCowShareManual: false,
+                                              }
+                                            : sub,
+                                    ),
+                                })),
+                            );
+                            setHcShareRecalc(null);
+                        }}
+                    >
+                        {t('accountancy.divisibilityHcShareRecalcConfirm')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
             {DuplicateDialog}
         </>
     );

@@ -5,6 +5,11 @@ import {
     Box,
     Button,
     Checkbox,
+    Dialog,
+    DialogActions,
+    DialogContent,
+    DialogContentText,
+    DialogTitle,
     FormControl,
     IconButton,
     InputLabel,
@@ -59,6 +64,7 @@ import {
     formatCompactLineTotal as formatBulkLineTotal,
 } from '@/lib/accountancyCompactTableStyles';
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
     AccountancyAttachment,
@@ -110,6 +116,10 @@ import { isResolvableRoomContextToken } from '@/lib/sourceRecipientParse';
 import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
 import { MIN_LEDGER_REPORT_MONTH } from '@/lib/accountancyClosedMonth';
 import { buildMonthOptions } from '@/lib/monthOptions';
+import { isHolyCowExpenseShareIncomeCategoryId } from '@/lib/accountancyCategoryIds';
+import { isHolyCowExpenseShareIncomeCategory } from '@/lib/holyCowExpenseShareCalculation';
+import { getDefaultManagementCommissionPercent } from '@/lib/commissionCalculation';
+import { roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 
 function newRowKey(): string {
     if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -138,6 +148,10 @@ type BulkSubRow = {
     bookingId?: number;
     status: ExpenseStatus | IncomeStatus;
     attachments: AccountancyAttachment[];
+    /** Строка, которую добавила галочка «Делимость». */
+    holyCowShareAuto?: boolean;
+    /** Стоимость этой строки изменена вручную и не перезаписывается формулой. */
+    holyCowShareManual?: boolean;
 };
 
 type BulkRow = {
@@ -219,6 +233,30 @@ function createDefaultBulkSub(
         if (opp === 'income' && roomPrefix) base.recipient = roomPrefix;
     }
     return base;
+}
+
+function bulkRoomCommissionPercent(
+    row: BulkRow,
+    objectsList: { id: number; roomTypes?: { id: number; name?: string; commissionSchemeId?: 1 | 2 | 3 | 4 }[] }[],
+): number {
+    if (!row.selectedRoom.length || !row.selectedRoom[0].rooms.length) return 30;
+    const objectId = row.selectedRoom[0].id;
+    const roomLabel = String(row.selectedRoom[0].rooms[0]);
+    const room = objectsList
+        .find((object) => object.id === objectId)
+        ?.roomTypes?.find((item) => stableBulkRoomLabel(item) === roomLabel);
+    const scheme = room?.commissionSchemeId;
+    if (scheme !== 1 && scheme !== 2 && scheme !== 3 && scheme !== 4) return 30;
+    return getDefaultManagementCommissionPercent(scheme, 1);
+}
+
+function holyCowIncomeCategoryName(incomeCategories: AccountancyCategory[]): string {
+    const found = incomeCategories.find(
+        (category) =>
+            isHolyCowExpenseShareIncomeCategoryId(category._id) ||
+            isHolyCowExpenseShareIncomeCategory(category._id, category.name ?? ''),
+    );
+    return (found?.name ?? 'Доля расходов HC').trim() || 'Доля расходов HC';
 }
 
 function emptyRowDefaults(): Omit<BulkRow, 'key'> {
@@ -303,6 +341,12 @@ export default function BulkAddTransactionsPage() {
     const [bookingLabels, setBookingLabels] = useState<Record<number, string>>({});
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
+    const [hcShareRecalc, setHcShareRecalc] = useState<{
+        rowKey: string;
+        current: number;
+        next: number;
+        percent: number;
+    } | null>(null);
 
     const hasAccess = isAdmin || isAccountant || Boolean(user?.hasCashflow);
     const sourceLockedForCashflow = Boolean(user?.hasCashflow) && !isAdmin && !isAccountant;
@@ -390,8 +434,106 @@ export default function BulkAddTransactionsPage() {
         [categories, subExpenseCategories, subIncomeCategories, transactionType],
     );
 
+    const holyCowLineAmount = useCallback(
+        (row: BulkRow): number => {
+            const parentTotal = roundAccountancyAmount((row.quantity || 1) * getEffectiveCost(row));
+            let other = 0;
+            for (const sub of row.subItems) {
+                if (sub.holyCowShareAuto) continue;
+                other += roundAccountancyAmount(Math.abs((sub.quantity || 1) * getEffectiveCostSub(sub)));
+            }
+            const percent = bulkRoomCommissionPercent(row, objects);
+            const base = Math.max(0, parentTotal - other);
+            return roundAccountancyAmount(base * (percent / 100));
+        },
+        [getEffectiveCost, getEffectiveCostSub, objects],
+    );
+
+    const applyHolyCowShare = useCallback(
+        (row: BulkRow): BulkRow => {
+            if (transactionType !== 'expense' || !row.includeInSynthetic) {
+                if (!row.subItems.some((sub) => sub.holyCowShareAuto)) return row;
+                const subItems = row.subItems.filter((sub) => !sub.holyCowShareAuto);
+                return { ...row, subItems, splittable: subItems.length > 0 };
+            }
+
+            const categoryName = holyCowIncomeCategoryName(subIncomeCategories);
+            const amount = holyCowLineAmount(row);
+            const cat = findCategoryByName(subIncomeCategories, categoryName, 'income');
+            const defaults = resolveCategoryTransactionDefaults(cat, roomContextFromRow(row, objects));
+            const existing = row.subItems.find((sub) => sub.holyCowShareAuto);
+            if (!existing) {
+                const base = createDefaultBulkSub('expense', row, reportMonth);
+                const created: BulkSubRow = {
+                    ...base,
+                    recordKind: 'income',
+                    category: categoryName,
+                    amount,
+                    quantity: 1,
+                    source: (defaults.source as SourceRecipientOptionValue) || base.source,
+                    recipient: (defaults.recipient as SourceRecipientOptionValue) || base.recipient,
+                    holyCowShareAuto: true,
+                    holyCowShareManual: false,
+                };
+                return { ...row, splittable: true, subItems: [...row.subItems, created] };
+            }
+            if (existing.holyCowShareManual) {
+                return row.splittable ? row : { ...row, splittable: true };
+            }
+            const nextSource = existing.source || ((defaults.source as SourceRecipientOptionValue) || '');
+            const nextRecipient = existing.recipient || ((defaults.recipient as SourceRecipientOptionValue) || '');
+            const nextDate =
+                existing.transactionDate.trim() ||
+                row.transactionDate.trim() ||
+                reportMonthToFirstDayString(reportMonth);
+            const unchanged =
+                row.splittable &&
+                existing.recordKind === 'income' &&
+                existing.category === categoryName &&
+                existing.quantity === 1 &&
+                roundAccountancyAmount(existing.amount ?? 0) === amount &&
+                existing.source === nextSource &&
+                existing.recipient === nextRecipient &&
+                existing.transactionDate === nextDate;
+            if (unchanged) return row;
+            return {
+                ...row,
+                splittable: true,
+                subItems: row.subItems.map((sub) =>
+                    sub.holyCowShareAuto
+                        ? {
+                              ...sub,
+                              recordKind: 'income',
+                              category: categoryName,
+                              amount,
+                              quantity: 1,
+                              source: nextSource,
+                              recipient: nextRecipient,
+                              transactionDate: nextDate,
+                          }
+                        : sub,
+                ),
+            };
+        },
+        [holyCowLineAmount, objects, reportMonth, subIncomeCategories, transactionType],
+    );
+
+    useEffect(() => {
+        setRows((prev) => {
+            let changed = false;
+            const next = prev.map((row) => {
+                const synced = applyHolyCowShare(row);
+                if (synced !== row) changed = true;
+                return synced;
+            });
+            return changed ? next : prev;
+        });
+    }, [applyHolyCowShare]);
+
     const updateRow = (rowKey: string, patch: Partial<BulkRow>) => {
-        setRows((prev) => prev.map((r) => (r.key === rowKey ? { ...r, ...patch } : r)));
+        setRows((prev) =>
+            prev.map((r) => (r.key === rowKey ? applyHolyCowShare({ ...r, ...patch }) : r)),
+        );
         setErrors((prev) => {
             const next = { ...prev };
             const idx = rows.findIndex((r) => r.key === rowKey);
@@ -434,7 +576,8 @@ export default function BulkAddTransactionsPage() {
             return v;
         };
 
-        setRows((prev) =>
+        const shareRecalc: { rowKey: string; current: number; next: number; percent: number }[] = [];
+        flushSync(() => setRows((prev) =>
             prev.map((r) => {
                 if (r.key !== rowKey) return r;
                 const effCatName = getEffectiveRowCategory(r, category);
@@ -485,12 +628,35 @@ export default function BulkAddTransactionsPage() {
                             resolveSubField(sub.source, 'source')) as SourceRecipientOptionValue,
                         recipient: (subDefaults.recipient ??
                             resolveSubField(sub.recipient, 'recipient')) as SourceRecipientOptionValue,
-                        amount: subDefaults.pricePerUnit != null ? subDefaults.pricePerUnit : sub.amount,
+                        amount: sub.holyCowShareAuto
+                            ? sub.amount
+                            : subDefaults.pricePerUnit != null
+                              ? subDefaults.pricePerUnit
+                              : sub.amount,
                     };
                 });
-                return next;
+                const oldPercent = bulkRoomCommissionPercent(r, objects);
+                const synced = applyHolyCowShare(next);
+                const newPercent = bulkRoomCommissionPercent(synced, objects);
+                const auto = r.subItems.find((sub) => sub.holyCowShareAuto);
+                if (
+                    auto?.holyCowShareManual &&
+                    r.includeInSynthetic &&
+                    transactionType === 'expense' &&
+                    oldPercent !== newPercent &&
+                    roundAccountancyAmount(auto.amount ?? 0) !== holyCowLineAmount(synced)
+                ) {
+                    shareRecalc.push({
+                        rowKey,
+                        current: auto.amount ?? 0,
+                        next: holyCowLineAmount(synced),
+                        percent: newPercent,
+                    });
+                }
+                return synced;
             }),
-        );
+        ));
+        if (shareRecalc[0]) setHcShareRecalc(shareRecalc[0]);
         setErrors((prev) => {
             const next = { ...prev };
             const idx = rows.findIndex((r) => r.key === rowKey);
@@ -540,12 +706,19 @@ export default function BulkAddTransactionsPage() {
         setRows((prev) =>
             prev.map((r) => {
                 if (r.key !== rowKey) return r;
-                if (!checked) return { ...r, splittable: false, subItems: [] };
+                if (!checked) {
+                    return applyHolyCowShare({
+                        ...r,
+                        splittable: false,
+                        subItems: [],
+                        includeInSynthetic: false,
+                    });
+                }
                 let subItems = r.subItems;
-                if (subItems.length === 0) {
+                if (subItems.length === 0 && !r.includeInSynthetic) {
                     subItems = [createDefaultBulkSub(transactionType, r, reportMonth)];
                 }
-                return { ...r, splittable: true, subItems };
+                return applyHolyCowShare({ ...r, splittable: true, subItems });
             }),
         );
     };
@@ -573,6 +746,9 @@ export default function BulkAddTransactionsPage() {
                 const subItems = r.subItems.map((s) => {
                     if (s.key !== subKey) return s;
                     const next = { ...s, [field]: value } as BulkSubRow;
+                    if (s.holyCowShareAuto && (field === 'amount' || field === 'quantity')) {
+                        next.holyCowShareManual = true;
+                    }
                     if (field === 'recordKind') return { ...next, category: '' };
                     if (field === 'category') {
                         const list =
@@ -591,7 +767,11 @@ export default function BulkAddTransactionsPage() {
                     }
                     return next;
                 });
-                return { ...r, subItems };
+                const edited = r.subItems.find((sub) => sub.key === subKey);
+                const editedAutoCost =
+                    edited?.holyCowShareAuto === true && (field === 'amount' || field === 'quantity');
+                const nextRow = { ...r, subItems };
+                return editedAutoCost ? nextRow : applyHolyCowShare(nextRow);
             });
         });
     };
@@ -601,7 +781,9 @@ export default function BulkAddTransactionsPage() {
         if (!row) return;
         const newSub = createDefaultBulkSub(transactionType, row, reportMonth);
         setRows((prev) =>
-            prev.map((r) => (r.key === rowKey ? { ...r, subItems: [...r.subItems, newSub] } : r)),
+            prev.map((r) =>
+                r.key === rowKey ? applyHolyCowShare({ ...r, subItems: [...r.subItems, newSub] }) : r,
+            ),
         );
     };
 
@@ -610,7 +792,13 @@ export default function BulkAddTransactionsPage() {
             prev.map((r) => {
                 if (r.key !== rowKey) return r;
                 if (r.subItems.length <= 1) return r;
-                return { ...r, subItems: r.subItems.filter((s) => s.key !== subKey) };
+                const removed = r.subItems.find((sub) => sub.key === subKey);
+                const subItems = r.subItems.filter((sub) => sub.key !== subKey);
+                return applyHolyCowShare({
+                    ...r,
+                    subItems,
+                    includeInSynthetic: removed?.holyCowShareAuto ? false : r.includeInSynthetic,
+                });
             }),
         );
     };
@@ -626,7 +814,7 @@ export default function BulkAddTransactionsPage() {
         if (reportMonth) {
             base.transactionDate = reportMonthToFirstDayString(reportMonth);
         }
-        setRows((prev) => [...prev, { key: newRowKey(), ...base }]);
+        setRows((prev) => [...prev, applyHolyCowShare({ key: newRowKey(), ...base })]);
     };
 
     const removeRow = (rowKey: string) => {
@@ -1603,6 +1791,7 @@ export default function BulkAddTransactionsPage() {
                                                         <Select
                                                             value={sub.recordKind}
                                                             sx={bulkInlineSelectSx}
+                                                            disabled={sub.holyCowShareAuto}
                                                             onChange={(e) =>
                                                                 handleChangeSubItem(
                                                                     row.key,
@@ -1698,6 +1887,7 @@ export default function BulkAddTransactionsPage() {
                                                             value={sub.category || ''}
                                                             displayEmpty
                                                             sx={bulkInlineSelectSx}
+                                                            disabled={sub.holyCowShareAuto}
                                                             onChange={(e) =>
                                                                 handleChangeSubItem(
                                                                     row.key,
@@ -1954,6 +2144,50 @@ export default function BulkAddTransactionsPage() {
                     {t('common.send')}
                 </Button>
             </Stack>
+
+            <Dialog open={hcShareRecalc != null} onClose={() => setHcShareRecalc(null)}>
+                <DialogTitle>{t('accountancy.divisibilityHcShareRecalcTitle')}</DialogTitle>
+                <DialogContent>
+                    <DialogContentText>
+                        {t('accountancy.divisibilityHcShareRecalcMessage')
+                            .replace('{{current}}', formatBulkLineTotal(1, hcShareRecalc?.current ?? 0))
+                            .replace('{{percent}}', String(hcShareRecalc?.percent ?? ''))
+                            .replace('{{next}}', formatBulkLineTotal(1, hcShareRecalc?.next ?? 0))}
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setHcShareRecalc(null)}>{t('common.cancel')}</Button>
+                    <Button
+                        variant="contained"
+                        onClick={() => {
+                            const pending = hcShareRecalc;
+                            if (!pending) return;
+                            setRows((prev) =>
+                                prev.map((row) =>
+                                    row.key !== pending.rowKey
+                                        ? row
+                                        : {
+                                              ...row,
+                                              subItems: row.subItems.map((sub) =>
+                                                  sub.holyCowShareAuto
+                                                      ? {
+                                                            ...sub,
+                                                            amount: pending.next,
+                                                            quantity: 1,
+                                                            holyCowShareManual: false,
+                                                        }
+                                                      : sub,
+                                              ),
+                                          },
+                                ),
+                            );
+                            setHcShareRecalc(null);
+                        }}
+                    >
+                        {t('accountancy.divisibilityHcShareRecalcConfirm')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             <BookingSelectModal
                 open={bookingModalTarget !== null}

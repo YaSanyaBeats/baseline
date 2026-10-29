@@ -8,6 +8,7 @@ import {
     Autocomplete,
     Box,
     Button,
+    Checkbox,
     IconButton,
     Paper,
     Table,
@@ -17,6 +18,8 @@ import {
     TableHead,
     TableRow,
     TextField,
+    ToggleButton,
+    ToggleButtonGroup,
     Tooltip,
     Typography,
     Link as MuiLink,
@@ -30,33 +33,25 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import SubdirectoryArrowRightIcon from '@mui/icons-material/SubdirectoryArrowRight';
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
+import { AccountancyCategory, Expense, ExpenseStatus, Income, IncomeStatus } from '@/lib/types';
 import { deleteExpense, getExpenses, updateExpense } from '@/lib/expenses';
 import { deleteIncome, getIncomes, updateIncome } from '@/lib/incomes';
 import { getCashflows } from '@/lib/cashflows';
-import {
-    getExpenseSum,
-    getIncomeSum,
-    getEffectiveReportAmount,
-    getParentTransactionPointer,
-    parseSignedLocalizedAmount,
-} from '@/lib/accountancyUtils';
+import { getExpenseSum, getIncomeSum, getParentTransactionPointer } from '@/lib/accountancyUtils';
 import { withReturnTo } from '@/lib/accountancyReturnTo';
 import { accountancyBalanceMuiColor, roundAccountancyAmount } from '@/lib/accountancyOverviewSyntheticFill';
 import { resolveDistrictForObjectId } from '@/lib/sourceRecipientDistrictFunds';
+import { getAccountancyCategories } from '@/lib/accountancyCategories';
+import { getCategoryDisplayName } from '@/lib/accountancyCategoryResolve';
+import { normalizeMongoIdString } from '@/lib/mongoId';
 import { getCounterparties } from '@/lib/counterparties';
 import { getUsersWithCashflow } from '@/lib/users';
-import { formatSourceRecipientLabel } from '@/components/accountancy/SourceRecipientSelect';
 import { useSnackbar } from '@/providers/SnackbarContext';
 import { useUser } from '@/providers/UserProvider';
 import { useTranslation } from '@/i18n/useTranslation';
 import { useObjects } from '@/providers/ObjectsProvider';
-import {
-    ReportAmountDeltaBodyCells,
-    ReportAmountDeltaHeaderCells,
-} from '@/components/accountancy/ReportAmountDeltaCells';
 import { createCashflowExport, getCashflowExports, type CashflowExportFile } from '@/lib/cashflowExports';
 import QuickSubtransactionDialog, {
     type QuickSubtransactionParent,
@@ -67,11 +62,9 @@ type RecordRow = {
     type: 'expense' | 'income';
     date: Date | string;
     category: string;
+    categoryId?: string | null;
     amount: number;
     comment: string;
-    source?: string;
-    recipient?: string;
-    recipientLabel: string;
     objectId: number;
     roomName?: string | null;
     district: string;
@@ -79,10 +72,31 @@ type RecordRow = {
     transactionNumber?: number;
     /** Автор записи — для права «только свои черновики» */
     accountantId?: string;
-    reportAmount?: number | null;
     monthKey: string;
     monthLabel: string;
     isSubtransaction: boolean;
+};
+
+type CashflowViewMode = 'default' | 'districtExpenses' | 'companyExpenses' | 'incomes' | 'summary';
+
+type RoomGroup = {
+    key: string;
+    label: string;
+    rows: RecordRow[];
+    total: number;
+};
+
+type DistrictRoomGroup = {
+    key: string;
+    label: string;
+    rooms: RoomGroup[];
+    total: number;
+};
+
+type CompanyCategoryMatch = {
+    ids: Set<string>;
+    names: Set<string>;
+    label: string;
 };
 
 type MonthGroup = {
@@ -184,6 +198,107 @@ function currentMonthKey(): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+function coerceRecordDate(date: Date | string | undefined): Date {
+    if (!date) return new Date();
+    return typeof date === 'string' ? new Date(date) : date;
+}
+
+/** Корневая категория расходов «Компания» и все её потомки. */
+function collectCompanyCategory(
+    categories: AccountancyCategory[],
+    language: 'ru' | 'en',
+): CompanyCategoryMatch {
+    const expenseCats = categories.filter((c) => c.type === 'expense');
+    const root = expenseCats.find(
+        (c) => !normalizeMongoIdString(c.parentId) && c.name.trim().toLowerCase() === 'компания',
+    );
+    const ids = new Set<string>();
+    const names = new Set<string>();
+    if (!root) return { ids, names, label: '' };
+
+    const byParent = new Map<string, AccountancyCategory[]>();
+    for (const category of expenseCats) {
+        const parentId = normalizeMongoIdString(category.parentId);
+        if (!parentId) continue;
+        const list = byParent.get(parentId) ?? [];
+        list.push(category);
+        byParent.set(parentId, list);
+    }
+
+    const walk = (category: AccountancyCategory) => {
+        const id = normalizeMongoIdString(category._id);
+        if (!id || ids.has(id)) return;
+        ids.add(id);
+        const name = category.name.trim().toLowerCase();
+        if (name) names.add(name);
+        for (const child of byParent.get(id) ?? []) walk(child);
+    };
+    walk(root);
+
+    return { ids, names, label: getCategoryDisplayName(root, language) };
+}
+
+function isCompanyExpenseRow(row: RecordRow, company: CompanyCategoryMatch): boolean {
+    if (row.type !== 'expense') return false;
+    const id = normalizeMongoIdString(row.categoryId);
+    if (id && company.ids.has(id)) return true;
+    return company.names.has(row.category.trim().toLowerCase());
+}
+
+function buildDistrictRoomGroups(
+    sourceRows: RecordRow[],
+    formatRoom: (objectId: number, roomName?: string | null) => string,
+    noDistrictLabel: string,
+    locale: string,
+): DistrictRoomGroup[] {
+    const byDistrict = new Map<string, RecordRow[]>();
+    for (const row of sourceRows) {
+        const key = row.district || NO_DISTRICT_FILTER;
+        const list = byDistrict.get(key) ?? [];
+        list.push(row);
+        byDistrict.set(key, list);
+    }
+
+    const districtKeys = Array.from(byDistrict.keys()).sort((a, b) => {
+        const left = a === NO_DISTRICT_FILTER ? noDistrictLabel : a;
+        const right = b === NO_DISTRICT_FILTER ? noDistrictLabel : b;
+        return left.localeCompare(right, locale);
+    });
+
+    return districtKeys.map((districtKey) => {
+        const districtRows = byDistrict.get(districtKey) ?? [];
+        const byRoom = new Map<string, RecordRow[]>();
+        for (const row of districtRows) {
+            const roomKey = `${row.objectId}::${(row.roomName ?? '').trim()}`;
+            const list = byRoom.get(roomKey) ?? [];
+            list.push(row);
+            byRoom.set(roomKey, list);
+        }
+
+        const rooms = Array.from(byRoom.entries())
+            .map(([key, roomRows]) => {
+                const sorted = [...roomRows].sort(
+                    (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
+                );
+                const first = sorted[0];
+                return {
+                    key,
+                    label: formatRoom(first.objectId, first.roomName),
+                    rows: sorted,
+                    total: roundAccountancyAmount(sorted.reduce((sum, row) => sum + row.amount, 0)),
+                };
+            })
+            .sort((a, b) => a.label.localeCompare(b.label, locale));
+
+        return {
+            key: districtKey,
+            label: districtKey === NO_DISTRICT_FILTER ? noDistrictLabel : districtKey,
+            rooms,
+            total: roundAccountancyAmount(districtRows.reduce((sum, row) => sum + row.amount, 0)),
+        };
+    });
+}
+
 export type CashflowLedgerVariant = 'self' | 'employee';
 
 export default function CashflowLedgerView({
@@ -206,24 +321,23 @@ export default function CashflowLedgerView({
     const [counterparties, setCounterparties] = useState<{ _id: string; name: string }[]>([]);
     const [usersWithCashflow, setUsersWithCashflow] = useState<{ _id: string; name: string }[]>([]);
     const [allCashflows, setAllCashflows] = useState<{ _id: string; name: string }[]>([]);
+    const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [loading, setLoading] = useState(true);
     const [noCashflow, setNoCashflow] = useState(false);
-    const [reportAmountEditingId, setReportAmountEditingId] = useState<string | null>(null);
-    const [reportAmountDraft, setReportAmountDraft] = useState('');
-    const [reportAmountUpdatingId, setReportAmountUpdatingId] = useState<string | null>(null);
     const [filterDistricts, setFilterDistricts] = useState<string[]>([]);
+    const [expenseDistricts, setExpenseDistricts] = useState<string[]>([]);
+    const [viewMode, setViewMode] = useState<CashflowViewMode>('default');
+    const [statusUpdatingKey, setStatusUpdatingKey] = useState<string | null>(null);
     const [exportFrom, setExportFrom] = useState('');
     const [exportTo, setExportTo] = useState('');
     const [exportRangeTouched, setExportRangeTouched] = useState(false);
     const [exporting, setExporting] = useState(false);
     const [exportFiles, setExportFiles] = useState<CashflowExportFile[]>([]);
     const [subtransactionParent, setSubtransactionParent] = useState<QuickSubtransactionParent | null>(null);
-    const reportAmountEditEscapeRef = useRef(false);
 
     const isStaff = isAdmin || isAccountant;
     const currentUserId = user?._id?.toString?.() ?? '';
     const hasAccess = variant === 'employee' ? isStaff : isStaff || Boolean(user?.hasCashflow);
-    const canEditReportAmount = isStaff;
     const canExport = isStaff;
     const returnTo = variant === 'self' ? '/dashboard/cashflow' : `/dashboard/accountancy/employees-cashflow/${userId}`;
 
@@ -247,11 +361,12 @@ export default function CashflowLedgerView({
 
         (async () => {
             try {
-                const [cfList, cpList, usersCf, exportList] = await Promise.all([
+                const [cfList, cpList, usersCf, exportList, categoryList] = await Promise.all([
                     getCashflows(),
                     getCounterparties(),
                     getUsersWithCashflow(),
                     canExport ? getCashflowExports(userId) : Promise.resolve([]),
+                    getAccountancyCategories('expense'),
                 ]);
                 if (cancelled) return;
 
@@ -259,6 +374,7 @@ export default function CashflowLedgerView({
                 setCounterparties(cpList.map((c) => ({ _id: c._id!, name: c.name })));
                 setUsersWithCashflow(usersCf);
                 setExportFiles(exportList);
+                setCategories(categoryList);
 
                 const selectedUser = usersCf.find((u) => u._id === userId);
                 setUserName(selectedUser?.name ?? userId);
@@ -301,72 +417,49 @@ export default function CashflowLedgerView({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [hasAccess, userId, canExport]);
 
-    const roomFromBookingLabel = t('accountancy.sourceRecipientRoomFromBooking');
-
-    const labelSource = (value: string | undefined) =>
-        formatSourceRecipientLabel(
-            value,
-            objects,
-            counterparties,
-            usersWithCashflow,
-            allCashflows,
-            roomFromBookingLabel,
-            undefined,
-            undefined,
-            undefined,
-            undefined,
-            language,
-        );
-
     const noMonthLabel = t('accountancy.employeesCashflow.noMonth');
+    const locale = language === 'en' ? 'en' : 'ru';
+    const showStatusColumn = isAccountant;
 
     const rows: RecordRow[] = useMemo(() => {
         const mapped: RecordRow[] = [
             ...expenses.map((e) => {
-                const recipient = (e.recipient ?? '').trim();
                 const monthKey = monthKeyFromRecord(e.date, e.reportMonth);
                 return {
                     _id: e._id!,
                     type: 'expense' as const,
                     date: e.date,
                     category: e.category,
+                    categoryId: e.categoryId ? normalizeMongoIdString(e.categoryId) : null,
                     amount: -getExpenseSum(e),
                     comment: (e.comment ?? '').trim(),
-                    source: e.source,
-                    recipient: e.recipient,
-                    recipientLabel: recipient ? labelSource(e.recipient) : '—',
                     objectId: e.objectId,
                     roomName: e.roomName,
                     district: resolveDistrictForObjectId(objects, e.objectId) ?? '',
                     status: e.status,
                     transactionNumber: e.transactionNumber,
                     accountantId: e.accountantId?.toString?.() ?? (e.accountantId ? String(e.accountantId) : undefined),
-                    reportAmount: e.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
                     isSubtransaction: Boolean(getParentTransactionPointer(e)),
                 };
             }),
             ...incomes.map((i) => {
-                const recipient = (i.recipient ?? '').trim();
                 const monthKey = monthKeyFromRecord(i.date, i.reportMonth);
                 return {
                     _id: i._id!,
                     type: 'income' as const,
                     date: i.date,
                     category: i.category,
+                    categoryId: i.categoryId ? normalizeMongoIdString(i.categoryId) : null,
                     amount: getIncomeSum(i),
                     comment: (i.comment ?? '').trim(),
-                    source: i.source,
-                    recipient: i.recipient,
-                    recipientLabel: recipient ? labelSource(i.recipient) : '—',
                     objectId: i.objectId,
                     roomName: i.roomName,
                     district: resolveDistrictForObjectId(objects, i.objectId) ?? '',
                     status: i.status,
                     transactionNumber: i.transactionNumber,
                     accountantId: i.accountantId?.toString?.() ?? (i.accountantId ? String(i.accountantId) : undefined),
-                    reportAmount: i.reportAmount ?? null,
                     monthKey,
                     monthLabel: formatMonthLabel(monthKey, noMonthLabel),
                     isSubtransaction: Boolean(getParentTransactionPointer(i)),
@@ -374,8 +467,12 @@ export default function CashflowLedgerView({
             }),
         ];
         return mapped.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [expenses, incomes, objects, counterparties, usersWithCashflow, allCashflows, language, t, noMonthLabel]);
+    }, [expenses, incomes, objects, noMonthLabel]);
+
+    const companyCategory = useMemo(
+        () => collectCompanyCategory(categories, locale),
+        [categories, locale],
+    );
 
     const districtFilterOptions = useMemo(() => {
         const names = new Set<string>();
@@ -384,26 +481,51 @@ export default function CashflowLedgerView({
             if (row.district) names.add(row.district);
             else hasEmpty = true;
         }
-        const options = Array.from(names).sort((a, b) => a.localeCompare(b, language === 'en' ? 'en' : 'ru'));
+        const options = Array.from(names).sort((a, b) => a.localeCompare(b, locale));
         if (hasEmpty) options.push(NO_DISTRICT_FILTER);
         return options;
-    }, [rows, language]);
+    }, [rows, locale]);
+
+    const expenseDistrictOptions = useMemo(() => {
+        const names = new Set<string>();
+        let hasEmpty = false;
+        for (const row of rows) {
+            if (row.type !== 'expense') continue;
+            if (row.district) names.add(row.district);
+            else hasEmpty = true;
+        }
+        const options = Array.from(names).sort((a, b) => a.localeCompare(b, locale));
+        if (hasEmpty) options.push(NO_DISTRICT_FILTER);
+        return options;
+    }, [rows, locale]);
 
     const filteredRows = useMemo(() => {
+        if (viewMode === 'districtExpenses') {
+            if (expenseDistricts.length === 0) return [];
+            const selected = new Set(expenseDistricts);
+            return rows.filter(
+                (row) => row.type === 'expense' && selected.has(row.district || NO_DISTRICT_FILTER),
+            );
+        }
+        if (viewMode === 'companyExpenses') {
+            return rows.filter((row) => isCompanyExpenseRow(row, companyCategory));
+        }
+        if (viewMode === 'incomes') {
+            return rows.filter((row) => row.type === 'income');
+        }
         if (filterDistricts.length === 0) return rows;
         const selected = new Set(filterDistricts);
-        return rows.filter((row) => {
-            const key = row.district || NO_DISTRICT_FILTER;
-            return selected.has(key);
-        });
-    }, [rows, filterDistricts]);
+        return rows.filter((row) => selected.has(row.district || NO_DISTRICT_FILTER));
+    }, [rows, viewMode, filterDistricts, expenseDistricts, companyCategory]);
 
     const groupedByMonth: MonthGroup[] = useMemo(
-        () => buildMonthGroups(filteredRows, noMonthLabel),
-        [filteredRows, noMonthLabel],
+        () => buildMonthGroups(viewMode === 'summary' ? rows : filteredRows, noMonthLabel),
+        [filteredRows, noMonthLabel, rows, viewMode],
     );
 
-    const balance = roundAccountancyAmount(filteredRows.reduce((s, r) => s + r.amount, 0));
+    const balanceSource = viewMode === 'summary' ? rows : filteredRows;
+    const balance = roundAccountancyAmount(balanceSource.reduce((sum, row) => sum + row.amount, 0));
+    const showListTotal = viewMode === 'districtExpenses' || viewMode === 'companyExpenses' || viewMode === 'incomes';
 
     useEffect(() => {
         if (exportRangeTouched) return;
@@ -432,13 +554,13 @@ export default function CashflowLedgerView({
         });
     };
 
-    const formatRoomLabel = (objectId: number, roomName?: string | null): string => {
+    const formatRoomLabel = useCallback((objectId: number, roomName?: string | null): string => {
         const obj = objects.find((o) => o.id === objectId || o.propertyId === objectId);
         const objectLabel = (obj?.name ?? '').trim();
         const roomLabel = (roomName ?? '').trim();
         const parts = [objectLabel, roomLabel].filter((p) => p.length > 0);
         return parts.length > 0 ? parts.join(' — ') : '—';
-    };
+    }, [objects]);
 
     const noDistrictLabel = t('accountancy.employeesCashflow.noDistrict');
     const districtOptionLabel = (value: string) =>
@@ -450,9 +572,6 @@ export default function CashflowLedgerView({
         const withSpaces = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
         return `${value >= 0 ? '+' : ''}${withSpaces}.${decPart ?? '00'}`;
     };
-
-    const formatReportAmountDraft = (value: number): string =>
-        value.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
     const rowKey = (row: RecordRow) => `${row.type}-${row._id}`;
 
@@ -483,40 +602,17 @@ export default function CashflowLedgerView({
         setSubtransactionParent({ type: 'income', record: income });
     };
 
-    const handleReportAmountCommit = async (row: RecordRow, draft: string) => {
-        if (reportAmountEditEscapeRef.current) {
-            reportAmountEditEscapeRef.current = false;
-            return;
-        }
-        const parsed = parseSignedLocalizedAmount(draft);
-        if (parsed === null) {
-            setSnackbar({
-                open: true,
-                message: t('accountancy.invalidReportAmount'),
-                severity: 'error',
-            });
-            return;
-        }
-        const current = getEffectiveReportAmount(row.amount, row.reportAmount);
-        if (Math.abs(parsed - current) < 1e-6) {
-            setReportAmountEditingId(null);
-            setReportAmountDraft('');
-            return;
-        }
-
-        setReportAmountUpdatingId(rowKey(row));
+    const handleStatusToggle = async (row: RecordRow) => {
+        const newStatus: ExpenseStatus = row.status === 'confirmed' ? 'draft' : 'confirmed';
+        setStatusUpdatingKey(rowKey(row));
         try {
             if (row.type === 'expense') {
                 const expense = expenses.find((e) => e._id === row._id);
                 if (!expense) return;
                 const res = await updateExpense({
                     ...expense,
-                    date: expense.date
-                        ? typeof expense.date === 'string'
-                            ? new Date(expense.date)
-                            : expense.date
-                        : new Date(),
-                    reportAmount: parsed,
+                    date: coerceRecordDate(expense.date),
+                    status: newStatus,
                 });
                 setSnackbar({
                     open: true,
@@ -525,7 +621,7 @@ export default function CashflowLedgerView({
                 });
                 if (res.success) {
                     setExpenses((prev) =>
-                        prev.map((e) => (e._id === row._id ? { ...e, reportAmount: parsed } : e)),
+                        prev.map((e) => (e._id === row._id ? { ...e, status: newStatus } : e)),
                     );
                 }
             } else {
@@ -533,12 +629,8 @@ export default function CashflowLedgerView({
                 if (!income) return;
                 const res = await updateIncome({
                     ...income,
-                    date: income.date
-                        ? typeof income.date === 'string'
-                            ? new Date(income.date)
-                            : income.date
-                        : new Date(),
-                    reportAmount: parsed,
+                    date: coerceRecordDate(income.date),
+                    status: newStatus,
                 });
                 setSnackbar({
                     open: true,
@@ -547,7 +639,7 @@ export default function CashflowLedgerView({
                 });
                 if (res.success) {
                     setIncomes((prev) =>
-                        prev.map((i) => (i._id === row._id ? { ...i, reportAmount: parsed } : i)),
+                        prev.map((i) => (i._id === row._id ? { ...i, status: newStatus } : i)),
                     );
                 }
             }
@@ -555,9 +647,7 @@ export default function CashflowLedgerView({
             console.error(err);
             setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
         } finally {
-            setReportAmountUpdatingId(null);
-            setReportAmountEditingId(null);
-            setReportAmountDraft('');
+            setStatusUpdatingKey(null);
         }
     };
 
@@ -634,6 +724,264 @@ export default function CashflowLedgerView({
                 setSnackbar({ open: true, message: t('common.serverError'), severity: 'error' });
             });
     };
+
+    const districtRoomGroups = useMemo(
+        () =>
+            viewMode === 'districtExpenses'
+                ? buildDistrictRoomGroups(filteredRows, formatRoomLabel, noDistrictLabel, locale)
+                : [],
+        [viewMode, filteredRows, formatRoomLabel, noDistrictLabel, locale],
+    );
+
+    const summaryModel = useMemo(() => {
+        const groups = buildMonthGroups(rows, noMonthLabel);
+        const dated = groups
+            .filter((group) => group.monthKey.length > 0)
+            .sort((a, b) => a.monthKey.localeCompare(b.monthKey));
+        const undated = groups.filter((group) => group.monthKey.length === 0);
+        const ordered = [...dated, ...undated];
+
+        const districtNames = new Set<string>();
+        let hasNoDistrict = false;
+        for (const row of rows) {
+            if (row.type !== 'expense' || isCompanyExpenseRow(row, companyCategory)) continue;
+            if (row.district) districtNames.add(row.district);
+            else hasNoDistrict = true;
+        }
+        const districts = Array.from(districtNames).sort((a, b) => a.localeCompare(b, locale));
+
+        const months = ordered.map((group) => {
+            const byDistrict = new Map<string, number>();
+            let company = 0;
+            let noDistrict = 0;
+            // Расходы категории «Компания» идут отдельной строкой и не повторяются в районах,
+            // чтобы дерево сходилось с «Итого расход».
+            for (const row of group.rows) {
+                if (row.type !== 'expense') continue;
+                const abs = Math.abs(row.amount);
+                if (isCompanyExpenseRow(row, companyCategory)) {
+                    company += abs;
+                    continue;
+                }
+                if (!row.district) {
+                    noDistrict += abs;
+                    continue;
+                }
+                byDistrict.set(row.district, (byDistrict.get(row.district) ?? 0) + abs);
+            }
+            for (const [district, amount] of byDistrict) {
+                byDistrict.set(district, roundAccountancyAmount(amount));
+            }
+            return {
+                monthKey: group.monthKey || 'none',
+                monthLabel: group.monthLabel,
+                openingBalance: group.openingBalance,
+                incomes: group.incomes,
+                expenses: group.expenses,
+                closingBalance: group.closingBalance,
+                byDistrict,
+                company: roundAccountancyAmount(company),
+                noDistrict: roundAccountancyAmount(noDistrict),
+            };
+        });
+
+        return { months, districts, hasNoDistrict };
+    }, [rows, noMonthLabel, companyCategory, locale]);
+
+    const ledgerColumnCount = (showStatusColumn ? 1 : 0) + 7;
+    const companyRowLabel = companyCategory.label || t('accountancy.employeesCashflow.summaryCompany');
+    const specialButtonMode =
+        viewMode === 'companyExpenses' || viewMode === 'incomes' || viewMode === 'summary' ? viewMode : null;
+    const summaryLabelSx = {
+        position: 'sticky' as const,
+        left: 0,
+        zIndex: 1,
+        bgcolor: 'background.paper',
+        minWidth: 220,
+    };
+
+    const renderLedgerHead = () => (
+        <TableHead>
+            <TableRow>
+                {showStatusColumn ? (
+                    <TableCell sx={{ width: 72 }}>{t('accountancy.statusColumn')}</TableCell>
+                ) : null}
+                <TableCell sx={{ width: 72, whiteSpace: 'nowrap' }}>
+                    {t('accountancy.transactionIdColumn')}
+                </TableCell>
+                <TableCell>{t('accountancy.dateColumn')}</TableCell>
+                <TableCell>{t('common.room')}</TableCell>
+                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
+                <TableCell sx={{ minWidth: 180 }}>{t('accountancy.comment')}</TableCell>
+                <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
+                    {t('accountancy.amountColumn')}
+                </TableCell>
+                <TableCell align="right" sx={{ width: 120, px: 0.5 }}>
+                    {t('accountancy.actions')}
+                </TableCell>
+            </TableRow>
+        </TableHead>
+    );
+
+    const renderLedgerRow = (row: RecordRow) => {
+        const mutable = canMutateRow(row);
+        return (
+            <TableRow
+                key={rowKey(row)}
+                hover
+                tabIndex={mutable ? 0 : undefined}
+                aria-label={mutable ? t('common.edit') : undefined}
+                onClick={mutable ? () => openTransaction(row) : undefined}
+                onKeyDown={
+                    mutable
+                        ? (e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                  e.preventDefault();
+                                  openTransaction(row);
+                              }
+                          }
+                        : undefined
+                }
+                sx={{ cursor: mutable ? 'pointer' : 'default' }}
+            >
+                {showStatusColumn ? (
+                    <TableCell
+                        sx={{ px: 0.5 }}
+                        onClick={(e) => e.stopPropagation()}
+                        onKeyDown={(e) => e.stopPropagation()}
+                    >
+                        <Tooltip
+                            title={
+                                row.status === 'confirmed'
+                                    ? t('accountancy.statusConfirmed')
+                                    : t('accountancy.statusDraft')
+                            }
+                        >
+                            <Checkbox
+                                size="small"
+                                checked={row.status === 'confirmed'}
+                                disabled={statusUpdatingKey === rowKey(row)}
+                                onChange={() => void handleStatusToggle(row)}
+                                inputProps={{ 'aria-label': t('accountancy.statusColumn') }}
+                            />
+                        </Tooltip>
+                    </TableCell>
+                ) : null}
+                <TableCell sx={{ whiteSpace: 'nowrap' }}>{row.transactionNumber ?? '—'}</TableCell>
+                <TableCell>{formatDate(row.date)}</TableCell>
+                <TableCell sx={{ whiteSpace: 'normal', wordBreak: 'break-word', maxWidth: 240 }}>
+                    {formatRoomLabel(row.objectId, row.roomName)}
+                </TableCell>
+                <TableCell>{row.category}</TableCell>
+                <TableCell sx={{ maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                    {row.comment || '—'}
+                </TableCell>
+                <TableCell
+                    align="right"
+                    sx={{
+                        color: row.amount >= 0 ? 'success.main' : 'error.main',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        minWidth: 112,
+                    }}
+                >
+                    {formatAmount(row.amount)}
+                </TableCell>
+                <TableCell align="right" sx={{ py: 0, px: 0.5, whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                    <Stack direction="row" spacing={0} justifyContent="flex-end">
+                        {!row.isSubtransaction && (isStaff || mutable) ? (
+                            <Tooltip title={t('accountancy.addSubtransaction')}>
+                                <IconButton
+                                    size="small"
+                                    color="secondary"
+                                    onClick={() => openSubtransactionDialog(row)}
+                                    aria-label={t('accountancy.addSubtransaction')}
+                                >
+                                    <SubdirectoryArrowRightIcon fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                        ) : null}
+                        {mutable ? (
+                            <Tooltip title={t('common.edit')}>
+                                <IconButton
+                                    component={Link}
+                                    href={transactionHref(row)}
+                                    size="small"
+                                    aria-label={t('common.edit')}
+                                >
+                                    <EditIcon fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                        ) : null}
+                        {mutable ? (
+                            <Tooltip title={t('common.delete')}>
+                                <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => handleDelete(row)}
+                                    aria-label={t('common.delete')}
+                                >
+                                    <DeleteIcon fontSize="small" />
+                                </IconButton>
+                            </Tooltip>
+                        ) : null}
+                    </Stack>
+                </TableCell>
+            </TableRow>
+        );
+    };
+
+    const renderLedgerTable = (tableRows: RecordRow[], roomGroups?: RoomGroup[]) => (
+        <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: '70vh' }}>
+            <Table
+                size="small"
+                stickyHeader
+                sx={{ '& .MuiTableCell-head': { backgroundColor: 'background.paper' } }}
+            >
+                {renderLedgerHead()}
+                <TableBody>
+                    {roomGroups
+                        ? roomGroups.map((room) => (
+                              <Fragment key={room.key}>
+                                  <TableRow>
+                                      <TableCell colSpan={ledgerColumnCount} sx={{ bgcolor: 'action.hover', py: 0.75 }}>
+                                          <Box sx={{ display: 'flex', justifyContent: 'space-between', gap: 2, alignItems: 'baseline' }}>
+                                              <Typography variant="body2" fontWeight={700}>
+                                                  {room.label}
+                                              </Typography>
+                                              <Typography
+                                                  variant="body2"
+                                                  fontWeight={700}
+                                                  color={accountancyBalanceMuiColor(room.total)}
+                                                  sx={{ whiteSpace: 'nowrap' }}
+                                              >
+                                                  {formatAmount(room.total)} ({room.rows.length})
+                                              </Typography>
+                                          </Box>
+                                      </TableCell>
+                                  </TableRow>
+                                  {room.rows.map((row) => renderLedgerRow(row))}
+                              </Fragment>
+                          ))
+                        : tableRows.map((row) => renderLedgerRow(row))}
+                </TableBody>
+            </Table>
+        </TableContainer>
+    );
+
+    const listTotal = (
+        <Paper
+            variant="outlined"
+            sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'flex-end', alignItems: 'baseline', gap: 2 }}
+        >
+            <Typography variant="body2" color="text.secondary">
+                {t('common.total')}
+            </Typography>
+            <Typography variant="h6" fontWeight={700} color={accountancyBalanceMuiColor(balance)}>
+                {formatAmount(balance)}
+            </Typography>
+        </Paper>
+    );
 
     const pageTitle =
         variant === 'self'
@@ -766,12 +1114,13 @@ export default function CashflowLedgerView({
             )}
 
             {!loading && !noCashflow && rows.length > 0 && (
-                <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-start' }}>
+                <Box sx={{ mb: 3, display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Autocomplete
                         multiple
                         size="small"
                         options={districtFilterOptions}
                         value={filterDistricts}
+                        disabled={viewMode !== 'default'}
                         onChange={(_, value) => setFilterDistricts(value)}
                         getOptionLabel={districtOptionLabel}
                         renderInput={(params) => (
@@ -781,8 +1130,46 @@ export default function CashflowLedgerView({
                                 placeholder={t('accountancy.all')}
                             />
                         )}
-                        sx={{ minWidth: 260, maxWidth: 480 }}
+                        sx={{ minWidth: 220, maxWidth: 360, flex: '1 1 220px' }}
                     />
+                    <Autocomplete
+                        multiple
+                        size="small"
+                        options={expenseDistrictOptions}
+                        value={expenseDistricts}
+                        onChange={(_, value) => {
+                            setExpenseDistricts(value);
+                            if (value.length > 0) setViewMode('districtExpenses');
+                            else if (viewMode === 'districtExpenses') setViewMode('default');
+                        }}
+                        getOptionLabel={districtOptionLabel}
+                        renderInput={(params) => (
+                            <TextField
+                                {...params}
+                                label={t('accountancy.employeesCashflow.expenseByDistrict')}
+                                placeholder={t('accountancy.all')}
+                            />
+                        )}
+                        sx={{ minWidth: 240, maxWidth: 420, flex: '1 1 240px' }}
+                    />
+                    <ToggleButtonGroup
+                        exclusive
+                        size="small"
+                        value={specialButtonMode}
+                        onChange={(_, value: CashflowViewMode | null) => {
+                            if (!value) {
+                                setViewMode(expenseDistricts.length > 0 ? 'districtExpenses' : 'default');
+                                return;
+                            }
+                            setViewMode(value);
+                        }}
+                    >
+                        <ToggleButton value="companyExpenses">
+                            {t('accountancy.employeesCashflow.companyExpenses')}
+                        </ToggleButton>
+                        <ToggleButton value="incomes">{t('accountancy.employeesCashflow.incomesFilter')}</ToggleButton>
+                        <ToggleButton value="summary">{t('accountancy.employeesCashflow.summary')}</ToggleButton>
+                    </ToggleButtonGroup>
                 </Box>
             )}
 
@@ -798,12 +1185,169 @@ export default function CashflowLedgerView({
                 <Paper variant="outlined" sx={{ p: 3 }}>
                     <Typography color="text.secondary">{t('accountancy.myCashflowNoRecords')}</Typography>
                 </Paper>
+            ) : viewMode === 'summary' ? (
+                <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: '100%', overflowX: 'auto' }}>
+                    <Table
+                        size="small"
+                        stickyHeader
+                        sx={{ '& .MuiTableCell-head': { backgroundColor: 'background.paper' } }}
+                    >
+                        <TableHead>
+                            <TableRow>
+                                <TableCell
+                                    sx={{
+                                        position: 'sticky',
+                                        left: 0,
+                                        zIndex: 3,
+                                        bgcolor: 'background.paper',
+                                        minWidth: 220,
+                                    }}
+                                />
+                                {summaryModel.months.map((month) => (
+                                    <TableCell key={month.monthKey} align="right" sx={{ whiteSpace: 'nowrap' }}>
+                                        {month.monthLabel}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            <TableRow>
+                                <TableCell sx={{ ...summaryLabelSx, fontWeight: 600 }}>
+                                    {t('accountancy.openingBalanceColumn')}
+                                </TableCell>
+                                {summaryModel.months.map((month) => (
+                                    <TableCell
+                                        key={month.monthKey}
+                                        align="right"
+                                        sx={{
+                                            color: accountancyBalanceMuiColor(month.openingBalance),
+                                            fontWeight: 600,
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        {formatAmount(month.openingBalance)}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                            <TableRow>
+                                <TableCell sx={summaryLabelSx}>
+                                    {t('accountancy.employeesCashflow.summaryIncomeTotal')}
+                                </TableCell>
+                                {summaryModel.months.map((month) => (
+                                    <TableCell
+                                        key={month.monthKey}
+                                        align="right"
+                                        sx={{ color: 'success.main', whiteSpace: 'nowrap' }}
+                                    >
+                                        {formatAmount(month.incomes)}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                            <TableRow>
+                                <TableCell sx={{ ...summaryLabelSx, fontWeight: 700 }}>
+                                    {t('accountancy.employeesCashflow.summaryExpenseTotal')}
+                                </TableCell>
+                                {summaryModel.months.map((month) => (
+                                    <TableCell
+                                        key={month.monthKey}
+                                        align="right"
+                                        sx={{ color: 'error.main', fontWeight: 700, whiteSpace: 'nowrap' }}
+                                    >
+                                        {formatAmount(-month.expenses)}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                            {summaryModel.districts.map((district) => (
+                                <TableRow key={district}>
+                                    <TableCell sx={{ ...summaryLabelSx, pl: 3 }}>{district}</TableCell>
+                                    {summaryModel.months.map((month) => {
+                                        const amount = month.byDistrict.get(district) ?? 0;
+                                        return (
+                                            <TableCell
+                                                key={month.monthKey}
+                                                align="right"
+                                                sx={{
+                                                    color: amount ? 'error.main' : 'text.disabled',
+                                                    whiteSpace: 'nowrap',
+                                                }}
+                                            >
+                                                {amount ? formatAmount(-amount) : '—'}
+                                            </TableCell>
+                                        );
+                                    })}
+                                </TableRow>
+                            ))}
+                            {summaryModel.hasNoDistrict ? (
+                                <TableRow>
+                                    <TableCell sx={{ ...summaryLabelSx, pl: 3 }}>{noDistrictLabel}</TableCell>
+                                    {summaryModel.months.map((month) => (
+                                        <TableCell
+                                            key={month.monthKey}
+                                            align="right"
+                                            sx={{
+                                                color: month.noDistrict ? 'error.main' : 'text.disabled',
+                                                whiteSpace: 'nowrap',
+                                            }}
+                                        >
+                                            {month.noDistrict ? formatAmount(-month.noDistrict) : '—'}
+                                        </TableCell>
+                                    ))}
+                                </TableRow>
+                            ) : null}
+                            <TableRow>
+                                <TableCell sx={{ ...summaryLabelSx, pl: 3 }}>{companyRowLabel}</TableCell>
+                                {summaryModel.months.map((month) => (
+                                    <TableCell
+                                        key={month.monthKey}
+                                        align="right"
+                                        sx={{
+                                            color: month.company ? 'error.main' : 'text.disabled',
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        {month.company ? formatAmount(-month.company) : '—'}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                            <TableRow>
+                                <TableCell sx={{ ...summaryLabelSx, fontWeight: 700 }}>
+                                    {t('accountancy.employeesCashflow.summaryBalance')}
+                                </TableCell>
+                                {summaryModel.months.map((month) => (
+                                    <TableCell
+                                        key={month.monthKey}
+                                        align="right"
+                                        sx={{
+                                            color: accountancyBalanceMuiColor(month.closingBalance),
+                                            fontWeight: 700,
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        {formatAmount(month.closingBalance)}
+                                    </TableCell>
+                                ))}
+                            </TableRow>
+                        </TableBody>
+                    </Table>
+                </TableContainer>
             ) : filteredRows.length === 0 ? (
                 <Paper variant="outlined" sx={{ p: 3 }}>
                     <Typography color="text.secondary">
                         {t('accountancy.employeesCashflow.noFilteredRecords')}
                     </Typography>
                 </Paper>
+            ) : viewMode === 'districtExpenses' ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {districtRoomGroups.map((district) => (
+                        <Box key={district.key}>
+                            <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>
+                                {district.label}
+                            </Typography>
+                            {renderLedgerTable([], district.rooms)}
+                        </Box>
+                    ))}
+                    {listTotal}
+                </Box>
             ) : (
                 <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
                     {groupedByMonth.map((monthGroup) => (
@@ -825,9 +1369,21 @@ export default function CashflowLedgerView({
                                     <Typography
                                         variant="body2"
                                         fontWeight={600}
-                                        color={accountancyBalanceMuiColor(monthGroup.closingBalance)}
+                                        color={accountancyBalanceMuiColor(
+                                            viewMode === 'default'
+                                                ? monthGroup.closingBalance
+                                                : roundAccountancyAmount(
+                                                      monthGroup.rows.reduce((sum, row) => sum + row.amount, 0),
+                                                  ),
+                                        )}
                                     >
-                                        {formatAmount(monthGroup.closingBalance)}
+                                        {formatAmount(
+                                            viewMode === 'default'
+                                                ? monthGroup.closingBalance
+                                                : roundAccountancyAmount(
+                                                      monthGroup.rows.reduce((sum, row) => sum + row.amount, 0),
+                                                  ),
+                                        )}
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary">
                                         ({monthGroup.rows.length})
@@ -835,6 +1391,7 @@ export default function CashflowLedgerView({
                                 </Box>
                             </AccordionSummary>
                             <AccordionDetails sx={{ pt: 0, px: 0 }}>
+                                {viewMode === 'default' ? (
                                 <Box sx={{ px: 2, pb: 1.5 }}>
                                     <Table
                                         size="small"
@@ -880,202 +1437,12 @@ export default function CashflowLedgerView({
                                         </TableBody>
                                     </Table>
                                 </Box>
-                                <TableContainer
-                                    component={Paper}
-                                    variant="outlined"
-                                    sx={{ maxHeight: '70vh' }}
-                                >
-                                    <Table
-                                        size="small"
-                                        stickyHeader
-                                        sx={{
-                                            '& .MuiTableCell-head': {
-                                                backgroundColor: 'background.paper',
-                                            },
-                                        }}
-                                    >
-                                        <TableHead>
-                                            <TableRow>
-                                                <TableCell sx={{ width: 72, whiteSpace: 'nowrap' }}>
-                                                    {t('accountancy.transactionIdColumn')}
-                                                </TableCell>
-                                                <TableCell>{t('accountancy.dateColumn')}</TableCell>
-                                                <TableCell>{t('common.room')}</TableCell>
-                                                <TableCell>{t('accountancy.districtColumn')}</TableCell>
-                                                <TableCell>{t('accountancy.categoryColumn')}</TableCell>
-                                                <TableCell>{t('accountancy.source')}</TableCell>
-                                                <TableCell>{t('accountancy.recipient')}</TableCell>
-                                                <TableCell sx={{ minWidth: 180 }}>
-                                                    {t('accountancy.comment')}
-                                                </TableCell>
-                                                <TableCell align="right" sx={{ whiteSpace: 'nowrap', minWidth: 112 }}>
-                                                    {t('accountancy.amountColumn')}
-                                                </TableCell>
-                                                <ReportAmountDeltaHeaderCells t={t} />
-                                                <TableCell align="right" sx={{ width: 120, px: 0.5 }}>
-                                                    {t('accountancy.actions')}
-                                                </TableCell>
-                                            </TableRow>
-                                        </TableHead>
-                                        <TableBody>
-                                            {monthGroup.rows.map((row) => {
-                                                const mutable = canMutateRow(row);
-                                                return (
-                                                <TableRow
-                                                    key={`${row.type}-${row._id}`}
-                                                    hover
-                                                    tabIndex={mutable ? 0 : undefined}
-                                                    aria-label={mutable ? t('common.edit') : undefined}
-                                                    onClick={mutable ? () => openTransaction(row) : undefined}
-                                                    onKeyDown={
-                                                        mutable
-                                                            ? (e) => {
-                                                                  if (e.key === 'Enter' || e.key === ' ') {
-                                                                      e.preventDefault();
-                                                                      openTransaction(row);
-                                                                  }
-                                                              }
-                                                            : undefined
-                                                    }
-                                                    sx={{ cursor: mutable ? 'pointer' : 'default' }}
-                                                >
-                                                    <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                                                        {row.transactionNumber ?? '—'}
-                                                    </TableCell>
-                                                    <TableCell>{formatDate(row.date)}</TableCell>
-                                                    <TableCell
-                                                        sx={{
-                                                            whiteSpace: 'normal',
-                                                            wordBreak: 'break-word',
-                                                            maxWidth: 240,
-                                                        }}
-                                                    >
-                                                        {formatRoomLabel(row.objectId, row.roomName)}
-                                                    </TableCell>
-                                                    <TableCell>{row.district || noDistrictLabel}</TableCell>
-                                                    <TableCell>{row.category}</TableCell>
-                                                    <TableCell
-                                                        sx={{
-                                                            maxWidth: 200,
-                                                            whiteSpace: 'normal',
-                                                            wordBreak: 'break-word',
-                                                        }}
-                                                    >
-                                                        {labelSource(row.source)}
-                                                    </TableCell>
-                                                    <TableCell
-                                                        sx={{
-                                                            maxWidth: 200,
-                                                            whiteSpace: 'normal',
-                                                            wordBreak: 'break-word',
-                                                        }}
-                                                    >
-                                                        {row.recipientLabel}
-                                                    </TableCell>
-                                                    <TableCell
-                                                        sx={{
-                                                            maxWidth: 280,
-                                                            whiteSpace: 'normal',
-                                                            wordBreak: 'break-word',
-                                                        }}
-                                                    >
-                                                        {row.comment || '—'}
-                                                    </TableCell>
-                                                    <TableCell
-                                                        align="right"
-                                                        sx={{
-                                                            color:
-                                                                row.amount >= 0
-                                                                    ? 'success.main'
-                                                                    : 'error.main',
-                                                            fontWeight: 500,
-                                                            whiteSpace: 'nowrap',
-                                                            minWidth: 112,
-                                                        }}
-                                                    >
-                                                        {formatAmount(row.amount)}
-                                                    </TableCell>
-                                                    <ReportAmountDeltaBodyCells
-                                                        signedAmount={row.amount}
-                                                        reportAmount={row.reportAmount}
-                                                        formatAmount={formatAmount}
-                                                        t={t}
-                                                        editable={canEditReportAmount}
-                                                        editing={reportAmountEditingId === rowKey(row)}
-                                                        draft={reportAmountDraft}
-                                                        updating={reportAmountUpdatingId === rowKey(row)}
-                                                        onStartEdit={() => {
-                                                            setReportAmountEditingId(rowKey(row));
-                                                            setReportAmountDraft(
-                                                                formatReportAmountDraft(
-                                                                    getEffectiveReportAmount(
-                                                                        row.amount,
-                                                                        row.reportAmount,
-                                                                    ),
-                                                                ),
-                                                            );
-                                                        }}
-                                                        onDraftChange={setReportAmountDraft}
-                                                        onCommit={(raw) => void handleReportAmountCommit(row, raw)}
-                                                        onEscape={() => {
-                                                            reportAmountEditEscapeRef.current = true;
-                                                            setReportAmountEditingId(null);
-                                                            setReportAmountDraft('');
-                                                        }}
-                                                    />
-                                                    <TableCell
-                                                        align="right"
-                                                        sx={{ py: 0, px: 0.5, whiteSpace: 'nowrap' }}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    >
-                                                        <Stack direction="row" spacing={0} justifyContent="flex-end">
-                                                            {!row.isSubtransaction && (isStaff || mutable) ? (
-                                                                <Tooltip title={t('accountancy.addSubtransaction')}>
-                                                                    <IconButton
-                                                                        size="small"
-                                                                        color="secondary"
-                                                                        onClick={() => openSubtransactionDialog(row)}
-                                                                        aria-label={t('accountancy.addSubtransaction')}
-                                                                    >
-                                                                        <SubdirectoryArrowRightIcon fontSize="small" />
-                                                                    </IconButton>
-                                                                </Tooltip>
-                                                            ) : null}
-                                                            {mutable ? (
-                                                                <Tooltip title={t('common.edit')}>
-                                                                    <IconButton
-                                                                        component={Link}
-                                                                        href={transactionHref(row)}
-                                                                        size="small"
-                                                                        aria-label={t('common.edit')}
-                                                                    >
-                                                                        <EditIcon fontSize="small" />
-                                                                    </IconButton>
-                                                                </Tooltip>
-                                                            ) : null}
-                                                            {mutable ? (
-                                                                <Tooltip title={t('common.delete')}>
-                                                                    <IconButton
-                                                                        size="small"
-                                                                        color="error"
-                                                                        onClick={() => handleDelete(row)}
-                                                                        aria-label={t('common.delete')}
-                                                                    >
-                                                                        <DeleteIcon fontSize="small" />
-                                                                    </IconButton>
-                                                                </Tooltip>
-                                                            ) : null}
-                                                        </Stack>
-                                                    </TableCell>
-                                                </TableRow>
-                                                );
-                                            })}
-                                        </TableBody>
-                                    </Table>
-                                </TableContainer>
+                                ) : null}
+                                {renderLedgerTable(monthGroup.rows)}
                             </AccordionDetails>
                         </Accordion>
                     ))}
+                    {showListTotal ? listTotal : null}
                 </Box>
             )}
             <QuickSubtransactionDialog

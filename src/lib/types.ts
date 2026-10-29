@@ -100,6 +100,8 @@ export interface AnalyticsResult {
     id: number;
     bookings: AnalyticsBooking[],
     busyness: number,
+    /** Доля чёрных ночей от полного инвентаря. 0, если чёрных не больше 1 суток. В среднее по выборке не входит. */
+    blackBusyness?: number,
     startMedianResult: string,
     endMedianResult: string,
     firstNight: string,

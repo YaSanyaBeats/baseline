@@ -134,6 +134,7 @@ function TransactionAttachmentsButton({
                         event.stopPropagation();
                         setAnchorEl(event.currentTarget);
                     }}
+                    color="primary"
                     sx={{ p: 0.25, flexShrink: 0 }}
                 >
                     <AttachFileIcon sx={{ fontSize: '1rem' }} />

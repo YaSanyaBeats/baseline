@@ -59,6 +59,27 @@ function round(num: number, decimals: number) {
     return Math.round(num * Math.pow(10, decimals)) / Math.pow(10, decimals);
 }
 
+/** Чёрный % от полного инвентаря и обычная загрузка (сдано / инвентарь без чёрных). */
+function OccupancyValue(props: { busyness: number; blackBusyness?: number; t: (key: string) => string }) {
+    const regularPct = round(props.busyness * 100, 0);
+    const blackPct = round((props.blackBusyness ?? 0) * 100, 0);
+    if (blackPct <= 0) {
+        return <>{regularPct}%</>;
+    }
+
+    return (
+        <Tooltip title={props.t('analytics.blackVsOccupancy')}>
+            <Box component="span" sx={{ whiteSpace: 'nowrap', fontSize: 14 }}>
+                <Box component="span" sx={{ color: '#000', fontWeight: 700 }}>
+                    {blackPct}%
+                </Box>
+                <Box component="span" sx={{ mx: '2px' }}>/</Box>
+                <Box component="span">{regularPct}%</Box>
+            </Box>
+        </Tooltip>
+    );
+}
+
 const renderHeader = (periods: AnalyticsHeader[], t: (key: string) => string) => {
     const columns: ReactElement[] = [];
     periods.forEach((period, i) => {
@@ -125,7 +146,7 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
             >
                 <Stack direction={'row'} alignItems={'start'}>
                     <Box>
-                        {round(elem.busyness * 100, 0)}%
+                        <OccupancyValue busyness={elem.busyness} blackBusyness={elem.blackBusyness} t={t} />
                     </Box>
                     <Box>
                         <Tooltip title={t('analytics.compareWithAverage')}>
@@ -177,7 +198,7 @@ const renderResultRow = (elems: FullAnalyticsResult, handleClick: (booking: Anal
     return cells;
 }
 
-const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: AnalyticsBooking[]) => void) => {
+const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: AnalyticsBooking[]) => void, t: (key: string) => string) => {
     const cells: ReactElement[] = [];
 
     rooms.roomAnalytics.map((elem, index) => {
@@ -196,7 +217,7 @@ const renderResultSubRow = (rooms: RoomAnalyticsResult, handleClick: (booking: A
                 align="left" 
                 sx={{fontSize: 14, ...cellStyles}}
             >
-                {round(elem.busyness * 100, 0)}%
+                <OccupancyValue busyness={elem.busyness} blackBusyness={elem.blackBusyness} t={t} />
             </TableCell>
         );
         cells.push(
@@ -282,7 +303,7 @@ function Row(props: { filterAnalyticsData: FullAnalyticsResult, object: Object, 
                                                 
                                             </TableCell>
                                             
-                                            {renderResultSubRow(room, handleClick)}
+                                            {renderResultSubRow(room, handleClick, t)}
                                         </TableRow>
                                     )
                                 })}

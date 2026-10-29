@@ -223,6 +223,7 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
         lastNight: new Date(period.lastNight),
         bookings: [] as any[],
         busyness: 0,
+        blackBusyness: 0,
         startMedianResult: 0,
         endMedianResult: 0,
         middlePrice: 0,
@@ -337,6 +338,17 @@ async function getAnalyticsForPeriod(options: any, object: any, period: any, roo
 
     const rawBusyness = totalTime > 0 ? sumTime / totalTime : 0;
     bookingPerPeriod.busyness = Math.min(1, Math.max(0, rawBusyness));
+    /**
+     * Доля чёрных ночей от полного инвентаря (до вычитания black).
+     * Показываем только если чёрных больше 1 суток: короче этого ячейка остаётся
+     * одной цифрой загрузки. В среднее по выборке доля не входит — туда идёт busyness
+     * (сдано / (инвентарь − чёрные)).
+     */
+    const dayMs = 1000 * 60 * 60 * 24;
+    bookingPerPeriod.blackBusyness =
+        effectiveBlackTime > dayMs && capacityMs > 0
+            ? Math.min(1, Math.max(0, effectiveBlackTime / capacityMs))
+            : 0;
     bookingPerPeriod.middlePrice = sumBookingDays ? sumPrice / sumBookingDays : 0;
 
     if (bookingPerPeriod.busyness && !bookingPerPeriod.middlePrice) {

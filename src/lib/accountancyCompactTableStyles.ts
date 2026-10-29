@@ -28,7 +28,7 @@ export function txnAddTableColCount(params: {
     if (isSubtransactionMode) {
         return 12;
     }
-    return type === 'expense' ? 14 : 12;
+    return type === 'expense' ? 14 : 13;
 }
 
 export const BULK_ADD_TABLE_MIN_WIDTH_PX =
