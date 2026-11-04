@@ -159,15 +159,24 @@ export default function Page() {
 
     return (
         <>
-            <Box mb={2} sx={{maxWidth: '300px'}}>
+            <Stack
+                direction={{ xs: 'column', sm: 'row' }}
+                spacing={2}
+                alignItems={{ sm: 'center' }}
+                justifyContent="space-between"
+                sx={{ mb: 2 }}
+            >
                 <TextField
-                    fullWidth
                     label={t('users.searchUser')}
                     variant="outlined"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
+                    sx={{ width: '100%', maxWidth: 300 }}
                 />
-            </Box>
+                <Link href="/dashboard/users/add/">
+                    <Button variant="contained" startIcon={<PersonAddAlt1Icon />}>{t('users.addUser')}</Button>
+                </Link>
+            </Stack>
             <TableContainer component={Paper}>
                 <Table>
                     <TableHead>

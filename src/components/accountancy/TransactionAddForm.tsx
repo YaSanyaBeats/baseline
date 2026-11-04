@@ -217,11 +217,11 @@ function buildSubItemFromParent(
     return sub;
 }
 
-function createDefaultItem(): ItemForm {
+function createDefaultItem(includeInSynthetic = true): ItemForm {
     return {
         ...createDefaultLineFields(),
         splittable: false,
-        includeInSynthetic: true,
+        includeInSynthetic,
         subItems: [],
     };
 }
@@ -242,9 +242,15 @@ interface TransactionAddFormProps {
     type: 'expense' | 'income';
     /** Только для страниц «Мой кэшфлоу»: записать cashflowId пользователя в новую транзакцию */
     attachCashflowId?: boolean;
+    /** Галочка «Делимость». На форме расхода в кэшфлоу по умолчанию выключена. */
+    defaultIncludeInSynthetic?: boolean;
 }
 
-export default function TransactionAddForm({ type, attachCashflowId = false }: TransactionAddFormProps) {
+export default function TransactionAddForm({
+    type,
+    attachCashflowId = false,
+    defaultIncludeInSynthetic = true,
+}: TransactionAddFormProps) {
     const { t, language } = useTranslation();
     const router = useRouter();
     const searchParams = useSearchParams();
@@ -257,7 +263,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     const [selectedObjects, setSelectedObjects] = useState<UserObject[]>([]);
     const [objectId, setObjectId] = useState<number | undefined>();
     const [roomName, setRoomName] = useState<string | undefined>();
-    const [items, setItems] = useState<ItemForm[]>([createDefaultItem()]);
+    const [items, setItems] = useState<ItemForm[]>(() => [createDefaultItem(defaultIncludeInSynthetic)]);
     const [hcShareRecalc, setHcShareRecalc] = useState<{
         current: number;
         next: number;
@@ -552,7 +558,7 @@ export default function TransactionAddForm({ type, attachCashflowId = false }: T
     };
 
     const handleAddItem = () => {
-        const newItem = createDefaultItem();
+        const newItem = createDefaultItem(defaultIncludeInSynthetic);
         if (objectId != null && roomName != null) {
             if (type === 'expense') newItem.source = formatRoomSourceRecipient(objectId, roomName);
             else newItem.recipient = formatRoomSourceRecipient(objectId, roomName);

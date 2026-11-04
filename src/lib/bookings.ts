@@ -4,10 +4,17 @@ import { getApiUrl } from './api-client';
 
 export async function getBookingsPerRoom(roomInfo: { object: Object; room: Room }) {
     const propertyId = roomInfo.object.propertyId ?? roomInfo.object.id;
+    // У развёрнутой строки Beds24 id — это room type, а room.id — юнит.
+    // Юниты разных типов часто совпадают (все «1»), поэтому тип нужен отдельно.
+    const roomTypeId =
+        roomInfo.object.propertyId != null && roomInfo.object.id !== roomInfo.object.propertyId
+            ? roomInfo.object.id
+            : undefined;
     const response = await axios.get(getApiUrl('bookings'), {
         params: {
             'roomInfo[object][propertyId]': propertyId,
             'roomInfo[room][id]': roomInfo.room.id,
+            ...(roomTypeId != null ? { 'roomInfo[roomTypeId]': roomTypeId } : {}),
         },
     });
     return response.data;

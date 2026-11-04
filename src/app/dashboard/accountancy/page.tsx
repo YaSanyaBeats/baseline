@@ -725,7 +725,9 @@ export default function Page() {
         setSelectedObjectId(s.selectedObjectId);
         setDateFrom(s.dateFrom);
         setDateTo(s.dateTo);
-        setSelectedMonth(s.selectedMonth);
+        setSelectedMonth(
+            s.selectedMonth && s.selectedMonth < MIN_LEDGER_REPORT_MONTH ? '' : s.selectedMonth,
+        );
         const rooms = roomsForStoredAccountancyObject(objects, s.selectedObjectId);
         setSelectedRoomId(normalizeStoredRoomFilter(s.selectedRoomIdRaw, rooms));
         overviewFiltersLoadedRef.current = true;
@@ -4529,6 +4531,7 @@ export default function Page() {
                                         const y = d.getFullYear();
                                         const m = d.getMonth() + 1;
                                         const value = `${y}-${String(m).padStart(2, '0')}`;
+                                        if (value < MIN_LEDGER_REPORT_MONTH) continue;
                                         const monthName = t(`accountancy.months.${m}`);
                                         options.push({ value, label: `${monthName} ${y}` });
                                     }

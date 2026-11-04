@@ -29,16 +29,23 @@ export async function GET(request: NextRequest) {
         const propertyIdParam =
             searchParams.get('roomInfo[object][propertyId]') ?? searchParams.get('roomInfo[object][id]');
         const roomID = searchParams.get('roomInfo[room][id]');
+        const roomTypeIdParam = searchParams.get('roomInfo[roomTypeId]');
         const bookings = db.collection('bookings');
 
         if (!propertyIdParam || !roomID) {
             return NextResponse.json({ error: 'Missing required parameters' }, { status: 400 });
         }
 
-        const neededBookings = await bookings.find({
+        const roomTypeId = roomTypeIdParam != null && roomTypeIdParam !== '' ? +roomTypeIdParam : NaN;
+        const filter: Record<string, unknown> = {
             propertyId: +propertyIdParam,
-            unitId: +roomID
-        }).sort({
+            unitId: +roomID,
+        };
+        if (Number.isFinite(roomTypeId)) {
+            filter.$or = [{ roomId: roomTypeId }, { roomID: roomTypeId }];
+        }
+
+        const neededBookings = await bookings.find(filter).sort({
             arrival: -1
         }).toArray();
 

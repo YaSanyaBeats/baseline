@@ -4,7 +4,7 @@ import TransactionAddForm from '@/components/accountancy/TransactionAddForm';
 export default function Page() {
     return (
         <Suspense fallback={null}>
-            <TransactionAddForm type="expense" attachCashflowId />
+            <TransactionAddForm type="expense" attachCashflowId defaultIncludeInSynthetic={false} />
         </Suspense>
     );
 }

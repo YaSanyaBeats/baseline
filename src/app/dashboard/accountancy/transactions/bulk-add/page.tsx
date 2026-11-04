@@ -272,7 +272,7 @@ function emptyRowDefaults(): Omit<BulkRow, 'key'> {
         transactionDate: '',
         status: 'draft',
         splittable: false,
-        includeInSynthetic: true,
+        includeInSynthetic: false,
         subItems: [],
         attachments: [],
     };
