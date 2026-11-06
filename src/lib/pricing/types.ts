@@ -228,7 +228,14 @@ export type IpCompetitor = {
     lastRating: number | null;
     lastReviews: number | null;
     lastStayNights: number | null;
-    lastPriceByStay?: Partial<Record<7 | 20, number>>;
+    /** Устаревшее: раньше цена хранилась отдельно для 7 и 20 ночей. */
+    lastPriceByStay?: Partial<Record<number, number>>;
+    /** Суточные точки внутри периода. lastPrice — их среднее или ручная правка. */
+    lastPriceMin?: number | null;
+    lastPriceMax?: number | null;
+    lastPriceSamples?: Array<{ checkIn: string; checkOut: string; stayNights: number; nightly: number }>;
+    scrapedPrice?: number | null;
+    priceSource?: 'scrape' | 'manual';
     lastWarnings: string[];
     lastScrapedAt: Date | null;
     updatedAt: Date | null;

@@ -106,9 +106,9 @@ export const DATASET_FIELDS: Record<CompetitorPlatform, string> = {
     trip: 'priceInclVat,priceExclVat,roomName,hotelName,checkin,checkout,maxOccupancy,url,rating,score,commentScore,reviewCount',
 };
 
-/** Пока снимаем только 7 ночей; 20 отключены. */
-export const MONITOR_STAY_NIGHTS = [7] as const;
-export const MONITOR_STAY_PRIMARY = 7;
+/** Оценка одного прогона: снимаем цену за сутки, не фиксированные 7 или 20 ночей. */
+export const MONITOR_STAY_NIGHTS = [1] as const;
+export const MONITOR_STAY_PRIMARY = 1;
 
 export function tripDisplayName(url: string): string {
     try {

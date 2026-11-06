@@ -276,7 +276,7 @@ async function runCompetitorJob(job: ScrapeJobDoc): Promise<void> {
             userName: job.userName,
             type: 'apify съём',
             target: String(competitor.url || job.competitorId),
-            detail: `снимков ${result.snapshots}, ${result.checkIn || '?'}→${result.checkOut || '?'} (7н), $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
+            detail: `сут ${result.lastPrice != null ? Math.round(result.lastPrice) + ' ฿' : '—'}, ${result.checkIn || '?'}→${result.checkOut || '?'}, $${result.costUsd.toFixed(3)}${result.warnings?.length ? `; нет: ${result.warnings.join(', ')}` : ''}`,
         });
     } catch (error) {
         console.error('[scrape-queue] journal', error);
@@ -322,7 +322,7 @@ async function runClusterJob(job: ScrapeJobDoc): Promise<void> {
             userName: job.userName,
             type: 'apify съём кластера',
             target: cluster,
-            detail: `${result.done}/${result.total} · 7н · $${result.costUsd.toFixed(3)} · батч по площадкам`,
+            detail: `${result.done}/${result.total} · сут · $${result.costUsd.toFixed(3)} · батч по площадкам`,
         });
     } catch (error) {
         console.error('[scrape-queue] journal', error);

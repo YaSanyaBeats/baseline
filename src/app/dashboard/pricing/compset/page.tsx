@@ -38,6 +38,7 @@ import {
     DISCOVERY_SEARCH_USD,
 } from '@/lib/pricing/discoveryMix';
 import type { CompetitorPlatform } from '@/lib/pricing/types';
+import { nightlyRangeChanged } from '@/lib/pricing/apify/nightly';
 import {
     PERIOD_IDS,
     defaultPeriodForToday,
@@ -73,6 +74,20 @@ function formatScrapedAt(value: string | Date | null | undefined, language: stri
         year: 'numeric',
         hour: '2-digit',
         minute: '2-digit',
+    });
+}
+
+function moneyLabel(n: number, language: string) {
+    return Math.round(n).toLocaleString(language === 'en' ? 'en-US' : 'ru-RU');
+}
+
+function formatOneDate(iso: string, language?: string) {
+    const d = new Date(`${iso.slice(0, 10)}T00:00:00`);
+    if (Number.isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString(language === 'en' ? 'en-GB' : 'ru-RU', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
     });
 }
 
@@ -117,6 +132,13 @@ export default function CompsetPage() {
     const [editFor, setEditFor] = useState<{ id: string; name: string; url: string } | null>(null);
     const [moveFor, setMoveFor] = useState<{ id: string; from: string; to: string } | null>(null);
     const [deleteFor, setDeleteFor] = useState<{ id: string; name: string; url: string } | null>(null);
+    const [priceFor, setPriceFor] = useState<{
+        id: string;
+        name: string;
+        value: string;
+        scraped: number | null;
+        source: string;
+    } | null>(null);
     const [activeJobs, setActiveJobs] = useState<ScrapeJobView[]>([]);
     const [pendingKeys, setPendingKeys] = useState<Record<string, true>>({});
     const watchingRef = useRef<Set<string>>(new Set());
@@ -569,19 +591,31 @@ export default function CompsetPage() {
                                                 </Stack>
                                                 {(cl.competitors || []).map((c: any) => {
                                                     const scrapedAt = formatScrapedAt(c.lastScrapedAt || c.updatedAt, language);
-                                                    const byStay = c.lastPriceByStay || {};
-                                                    const p7 = Number(byStay[7] || 0) > 0 ? Number(byStay[7]) : null;
-                                                    const fallbackPrice = Number(c.lastPrice) > 0 ? Number(c.lastPrice) : null;
-                                                    const money = (n: number) =>
-                                                        Math.round(n).toLocaleString(language === 'en' ? 'en-US' : 'ru-RU');
-                                                    const night = language === 'en' ? 'nt' : 'н';
+                                                    const samples = Array.isArray(c.lastPriceSamples) ? c.lastPriceSamples : [];
+                                                    const manual = c.priceSource === 'manual';
+                                                    const price = Number(c.lastPrice) > 0 ? Number(c.lastPrice) : null;
+                                                    const min = Number(c.lastPriceMin) > 0 ? Number(c.lastPriceMin) : null;
+                                                    const max = Number(c.lastPriceMax) > 0 ? Number(c.lastPriceMax) : null;
+                                                    const changed = !manual && nightlyRangeChanged(min, max);
                                                     const priceText =
-                                                        p7 != null
-                                                            ? `${money(p7)} ฿ / 7${night}`
-                                                            : fallbackPrice != null
-                                                              ? `${money(fallbackPrice)} ฿ / 7${night}`
-                                                              : '—';
-                                                    const stayDates = formatStayDates(c.lastCheckIn, c.lastCheckOut, language);
+                                                        price == null
+                                                            ? '—'
+                                                            : changed
+                                                              ? `${moneyLabel(price, language)} ฿ / ${t('pricing.pricePerNight')} · ${t('pricing.priceAvg')}`
+                                                              : `${moneyLabel(price, language)} ฿ / ${t('pricing.pricePerNight')}`;
+                                                    const rangeText =
+                                                        changed && min != null && max != null
+                                                            ? `${moneyLabel(min, language)}–${moneyLabel(max, language)} ฿`
+                                                            : null;
+                                                    const stayDates =
+                                                        samples.length > 1
+                                                            ? samples
+                                                                  .map((sample: { checkIn?: string }) =>
+                                                                      formatOneDate(String(sample.checkIn || ''), language),
+                                                                  )
+                                                                  .filter(Boolean)
+                                                                  .join(', ')
+                                                            : formatStayDates(c.lastCheckIn, c.lastCheckOut, language);
                                                     const warnings: string[] = Array.isArray(c.lastWarnings) ? c.lastWarnings : [];
                                                     return (
                                                     <Stack
@@ -607,9 +641,19 @@ export default function CompsetPage() {
                                                         <Typography variant="body2" sx={{ flex: 1, minWidth: 120 }}>
                                                             {c.name}
                                                         </Typography>
-                                                        <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                                                            {priceText}
-                                                        </Typography>
+                                                        <Stack spacing={0} sx={{ minWidth: 120 }}>
+                                                            <Typography variant="body2" sx={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+                                                                {priceText}
+                                                            </Typography>
+                                                            {rangeText && (
+                                                                <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                                                                    {t('pricing.priceRange')}: {rangeText}
+                                                                </Typography>
+                                                            )}
+                                                        </Stack>
+                                                        {manual && (
+                                                            <Chip size="small" color="info" variant="outlined" label={t('pricing.priceManual')} />
+                                                        )}
                                                         <Typography variant="caption" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
                                                             {stayDates
                                                                 ? `${t('pricing.scrapeDates')}: ${stayDates}`
@@ -655,6 +699,20 @@ export default function CompsetPage() {
                                                             onClick={() => setEditFor({ id: c._id, name: c.name || '', url: c.url || '' })}
                                                         >
                                                             {t('pricing.editUrl')}
+                                                        </Button>
+                                                        <Button
+                                                            size="small"
+                                                            onClick={() =>
+                                                                setPriceFor({
+                                                                    id: c._id,
+                                                                    name: c.name || '',
+                                                                    value: price != null ? String(Math.round(price)) : '',
+                                                                    scraped: Number(c.scrapedPrice) > 0 ? Number(c.scrapedPrice) : null,
+                                                                    source: manual ? 'manual' : 'scrape',
+                                                                })
+                                                            }
+                                                        >
+                                                            {t('pricing.editPrice')}
                                                         </Button>
                                                         {c.status === 'approved' && (
                                                             <Button
@@ -823,6 +881,74 @@ export default function CompsetPage() {
                                     await load();
                                 })
                                 .catch((e) => notify(e instanceof Error ? e.message : t('pricing.saveError'), 'error'))
+                                .finally(() => setBusy(false));
+                        }}
+                    >
+                        {t('common.save')}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            <Dialog open={priceFor != null} onClose={() => !busy && setPriceFor(null)} fullWidth>
+                <DialogTitle>{t('pricing.editPriceTitle')}</DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" sx={{ mt: 1, mb: 2 }}>
+                        {priceFor?.name || '—'}
+                    </Typography>
+                    <TextField
+                        fullWidth
+                        type="number"
+                        label={t('pricing.editPrice')}
+                        helperText={t('pricing.editPriceHint')}
+                        value={priceFor?.value || ''}
+                        disabled={busy}
+                        onChange={(e) => setPriceFor((s) => (s ? { ...s, value: e.target.value } : s))}
+                        slotProps={{ htmlInput: { min: 1, step: 1 } }}
+                    />
+                    {priceFor?.scraped != null && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+                            {t('pricing.editPriceScraped')}: {moneyLabel(priceFor.scraped, language)} ฿ / {t('pricing.pricePerNight')}
+                        </Typography>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    {priceFor?.source === 'manual' && priceFor.scraped != null && (
+                        <Button
+                            disabled={busy}
+                            onClick={() => {
+                                if (!priceFor) return;
+                                setBusy(true);
+                                void patchCompetitor(priceFor.id, { manualPrice: null })
+                                    .then(async (res) => {
+                                        if (!res.success) throw new Error(res.message);
+                                        setPriceFor(null);
+                                        notify(t('pricing.manualPriceCleared'), 'success');
+                                        await load();
+                                    })
+                                    .catch((e) => notify(errorMessage(e, t('pricing.saveError')), 'error'))
+                                    .finally(() => setBusy(false));
+                            }}
+                        >
+                            {t('pricing.clearManualPrice')}
+                        </Button>
+                    )}
+                    <Button onClick={() => setPriceFor(null)} disabled={busy}>
+                        {t('common.cancel')}
+                    </Button>
+                    <Button
+                        variant="contained"
+                        disabled={busy || !priceFor?.value.trim()}
+                        onClick={() => {
+                            if (!priceFor) return;
+                            setBusy(true);
+                            void patchCompetitor(priceFor.id, { manualPrice: priceFor.value.trim() })
+                                .then(async (res) => {
+                                    if (!res.success) throw new Error(res.message);
+                                    setPriceFor(null);
+                                    notify(t('pricing.manualPriceSaved'), 'success');
+                                    await load();
+                                })
+                                .catch((e) => notify(errorMessage(e, t('pricing.saveError')), 'error'))
                                 .finally(() => setBusy(false));
                         }}
                     >

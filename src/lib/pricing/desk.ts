@@ -21,6 +21,7 @@ import {
     getTemperature,
 } from './seed';
 import type {
+    ChannelId,
     DeskClusterRow,
     DeskPayload,
     DeskRoomRow,
@@ -177,13 +178,27 @@ async function competitorAnchors(rooms: IpRoom[], channels: Awaited<ReturnType<t
         .toArray();
 
     const pricesByCluster = new Map<string, number[]>();
+    const seenCompetitor = new Set<string>();
+    const pushNightly = (cluster: string, platform: string, nightly: number) => {
+        if (!(nightly > 0) || !cluster) return;
+        if (!pricesByCluster.has(cluster)) pricesByCluster.set(cluster, []);
+        pricesByCluster.get(cluster)!.push(otaToSite(nightly, (platform || 'airbnb') as ChannelId, channels));
+    };
+    for (const member of members) {
+        const id = String(member._id || '');
+        const cluster = String(member.cluster || roomToCluster.get(Number(member.roomId)) || '');
+        const nightly = Number(member.lastPrice);
+        if (!(nightly > 0)) continue;
+        pushNightly(cluster, String(member.platform || 'airbnb'), nightly);
+        if (id) seenCompetitor.add(id);
+    }
     for (const snap of snapshots) {
+        const id = String(snap.competitorId || '');
+        if (id && seenCompetitor.has(id)) continue;
         if (!snap.pricePerNightNorm || snap.availabilityStatus === 'strategic_hold') continue;
         const cluster = String(snap.cluster || roomToCluster.get(Number(snap.roomId)) || '');
-        if (!cluster) continue;
-        if (!pricesByCluster.has(cluster)) pricesByCluster.set(cluster, []);
-        const site = otaToSite(Number(snap.pricePerNightNorm), snap.platform || 'airbnb', channels);
-        pricesByCluster.get(cluster)!.push(site);
+        pushNightly(cluster, String(snap.platform || 'airbnb'), Number(snap.pricePerNightNorm));
+        if (id) seenCompetitor.add(id);
     }
 
     const countByRoom = new Map<number, number>();

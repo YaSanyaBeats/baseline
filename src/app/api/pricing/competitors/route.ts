@@ -27,6 +27,11 @@ export async function GET() {
         status: String(c.status || 'approved'),
         source: String(c.source || 'manual'),
         lastPrice: c.lastPrice == null ? null : Number(c.lastPrice),
+        lastPriceMin: c.lastPriceMin == null ? null : Number(c.lastPriceMin),
+        lastPriceMax: c.lastPriceMax == null ? null : Number(c.lastPriceMax),
+        scrapedPrice: c.scrapedPrice == null ? null : Number(c.scrapedPrice),
+        priceSource: c.priceSource === 'manual' ? 'manual' : 'scrape',
+        lastPriceSamples: Array.isArray(c.lastPriceSamples) ? c.lastPriceSamples : [],
         lastRating: c.lastRating == null ? null : Number(c.lastRating),
         lastReviews: c.lastReviews == null ? null : Number(c.lastReviews),
         lastStayNights: c.lastStayNights == null ? null : Number(c.lastStayNights),
@@ -151,6 +156,26 @@ export async function PATCH(request: NextRequest) {
     if (body.status) set.status = body.status;
     if (typeof body.isReference === 'boolean') set.isReference = body.isReference;
     if (typeof body.name === 'string' && body.name.trim()) set.name = body.name.trim();
+    if (body.manualPrice !== undefined) {
+        if (body.manualPrice === null || body.manualPrice === '') {
+            const scraped = Number(current.scrapedPrice);
+            if (!(scraped > 0)) {
+                return NextResponse.json({ success: false, message: 'Нет снятой цены, чтобы вернуть' }, { status: 400 });
+            }
+            set.lastPrice = Math.round(scraped);
+            set.priceSource = 'scrape';
+        } else {
+            const n = Math.round(Number(String(body.manualPrice).replace(',', '.')));
+            if (!Number.isFinite(n) || n <= 0 || n > 1_000_000) {
+                return NextResponse.json({ success: false, message: 'Нужна цена за сутки больше нуля' }, { status: 400 });
+            }
+            set.lastPrice = n;
+            set.priceSource = 'manual';
+            if (current.priceSource !== 'manual' && current.scrapedPrice == null && Number(current.lastPrice) > 0) {
+                set.scrapedPrice = Math.round(Number(current.lastPrice));
+            }
+        }
+    }
 
     const nextCluster =
         typeof body.cluster === 'string' && body.cluster.trim() ? body.cluster.trim() : String(current.cluster || '');
