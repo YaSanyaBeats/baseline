@@ -19,7 +19,7 @@ import {
     type NoBookingSubgroupId,
 } from '@/lib/noBookingCategorySubgroups';
 import { normalizeMongoIdString } from '@/lib/mongoId';
-import { getReportLineTotal, getReportUnitPrice } from '@/lib/accountancyUtils';
+import { getReportLineTotal, getReportUnitPrice, storedIncludeInSynthetic } from '@/lib/accountancyUtils';
 import {
     isCoAgentCommissionCategoryId,
     isHolyCowExpenseShareIncomeCategoryId,
@@ -308,7 +308,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
         if (expense.objectId !== objectReport.objectId) continue;
         if (!incomeInReportMonth(expense, monthKey)) continue;
 
-        const includeInCommissionShare = expense.includeInSynthetic !== false;
+        const includeInCommissionShare = storedIncludeInSynthetic(expense) !== false;
 
         const categoryName = resolveCategoryName(expense, categoryNameById);
         if (isExcludedExpenseCategory(categoryName, expense.categoryId)) continue;
@@ -416,7 +416,7 @@ export function buildOwnerViewExpenseGroupsForRoom(
 
         const hasCommissionDeduction =
             !isManagementCommission &&
-            shouldApplyNoBookingCommissionShare(subgroup, expense.includeInSynthetic) &&
+            shouldApplyNoBookingCommissionShare(subgroup, storedIncludeInSynthetic(expense)) &&
             !isChildExpense;
 
         const expenseShare =

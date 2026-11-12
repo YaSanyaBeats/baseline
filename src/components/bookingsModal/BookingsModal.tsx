@@ -51,13 +51,13 @@ export default function BookingsModal(props: {
         const monthMap = new Map<string, { label: string, bookings: Booking[], sortValue: number, year: number, month: number }>();
 
         bookings.forEach((booking) => {
-            const arrivalDate = new Date(booking.arrival);
-            const year = arrivalDate.getFullYear();
-            const month = arrivalDate.getMonth() + 1; // getMonth() returns 0-11, we need 1-12
+            const checkoutDate = new Date(booking.departure);
+            const year = checkoutDate.getFullYear();
+            const month = checkoutDate.getMonth() + 1; // getMonth() returns 0-11, we need 1-12
             const key = `${year}-${month}`;
 
             if(!monthMap.has(key)) {
-                const monthString = arrivalDate.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
+                const monthString = checkoutDate.toLocaleString('ru-RU', { month: 'long', year: 'numeric' });
                 const label = monthString.charAt(0).toUpperCase() + monthString.slice(1);
                 monthMap.set(key, {
                     label,

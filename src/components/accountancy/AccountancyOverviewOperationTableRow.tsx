@@ -100,7 +100,7 @@ export type AccountancyOverviewOperationRowModel = {
 
 export type AccountancyOverviewOperationTableRowProps = {
     row: AccountancyOverviewOperationRowModel;
-    /** Показать чекбокс «Делимость» (брони — расходы; «Общие расходы» без брони — расходы и приходы) */
+    /** Показать чекбокс «Делимость» (только расходы: брони и группы без брони) */
     showDivisibilityCheckbox?: boolean;
     /**
      * Доли агентства / гостя / владельца для группы «Общие расходы».

@@ -119,6 +119,19 @@ export function getReportUnitPrice(record: ReportAmountRecord): number {
     return record.amount ?? 0;
 }
 
+/**
+ * Галочка «Делимость».
+ * У автотранзакций по умолчанию выключена, пока её явно не включат.
+ * У остальных отсутствие значения значит «включена».
+ */
+export function storedIncludeInSynthetic(record: {
+    includeInSynthetic?: boolean | null;
+    autoCreated?: unknown;
+}): boolean | undefined {
+    if (record.autoCreated && record.includeInSynthetic !== true) return false;
+    return record.includeInSynthetic ?? undefined;
+}
+
 /** Сумма для отчёта: сохранённое значение или сумма транзакции. */
 export function getEffectiveReportAmount(
     signedAmount: number,

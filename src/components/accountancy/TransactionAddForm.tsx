@@ -876,6 +876,7 @@ export default function TransactionAddForm({
         setItems((prev) =>
             prev.map((item, i) => {
                 if (i !== parentIndex) return item;
+                const edited = item.subItems[subIndex];
                 const subItems = item.subItems.map((sub, j) =>
                     j === subIndex
                         ? {
@@ -886,7 +887,9 @@ export default function TransactionAddForm({
                           }
                         : sub,
                 );
-                return { ...item, subItems };
+                const nextItem = { ...item, subItems };
+                if (edited?.holyCowShareAuto) return nextItem;
+                return applyHolyCowShareRef.current(nextItem);
             }),
         );
         setErrors((prev) => {

@@ -32,6 +32,8 @@ import {
 import { Add as AddIcon, Remove as RemoveIcon, Warning as WarningIcon,
     ExpandMore as ExpandMoreIcon,
     Lock as LockIcon,
+    ChevronLeft as ChevronLeftIcon,
+    ChevronRight as ChevronRightIcon,
 } from "@mui/icons-material";
 import { useUser } from "@/providers/UserProvider";
 import { useSnackbar } from "@/providers/SnackbarContext";
@@ -51,6 +53,7 @@ import {
     getExpenseSum,
     getIncomeSum,
     getEffectiveReportAmount,
+    storedIncludeInSynthetic,
     isForbiddenZeroUnitAmountOnEdit,
     parseSignedLocalizedAmount,
     resolveAccountancyParentTransactionRef,
@@ -540,20 +543,21 @@ type OperationListGroup = {
 /**
  * Группы с колонками «Делимость» / доли агентства·гостя·владельца
  * (те же правила, что у «Общих расходов»: HC-подтранзакция → доля агентства).
- * Брони — только расходы; «Общие» и «Прочее» — расходы и приходы.
+ * Галочка «Делимость» — только у расходов.
+ * Колонки долей: брони — только расходы; «Общие» и «Прочее» — расходы и приходы.
  */
 const DIVISIBILITY_NOBOOK_GROUP_KEYS = new Set(['nobook-common', 'nobook-other']);
 
 function operationRowShowsDivisibilityCheckbox(groupKey: string, row: OperationRow): boolean {
-    if (row.readOnlySynthetic) return false;
-    if (groupKey.startsWith('b-')) return row.type === 'expense';
+    if (row.readOnlySynthetic || row.type !== 'expense') return false;
+    if (groupKey.startsWith('b-')) return true;
     return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey);
 }
 
-/** Колонки долей — для тех же строк, где доступна «Делимость». */
 function operationRowShowsCommonExpenseShares(groupKey: string, row: OperationRow): boolean {
     if (row.readOnlySynthetic || row.isPendingDraft) return false;
-    return operationRowShowsDivisibilityCheckbox(groupKey, row);
+    if (groupKey.startsWith('b-')) return row.type === 'expense';
+    return DIVISIBILITY_NOBOOK_GROUP_KEYS.has(groupKey);
 }
 
 function operationRowShowsCommissionPercentSelect(groupKey: string, row: OperationRow): boolean {
@@ -655,6 +659,7 @@ export default function Page() {
 
     const [filtersHydrated, setFiltersHydrated] = useState(false);
     const [selectedObjectId, setSelectedObjectId] = useState<number | 'all'>('all');
+    const [objectListCollapsed, setObjectListCollapsed] = useState(false);
     const [selectedRoomId, setSelectedRoomId] = useState<string | 'all'>('all');
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
@@ -1394,7 +1399,7 @@ export default function Page() {
                     createdAt: e.createdAt,
                     updatedAt: e.updatedAt,
                     updatedByName: e.updatedByName,
-                    includeInSynthetic: e.includeInSynthetic,
+                    includeInSynthetic: storedIncludeInSynthetic(e),
                     commissionPercent: e.commissionPercent ?? 30,
                     reportAmount: e.reportAmount ?? null,
                     resolvedRoomKey,
@@ -1444,7 +1449,7 @@ export default function Page() {
                     createdAt: i.createdAt,
                     updatedAt: i.updatedAt,
                     updatedByName: i.updatedByName,
-                    includeInSynthetic: i.includeInSynthetic,
+                    includeInSynthetic: storedIncludeInSynthetic(i),
                     commissionPercent: i.commissionPercent ?? 30,
                     reportAmount: i.reportAmount ?? null,
                     resolvedRoomKey,
@@ -2171,6 +2176,7 @@ export default function Page() {
                     recipient: resolveCategorySourceRecipientValue(draft.recipient, roomContext),
                     attachments: [],
                     accountantId: '',
+                    includeInSynthetic: false,
                     commissionPercent: 30,
                 };
                 const res = await addExpense(payload);
@@ -2199,6 +2205,7 @@ export default function Page() {
                     recipient: resolveCategorySourceRecipientValue(draft.recipient, roomContext),
                     attachments: [],
                     accountantId: '',
+                    includeInSynthetic: false,
                     commissionPercent: 30,
                 };
                 const res = await addIncome(payload);
@@ -4477,18 +4484,61 @@ export default function Page() {
             </Stack> */}
 
             <Stack direction={{ xs: 'column', md: 'row' }} spacing={3} sx={{ mb: 3 }}>
-                <Paper sx={{ p: 2, width: 250 }}>
-                    <Typography variant="h6" sx={{ mb: 2 }}>
-                        {t('accountancy.statsByObject')}
-                    </Typography>
-                    <AccountancyObjectTreeTable
-                        objects={objects}
-                        selectedObjectId={selectedObjectId}
-                        selectedRoomId={selectedRoomId}
-                        onSelectObject={handleSelectAccountancyObject}
-                        onSelectRoom={handleSelectAccountancyRoom}
-                        roomHighlightByKey={roomHighlightByKey}
-                    />
+                <Paper
+                    sx={{
+                        p: objectListCollapsed ? 0.5 : 2,
+                        width: objectListCollapsed ? 48 : 250,
+                        flexShrink: 0,
+                        alignSelf: objectListCollapsed ? 'flex-start' : 'stretch',
+                        overflow: 'hidden',
+                        transition: (theme) =>
+                            theme.transitions.create('width', {
+                                duration: theme.transitions.duration.shorter,
+                            }),
+                    }}
+                >
+                    <Stack
+                        direction="row"
+                        alignItems="center"
+                        justifyContent={objectListCollapsed ? 'center' : 'space-between'}
+                        sx={{ mb: objectListCollapsed ? 0 : 1 }}
+                    >
+                        {!objectListCollapsed ? (
+                            <Typography variant="h6">
+                                {t('accountancy.statsByObject')}
+                            </Typography>
+                        ) : null}
+                        <Tooltip
+                            title={
+                                objectListCollapsed
+                                    ? t('accountancy.expandObjectList')
+                                    : t('accountancy.collapseObjectList')
+                            }
+                        >
+                            <IconButton
+                                size="small"
+                                aria-expanded={!objectListCollapsed}
+                                aria-label={
+                                    objectListCollapsed
+                                        ? t('accountancy.expandObjectList')
+                                        : t('accountancy.collapseObjectList')
+                                }
+                                onClick={() => setObjectListCollapsed((collapsed) => !collapsed)}
+                            >
+                                {objectListCollapsed ? <ChevronRightIcon /> : <ChevronLeftIcon />}
+                            </IconButton>
+                        </Tooltip>
+                    </Stack>
+                    {!objectListCollapsed ? (
+                        <AccountancyObjectTreeTable
+                            objects={objects}
+                            selectedObjectId={selectedObjectId}
+                            selectedRoomId={selectedRoomId}
+                            onSelectObject={handleSelectAccountancyObject}
+                            onSelectRoom={handleSelectAccountancyRoom}
+                            roomHighlightByKey={roomHighlightByKey}
+                        />
+                    ) : null}
                 </Paper>
 
                 <Paper sx={{ p: 1.5, flex: 2, minWidth: 0 }}>
@@ -4725,8 +4775,9 @@ export default function Page() {
                                                 mt: 0.5,
                                                 width: '100%',
                                                 maxWidth: '100%',
-                                                maxHeight: 'calc(100vh - 96px)',
-                                                overflow: 'auto',
+                                                maxHeight: 'none',
+                                                overflowX: 'auto',
+                                                overflowY: 'visible',
                                             }}
                                         >
                                         <Table

@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Beds24Connect } from '@/lib/beds24/Beds24Connect';
-import {
-    bookingsSyncArrivalFrom,
-    isBookingBeforeSyncWindow,
-} from '@/lib/beds24/bookingSyncWindow';
+import { bookingsSyncArrivalFrom } from '@/lib/beds24/bookingSyncWindow';
+import { mergeBookingsPreservingPast } from '@/lib/beds24/bookingSyncMerge';
+import { replaceCollection } from '@/lib/beds24/replaceCollection';
+import { writeBookingSyncJournal, type Beds24SyncJournalSource } from '@/lib/beds24/syncJournal';
 import { getDB } from '@/lib/db/getDB';
 
 const BOOKINGS_ARRIVAL_TO = '2029-01-01';
 
 const SYNC_TYPES = new Set(['objects', 'prices', 'bookings']);
-const INSERT_CHUNK = 100;
 
 function assertBeds24Page(
     result: { error?: unknown; pages?: { nextPageExists?: boolean }; detail?: unknown },
@@ -21,62 +20,6 @@ function assertBeds24Page(
         const detailText = result?.detail != null ? ` ${JSON.stringify(result.detail)}` : '';
         throw new Error(`Beds24 ${type} sync failed on page ${page}.${detailText}`);
     }
-}
-
-function isNamespaceNotFound(error: unknown): boolean {
-    const err = error as { code?: number; codeName?: string };
-    return err?.code === 26 || err?.codeName === 'NamespaceNotFound';
-}
-
-/**
- * Полная замена коллекции снимком из Beds24.
- * Сначала пишем во временную коллекцию, затем drop старой через rename —
- * обрыв загрузки не оставляет пустую рабочую коллекцию.
- */
-async function replaceCollection(collectionName: string, docs: Record<string, unknown>[]) {
-    const db = await getDB();
-    const incomingName = `${collectionName}__incoming`;
-    const incoming = db.collection(incomingName);
-
-    try {
-        await incoming.drop();
-    } catch (error) {
-        if (!isNamespaceNotFound(error)) throw error;
-    }
-
-    if (docs.length === 0) {
-        await db.createCollection(incomingName);
-    } else {
-        for (let i = 0; i < docs.length; i += INSERT_CHUNK) {
-            await incoming.insertMany(docs.slice(i, i + INSERT_CHUNK), { ordered: false });
-        }
-    }
-
-    await incoming.rename(collectionName, { dropTarget: true });
-}
-
-async function mergeBookingsPreservingPast(
-    incoming: Record<string, unknown>[],
-    arrivalFrom: string,
-): Promise<{ kept: number; replaced: number }> {
-    const db = await getDB();
-    const existing = await db.collection('bookings').find({}).toArray();
-    const frozenIds = new Set<number>();
-    const frozen: Record<string, unknown>[] = [];
-
-    for (const doc of existing) {
-        if (!isBookingBeforeSyncWindow(doc.arrival, arrivalFrom)) continue;
-        frozen.push(doc as Record<string, unknown>);
-        if (typeof doc.id === 'number') frozenIds.add(doc.id);
-    }
-
-    const fresh = incoming.filter((doc) => {
-        if (typeof doc.id === 'number' && frozenIds.has(doc.id)) return false;
-        return !isBookingBeforeSyncWindow(doc.arrival, arrivalFrom);
-    });
-
-    await replaceCollection('bookings', [...frozen, ...fresh]);
-    return { kept: frozen.length, replaced: fresh.length };
 }
 
 async function fetchBeds24Page(
@@ -164,6 +107,7 @@ export async function GET(request: NextRequest) {
     try {
         const searchParams = request.nextUrl.searchParams;
         const type = searchParams.get('type');
+        const source: Beds24SyncJournalSource = searchParams.get('source') === 'daily' ? 'daily' : 'manual';
 
         if (!type) {
             return NextResponse.json({ error: 'Missing type parameter' }, { status: 400 });
@@ -172,11 +116,21 @@ export async function GET(request: NextRequest) {
         const checkTokensResult = await checkTokens(type);
 
         if (!checkTokensResult.success) {
+            if (type === 'bookings') {
+                const db = await getDB();
+                await writeBookingSyncJournal(db, {
+                    createdAt: new Date(),
+                    type: 'bookings',
+                    source,
+                    status: 'error',
+                    error: checkTokensResult.message || 'Синхронизация броней не запущена',
+                });
+            }
             return NextResponse.json(checkTokensResult);
         }
 
         // Запускаем синхронизацию асинхронно (не ждём завершения)
-        syncData(type).catch((error) => {
+        syncData(type, source).catch((error) => {
             console.error('Error during sync:', error);
         });
 
@@ -190,12 +144,13 @@ export async function GET(request: NextRequest) {
     }
 }
 
-async function syncData(type: string) {
+async function syncData(type: string, source: Beds24SyncJournalSource) {
     if (!SYNC_TYPES.has(type)) {
         console.error(`Unknown sync type: ${type}`);
         return;
     }
 
+    const db = await getDB();
     const beds24 = new Beds24Connect();
     beds24.respectRateLimits = true;
     const bookingsArrivalFrom = type === 'bookings' ? bookingsSyncArrivalFrom() : undefined;
@@ -203,36 +158,57 @@ async function syncData(type: string) {
     let nextPageIsExist = true;
     let page = 1;
 
-    while (nextPageIsExist) {
-        console.log('start sync');
-        const pageResult = await fetchBeds24Page(beds24, type, page, bookingsArrivalFrom);
-        all.push(...pageResult.data);
-        nextPageIsExist = pageResult.nextPageExists;
-        console.log(`Page ${page}: ${pageResult.data.length}. ${beds24.rateLimitStatus()}`);
-        page++;
-    }
+    try {
+        while (nextPageIsExist) {
+            console.log('start sync');
+            const pageResult = await fetchBeds24Page(beds24, type, page, bookingsArrivalFrom);
+            all.push(...pageResult.data);
+            nextPageIsExist = pageResult.nextPageExists;
+            console.log(`Page ${page}: ${pageResult.data.length}. ${beds24.rateLimitStatus()}`);
+            page++;
+        }
 
-    if (type === 'bookings' && bookingsArrivalFrom) {
-        const merged = await mergeBookingsPreservingPast(all, bookingsArrivalFrom);
-        console.log(
-            `bookings sync finished from ${bookingsArrivalFrom}: kept ${merged.kept} earlier bookings, replaced ${merged.replaced}`,
+        if (type === 'bookings' && bookingsArrivalFrom) {
+            const merged = await mergeBookingsPreservingPast(db, all, bookingsArrivalFrom);
+            console.log(
+                `bookings sync finished from ${bookingsArrivalFrom}: kept ${merged.kept} earlier bookings, replaced ${merged.replaced}, skipped ${merged.skippedTotal}`,
+            );
+            await writeBookingSyncJournal(db, {
+                createdAt: new Date(),
+                type: 'bookings',
+                source,
+                status: 'success',
+                arrivalFrom: bookingsArrivalFrom,
+                incoming: all.length,
+                kept: merged.kept,
+                replaced: merged.replaced,
+                preservedClosed: merged.preservedClosed,
+                skippedTotal: merged.skippedTotal,
+                skipped: merged.skipped,
+            });
+        } else {
+            await replaceCollection(db, type, all);
+            console.log(`${type} sync finished: replaced with ${all.length} documents`);
+        }
+
+        await db.collection('beds24').updateOne(
+            {},
+            { $set: { [type]: new Date() } },
+            { upsert: true },
         );
-    } else {
-        await replaceCollection(type, all);
-        console.log(`${type} sync finished: replaced with ${all.length} documents`);
+    } catch (error) {
+        if (type === 'bookings') {
+            const message = error instanceof Error ? error.message : 'Ошибка синхронизации броней';
+            await writeBookingSyncJournal(db, {
+                createdAt: new Date(),
+                type: 'bookings',
+                source,
+                status: 'error',
+                arrivalFrom: bookingsArrivalFrom,
+                incoming: all.length,
+                error: message,
+            });
+        }
+        throw error;
     }
-
-    const db = await getDB();
-    const beds24Collection = db.collection('beds24');
-    const now = new Date();
-
-    await beds24Collection.updateOne(
-        {},
-        {
-            $set: {
-                [type]: now
-            }
-        },
-        { upsert: true }
-    );
 }

@@ -546,6 +546,7 @@ export async function runRulesForBookings(
                             accountantId: effectiveAccountantId,
                             accountantName,
                             createdAt: new Date(),
+                            includeInSynthetic: false,
                             transactionNumber: await allocateTransactionNumber(db),
                         } as any);
                         expensesCreated++;
@@ -594,6 +595,7 @@ export async function runRulesForBookings(
                                 accountantId: effectiveAccountantId,
                                 accountantName,
                                 createdAt: new Date(),
+                                includeInSynthetic: false,
                                 transactionNumber: await allocateTransactionNumber(db),
                             } as any);
                             expensesCreated++;
@@ -642,6 +644,7 @@ export async function runRulesForBookings(
                             accountantId: effectiveAccountantId,
                             accountantName,
                             createdAt: new Date(),
+                            includeInSynthetic: false,
                             transactionNumber: await allocateTransactionNumber(db),
                         } as any);
                         incomesCreated++;
@@ -690,6 +693,7 @@ export async function runRulesForBookings(
                                 accountantId: effectiveAccountantId,
                                 accountantName,
                                 createdAt: new Date(),
+                                includeInSynthetic: false,
                                 transactionNumber: await allocateTransactionNumber(db),
                             } as any);
                             incomesCreated++;
