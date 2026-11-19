@@ -199,6 +199,20 @@ export default function Page() {
             </Box>
 
             <Typography variant="h4" sx={{ mb: 2 }}>
+                Комнаты автоучёта за ноябрь 2026
+            </Typography>
+            <Alert severity="info" sx={{ mb: 2 }}>
+                Переносит уже созданные автотранзакции за ноябрь 2026 на комнату из брони. Нужно для
+                мультиобъектов, где брони с одинаковым unitId попали на первый юнит, например CD412 у
+                777 Beach Condo.
+            </Alert>
+            <Box sx={{ mb: 4 }}>
+                <Link href="/dashboard/accountancy/migration/fix-auto-rooms">
+                    <Button variant="contained">Открыть исправление комнат</Button>
+                </Link>
+            </Box>
+
+            <Typography variant="h4" sx={{ mb: 2 }}>
                 Миграция: комнаты (unit id → имя)
             </Typography>
             <Alert severity="info" sx={{ mb: 2 }}>

@@ -14,15 +14,12 @@ import type {
     CashflowRuleCompareOperator,
 } from '@/lib/types';
 import { NO_BOOKING_SUBGROUP_BINDABLE } from '@/lib/noBookingCategorySubgroups';
-import {
-    buildPropertyIdToFirstRoomTypeIdMap,
-    buildRoomTypeIdToPropertyIdMap,
-} from '@/lib/migrations/migratePropertyObjectIdsToRoomTypeIds';
+import { buildRoomTypeIdToPropertyIdMap } from '@/lib/migrations/migratePropertyObjectIdsToRoomTypeIds';
 import { parseSourceRecipientValue } from '@/lib/sourceRecipientParse';
 import {
     formatRoomSourceRecipient,
+    resolveBookingAccountingPlacement,
     roomMetadataMapKey,
-    resolveUnitNameForAccountingObject,
     type RawBedsObjectForRoom,
 } from '@/lib/roomBinding';
 import { parseAutoAccountingDistrictsStored } from '@/lib/autoAccountingDistricts';
@@ -58,6 +55,9 @@ type BookingDoc = {
     id: number;
     propertyId?: number;
     unitId?: number;
+    /** Beds24 room type. Нужен вместе с unitId: у разных типов юниты часто начинаются с 1. */
+    roomId?: number;
+    roomID?: number;
     arrival: string;
     departure: string;
     invoiceItems?: { type?: string; lineTotal?: number }[];
@@ -205,10 +205,7 @@ export async function runRulesForBookings(
     const rules = await rulesCollection.find({}).sort({ order: 1 }).toArray();
     const closedPeriodsCache = await getClosedPeriodsCache(db);
 
-    const [propertyToFirstRoomTypeId, roomTypeIdToPropertyId] = await Promise.all([
-        buildPropertyIdToFirstRoomTypeIdMap(db),
-        buildRoomTypeIdToPropertyIdMap(db),
-    ]);
+    const roomTypeIdToPropertyId = await buildRoomTypeIdToPropertyIdMap(db);
 
     /** Правило с objectId = roomType или legacy property должно совпасть с propertyId брони. */
     const ruleObjectMatchesBooking = (ruleObjId: number | 'all', bookingPropertyId: number): boolean => {
@@ -456,18 +453,11 @@ export async function runRulesForBookings(
         }
 
         const bookingPropertyId = booking.propertyId ?? 0;
-        const unitId = booking.unitId ?? undefined;
         const arrival = new Date(booking.arrival);
         const departure = new Date(booking.departure);
-        const accountingObjectId =
-            propertyToFirstRoomTypeId.get(bookingPropertyId) ?? bookingPropertyId;
-
-        const bookingUnitName =
-            unitId == null
-                ? undefined
-                : resolveUnitNameForAccountingObject(rawObjects, accountingObjectId, unitId) ??
-                  resolveUnitNameForAccountingObject(rawObjects, bookingPropertyId, unitId) ??
-                  undefined;
+        const placement = resolveBookingAccountingPlacement(rawObjects, booking);
+        const accountingObjectId = placement.accountingObjectId;
+        const bookingUnitName = placement.unitName;
 
         for (const rule of rules) {
             const ruleObjId = rule.objectId;
