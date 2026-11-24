@@ -56,8 +56,13 @@
     "options": "Параметры",
     "beds24": "Beds24",
     "pricing": "Динамическое ценообразование",
+    "faq": "FAQ",
     "signOut": "Выйти",
     "manageAccount": "Управление аккаунтом"
+  },
+  "faqPage": {
+    "title": "FAQ",
+    "noAccess": "Страница доступна только владельцам."
   },
   "beds24SyncJournal": {
     "title": "Журнал синхронизации Beds24",
@@ -373,6 +378,7 @@
     "expenseDate": "Дата расхода",
     "incomeDate": "Дата дохода",
     "category": "Категория",
+    "selectCategory": "Выберите категорию",
     "cost": "Стоимость",
     "amountMustBeGreaterThanZero": "Стоимость должна быть больше 0",
     "quantity": "Количество",

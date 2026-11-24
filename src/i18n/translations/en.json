@@ -56,8 +56,13 @@
     "options": "Options",
     "beds24": "Beds24",
     "pricing": "Dynamic pricing",
+    "faq": "FAQ",
     "signOut": "Sign out",
     "manageAccount": "Manage account"
+  },
+  "faqPage": {
+    "title": "FAQ",
+    "noAccess": "This page is available to owners only."
   },
   "beds24SyncJournal": {
     "title": "Beds24 sync journal",
@@ -374,6 +379,7 @@
     "expenseDate": "Expense date",
     "incomeDate": "Income date",
     "category": "Category",
+    "selectCategory": "Select a category",
     "cost": "Cost",
     "amountMustBeGreaterThanZero": "Cost must be greater than 0",
     "quantity": "Quantity",

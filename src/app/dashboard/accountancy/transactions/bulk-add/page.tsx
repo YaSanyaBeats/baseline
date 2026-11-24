@@ -63,7 +63,7 @@ import {
     compactLineTotalNumeric as bulkLineTotalNumeric,
     formatCompactLineTotal as formatBulkLineTotal,
 } from '@/lib/accountancyCompactTableStyles';
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import {
@@ -311,6 +311,15 @@ function parseTransactionDateString(iso: string): Date | null {
 }
 
 
+function FieldErrorCaption({ message }: { message?: string }) {
+    if (!message) return null;
+    return (
+        <Typography variant="caption" color="error" sx={{ display: 'block', fontSize: '0.6rem', lineHeight: 1.1 }}>
+            {message}
+        </Typography>
+    );
+}
+
 function getEffectiveRowCategory(row: BulkRow, globalCategory: string): string {
     const own = row.rowCategory.trim();
     if (own) return own;
@@ -328,6 +337,8 @@ export default function BulkAddTransactionsPage() {
     const [transactionType, setTransactionType] = useState<AccountancyCategoryType>('expense');
     const [category, setCategory] = useState('');
     const [reportMonth, setReportMonth] = useState('');
+    const [commonTransactionDate, setCommonTransactionDate] = useState('');
+    const previousCommonDateRef = useRef('');
     const [rows, setRows] = useState<BulkRow[]>(() => [createRow()]);
     const [categories, setCategories] = useState<AccountancyCategory[]>([]);
     const [subIncomeCategories, setSubIncomeCategories] = useState<AccountancyCategory[]>([]);
@@ -402,10 +413,38 @@ export default function BulkAddTransactionsPage() {
     useEffect(() => {
         const first = reportMonthToFirstDayString(reportMonth);
         if (!first) return;
-        setRows((prev) =>
-            prev.map((r) => (r.transactionDate.trim() === '' ? { ...r, transactionDate: first } : r)),
-        );
+        setCommonTransactionDate((prev) => (prev.trim() === '' ? first : prev));
     }, [reportMonth]);
+
+    useEffect(() => {
+        const nextDate = commonTransactionDate.trim();
+        const previousDate = previousCommonDateRef.current.trim();
+        previousCommonDateRef.current = nextDate;
+        if (!nextDate || nextDate === previousDate) return;
+        const inheritsCommonDate = (value: string) => {
+            const current = value.trim();
+            return current === '' || current === previousDate;
+        };
+        setRows((prev) => {
+            let changed = false;
+            const next = prev.map((row) => {
+                let rowChanged = false;
+                const subItems = row.subItems.map((sub) => {
+                    if (!inheritsCommonDate(sub.transactionDate) || sub.transactionDate.trim() === nextDate) {
+                        return sub;
+                    }
+                    rowChanged = true;
+                    return { ...sub, transactionDate: nextDate };
+                });
+                const nextRowDate = inheritsCommonDate(row.transactionDate) ? nextDate : row.transactionDate;
+                if (nextRowDate !== row.transactionDate) rowChanged = true;
+                if (!rowChanged) return row;
+                changed = true;
+                return { ...row, transactionDate: nextRowDate, subItems };
+            });
+            return changed ? next : prev;
+        });
+    }, [commonTransactionDate]);
 
     const getEffectiveCost = useCallback(
         (row: BulkRow): number => {
@@ -811,7 +850,9 @@ export default function BulkAddTransactionsPage() {
         if (transactionType === 'income' && recipientLockedForCashflow && currentUserRecipientValue) {
             base.recipient = currentUserRecipientValue;
         }
-        if (reportMonth) {
+        if (commonTransactionDate.trim()) {
+            base.transactionDate = commonTransactionDate.trim();
+        } else if (reportMonth) {
             base.transactionDate = reportMonthToFirstDayString(reportMonth);
         }
         setRows((prev) => [...prev, applyHolyCowShare({ key: newRowKey(), ...base })]);
@@ -858,17 +899,20 @@ export default function BulkAddTransactionsPage() {
         if (!reportMonth.trim()) {
             validationErrors.reportMonth = t('accountancy.reportMonth');
         }
+        if (!parseTransactionDateString(commonTransactionDate)) {
+            validationErrors.transactionDate = t('accountancy.transactionDate');
+        }
 
         rows.forEach((row, index) => {
             const effectiveCat = getEffectiveRowCategory(row, category);
             if (!effectiveCat) {
-                validationErrors[`row_${index}_category`] = t('accountancy.category');
+                validationErrors[`row_${index}_category`] = t('accountancy.selectCategory');
             }
             if (!row.selectedRoom.length || !row.selectedRoom[0].rooms.length) {
                 validationErrors[`row_${index}_selectedRoom`] = t('accountancy.object');
             }
-            if (getEffectiveCost(row) < 0) {
-                validationErrors[`row_${index}_amount`] = t('accountancy.cost');
+            if (getEffectiveCost(row) <= 0) {
+                validationErrors[`row_${index}_amount`] = t('accountancy.amountMustBeGreaterThanZero');
             }
             if (row.quantity != null && (row.quantity < 1 || !Number.isInteger(row.quantity))) {
                 validationErrors[`row_${index}_quantity`] = t('accountancy.quantity');
@@ -885,10 +929,10 @@ export default function BulkAddTransactionsPage() {
                 }
                 row.subItems.forEach((sub, sIdx) => {
                     if (!sub.category.trim()) {
-                        validationErrors[`row_${index}_sub_${sIdx}_category`] = t('accountancy.category');
+                        validationErrors[`row_${index}_sub_${sIdx}_category`] = t('accountancy.selectCategory');
                     }
-                    if (getEffectiveCostSub(sub) < 0) {
-                        validationErrors[`row_${index}_sub_${sIdx}_amount`] = t('accountancy.cost');
+                    if (getEffectiveCostSub(sub) <= 0) {
+                        validationErrors[`row_${index}_sub_${sIdx}_amount`] = t('accountancy.amountMustBeGreaterThanZero');
                     }
                     if (sub.quantity != null && (sub.quantity < 1 || !Number.isInteger(sub.quantity))) {
                         validationErrors[`row_${index}_sub_${sIdx}_quantity`] = t('accountancy.quantity');
@@ -936,7 +980,9 @@ export default function BulkAddTransactionsPage() {
                 const effectiveCat = getEffectiveRowCategory(row, category);
                 const effectiveCost = getEffectiveCost(row);
                 const rowDate =
-                    parseTransactionDateString(row.transactionDate) ?? reportMonthToDate(reportMonth);
+                    parseTransactionDateString(row.transactionDate) ??
+                    parseTransactionDateString(commonTransactionDate) ??
+                    reportMonthToDate(reportMonth);
 
                 if (transactionType === 'expense') {
                     const expenseStatus: ExpenseStatus = sourceLockedForCashflow
@@ -1372,6 +1418,27 @@ export default function BulkAddTransactionsPage() {
                             ))}
                         </Select>
                     </FormControl>
+                    <TextField
+                        size="small"
+                        type="date"
+                        label={t('accountancy.transactionDate')}
+                        value={commonTransactionDate}
+                        onChange={(e) => {
+                            setCommonTransactionDate(e.target.value);
+                            setErrors((prev) => {
+                                if (!prev.transactionDate) return prev;
+                                const next = { ...prev };
+                                delete next.transactionDate;
+                                return next;
+                            });
+                        }}
+                        error={!!errors.transactionDate}
+                        slotProps={{
+                            inputLabel: { shrink: true },
+                            htmlInput: { 'aria-label': t('accountancy.transactionDate') },
+                        }}
+                        sx={{ minWidth: 150, maxWidth: 180 }}
+                    />
                     <Box sx={{ flex: 1 }} />
                     <Button variant="outlined" size="small" startIcon={<AddIcon fontSize="small" />} onClick={addRow}>
                         {t('accountancy.addRow')}
@@ -1506,6 +1573,7 @@ export default function BulkAddTransactionsPage() {
                                             <Select
                                                 value={getEffectiveRowCategory(row, category) || ''}
                                                 displayEmpty
+                                                error={!!errors[`row_${index}_category`]}
                                                 sx={bulkInlineSelectSx}
                                                 onChange={(e) => {
                                                     const v = e.target.value as string;
@@ -1559,6 +1627,7 @@ export default function BulkAddTransactionsPage() {
                                                     </MenuItem>
                                                 ))}
                                             </Select>
+                                            <FieldErrorCaption message={errors[`row_${index}_category`]} />
                                         </FormControl>
                                     </TableCell>
                                     <TableCell>
@@ -1626,6 +1695,7 @@ export default function BulkAddTransactionsPage() {
                                             }}
                                             sx={bulkCellTextFieldSx}
                                         />
+                                        <FieldErrorCaption message={errors[`row_${index}_amount`]} />
                                     </TableCell>
                                     <TableCell>
                                         <TextField
@@ -1886,6 +1956,7 @@ export default function BulkAddTransactionsPage() {
                                                         <Select
                                                             value={sub.category || ''}
                                                             displayEmpty
+                                                            error={!!errors[`row_${index}_sub_${sIdx}_category`]}
                                                             sx={bulkInlineSelectSx}
                                                             disabled={sub.holyCowShareAuto}
                                                             onChange={(e) =>
@@ -1920,6 +1991,7 @@ export default function BulkAddTransactionsPage() {
                                                                 </MenuItem>
                                                             ))}
                                                         </Select>
+                                                        <FieldErrorCaption message={errors[`row_${index}_sub_${sIdx}_category`]} />
                                                     </FormControl>
                                                 </TableCell>
                                                 <TableCell>
@@ -1992,6 +2064,7 @@ export default function BulkAddTransactionsPage() {
                                                         error={!!errors[`row_${index}_sub_${sIdx}_amount`]}
                                                         sx={bulkCellTextFieldSx}
                                                     />
+                                                    <FieldErrorCaption message={errors[`row_${index}_sub_${sIdx}_amount`]} />
                                                 </TableCell>
                                                 <TableCell>
                                                     <TextField

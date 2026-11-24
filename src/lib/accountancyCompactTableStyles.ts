@@ -109,6 +109,9 @@ export const compactInlineSelectSx = {
     '& .MuiOutlinedInput-notchedOutline': { border: 'none' },
     '&:hover .MuiOutlinedInput-notchedOutline': { border: 'none' },
     '&.Mui-focused .MuiOutlinedInput-notchedOutline': { border: '1px solid', borderColor: 'primary.main' },
+    '&.Mui-error .MuiOutlinedInput-notchedOutline': { border: '1px solid', borderColor: 'error.main' },
+    '&.Mui-error:hover .MuiOutlinedInput-notchedOutline': { border: '1px solid', borderColor: 'error.main' },
+    '&.Mui-error.Mui-focused .MuiOutlinedInput-notchedOutline': { border: '1px solid', borderColor: 'error.main' },
     '& .MuiSelect-icon': { fontSize: '1rem', right: 0 },
     '& .MuiSelect-select': {
         overflow: 'visible',
@@ -218,6 +221,9 @@ export const compactCellTextFieldSx = {
         '& fieldset': { border: 'none' },
         '&:hover fieldset': { border: 'none' },
         '&.Mui-focused fieldset': { border: '1px solid', borderColor: 'primary.main' },
+        '&.Mui-error fieldset': { border: '1px solid', borderColor: 'error.main' },
+        '&.Mui-error:hover fieldset': { border: '1px solid', borderColor: 'error.main' },
+        '&.Mui-error.Mui-focused fieldset': { border: '1px solid', borderColor: 'error.main' },
     },
     '& .MuiOutlinedInput-input': {
         py: '2px',

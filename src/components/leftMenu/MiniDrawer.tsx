@@ -16,7 +16,7 @@ import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
 import Link from 'next/link'
-import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Description, Reply, Payments, PriceChange, QueryStats } from '@mui/icons-material';
+import { Dashboard, Analytics, PeopleAlt, MonetizationOn, Settings, House, History, Business, AccountBalanceWallet, Description, Reply, Payments, PriceChange, QueryStats, HelpOutline } from '@mui/icons-material';
 import styles from './leftMenu.module.css'
 import Image from 'next/image'
 import { User } from '@/lib/types';
@@ -164,6 +164,12 @@ function DrawerMenu(props: {
             link: '/dashboard/reports',
             roles: [],
             showOnlyWhenCanAccessReports: true,
+        },
+        {
+            text: t('menu.faq'),
+            icon: <HelpOutline fontSize="small" />,
+            link: '/dashboard/faq',
+            roles: ['owner'],
         },
         { 
             text: t('menu.analytics'), 
